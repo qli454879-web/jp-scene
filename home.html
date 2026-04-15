@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background-color: #F5F5F0;
+            color: #333333;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .search-input::placeholder {
+            color: #ccc;
+        }
+        .contribution-grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 4px;
+        }
+        .grid-box {
+            aspect-ratio: 1;
+            border-radius: 2px;
+            background: #e5e5df;
+        }
+        .grid-box.active {
+            background: #8fa189; /* Muted green */
+        }
+        .grid-box.high {
+            background: #5a7152;
+        }
+    </style>
+</head>
+<body class="pt-12 px-6">
+    <!-- Status Bar / Nav -->
+    <nav class="flex justify-between items-center mb-16">
+        <div class="text-lg font-bold tracking-widest">
+            <span class="opacity-50 text-sm">シーン</span><br>SCENE
+        </div>
+        <div class="flex gap-2">
+            <button class="pixel-btn text-xs bg-white">N1-N5 <i class="fa-solid fa-chevron-down ml-1"></i></button>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-grow flex flex-col justify-center items-center -mt-20">
+        <div class="w-full relative group px-4">
+            <div class="flex items-center border-b border-gray-200 focus-within:border-gray-800 transition-colors pb-2">
+                <i class="fa-solid fa-magnifying-glass text-gray-300 mr-4"></i>
+                <input type="text" id="searchInput" placeholder="输入单词查询，或直接提问..." 
+                    class="w-full text-xl font-light bg-transparent border-none outline-none focus:placeholder-transparent tracking-tight search-input">
+            </div>
+            
+            <!-- Dynamic Mode Indicator (Hidden by default) -->
+            <div id="modeIndicator" class="mt-4 flex items-center justify-center gap-2 opacity-0 transition-opacity">
+                <span id="modeTag" class="text-[10px] px-2 py-0.5 rounded bg-gray-100 text-gray-500 uppercase tracking-tighter font-bold">词汇模式</span>
+                <i class="fa-solid fa-arrow-right text-[8px] text-gray-300"></i>
+                <span class="text-[10px] text-gray-400" id="modeDesc">将进入全景解析</span>
+            </div>
+
+            <div class="mt-4 flex flex-wrap justify-center gap-2">
+                <span class="text-[10px] bg-white border border-gray-200 px-3 py-1 rounded-full text-gray-400">热搜: コンビニ</span>
+                <span class="text-[10px] bg-white border border-gray-200 px-3 py-1 rounded-full text-gray-400">居酒屋</span>
+                <span class="text-[10px] bg-white border border-gray-200 px-3 py-1 rounded-full text-gray-400">お疲れ様</span>
+            </div>
+        </div>
+        <p class="mt-8 text-gray-300 text-[10px] tracking-widest uppercase text-center leading-relaxed">
+            AI 分析意思、假名、语调、词性及日常使用频率<br>
+            提供场景化翻译与沉浸式对话对练
+        </p>
+    </main>
+
+    <!-- AI Assistant FAB -->
+    <a href="chat.html" class="ai-fab shadow-green-200/50">
+        <i class="fa-solid fa-sparkles text-xl"></i>
+    </a>
+
+    <!-- Contribution Grid -->
+    <section class="mb-24">
+        <h3 class="text-xs uppercase tracking-widest text-gray-400 mb-4 text-center">Memory Frequency</h3>
+        <div class="contribution-grid w-4/5 mx-auto">
+            <!-- 12x4 Grid -->
+            <script>
+                const grid = document.querySelector('.contribution-grid');
+                for (let i = 0; i < 48; i++) {
+                    const div = document.createElement('div');
+                    div.className = 'grid-box';
+                    if (Math.random() > 0.7) div.classList.add('active');
+                    if (Math.random() > 0.9) div.classList.add('high');
+                    grid.appendChild(div);
+                }
+            </script>
+        </div>
+    </section>
+
+    <!-- iOS Bottom Tab Bar Mockup -->
+    <div class="tab-bar">
+        <a href="home.html" class="tab-item active">
+            <i class="fa-solid fa-house text-xl mb-1"></i>
+            <span>Home</span>
+        </a>
+        <a href="analysis.html" class="tab-item">
+            <i class="fa-solid fa-magnifying-glass text-xl mb-1"></i>
+            <span>Search</span>
+        </a>
+        <a href="archive.html" class="tab-item">
+            <i class="fa-solid fa-calendar-days text-xl mb-1"></i>
+            <span>Memory</span>
+        </a>
+    </div>
+    <script>
+        const input = document.getElementById('searchInput');
+        const indicator = document.getElementById('modeIndicator');
+        const tag = document.getElementById('modeTag');
+        const desc = document.getElementById('modeDesc');
+
+        input.addEventListener('input', (e) => {
+            const val = e.target.value.trim();
+            if (val.length > 0) {
+                indicator.style.opacity = '1';
+                // Simple logic: if contains space or length > 6, assume it's a question/sentence
+                if (val.includes(' ') || val.length > 6 || val.includes('？') || val.includes('?')) {
+                    tag.innerText = 'AI 咨询模式';
+                    tag.className = 'text-[10px] px-2 py-0.5 rounded bg-green-100 text-green-600 uppercase tracking-tighter font-bold';
+                    desc.innerText = '将进入深度对话';
+                } else {
+                    tag.innerText = '词汇模式';
+                    tag.className = 'text-[10px] px-2 py-0.5 rounded bg-gray-100 text-gray-500 uppercase tracking-tighter font-bold';
+                    desc.innerText = '将进入全景解析';
+                }
+            } else {
+                indicator.style.opacity = '0';
+            }
+        });
+
+        // Mock Navigation
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const val = input.value.trim();
+                if (val.length === 0) return;
+                
+                if (val.includes(' ') || val.length > 6 || val.includes('？') || val.includes('?')) {
+                    window.location.href = `chat.html?q=${encodeURIComponent(val)}`;
+                } else {
+                    window.location.href = `analysis.html?word=${encodeURIComponent(val)}`;
+                }
+            }
+        });
+    </script>
+</body>
+</html>

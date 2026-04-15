@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>社区论坛 | SCENE LAB FORUM</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+        body { background-color: #FDFCF0; color: #333; }
+        .pixel-font { font-family: 'VT323', monospace; }
+        .forum-card { background: white; border: 3px solid #333; box-shadow: 4px 4px 0px #333; padding: 20px; transition: all 0.2s; }
+        .forum-card:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0px #333; }
+    </style>
+</head>
+<body class="p-8">
+    <header class="max-w-4xl mx-auto flex justify-between items-end mb-12 border-b-4 border-gray-800 pb-8">
+        <div>
+            <h1 class="pixel-font text-5xl font-bold uppercase">Forum</h1>
+            <p class="text-sm text-gray-500 mt-2">分享您的日语场景心得与趣事</p>
+        </div>
+        <div class="flex gap-4">
+            <a href="/" class="pixel-font bg-white border-2 border-gray-800 px-4 py-2 hover:bg-gray-100 transition-colors shadow-[2px_2px_0px_#333]">HOME</a>
+            <button class="pixel-font bg-green-600 text-white border-2 border-gray-800 px-4 py-2 hover:bg-green-700 transition-colors shadow-[2px_2px_0px_#333]">NEW POST</button>
+        </div>
+    </header>
+
+    <main class="max-w-4xl mx-auto space-y-6">
+        <!-- Mock Posts -->
+        <div class="forum-card">
+            <div class="flex gap-4">
+                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600"><i class="fa-solid fa-user-ninja"></i></div>
+                <div class="flex-grow">
+                    <div class="flex justify-between items-start">
+                        <h3 class="font-bold text-lg hover:text-green-600 cursor-pointer transition-colors">今天在新宿的居酒屋学到了地道的点餐方法！</h3>
+                        <span class="pixel-font bg-gray-100 px-2 text-xs">2h ago</span>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-2 line-clamp-2">原来‘とりあえず生’真的是万能开头，店员小姐姐笑得特别开心。大家还有什么地道的居酒屋短语推荐吗？</p>
+                    <div class="mt-4 flex gap-6 text-xs font-bold text-gray-400">
+                        <span><i class="fa-solid fa-comment mr-1"></i> 12 COMMENTS</span>
+                        <span><i class="fa-solid fa-heart mr-1"></i> 45 LIKES</span>
+                        <span class="text-green-600">#居酒屋 #新宿</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="forum-card">
+            <div class="flex gap-4">
+                <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center text-orange-600"><i class="fa-solid fa-cat"></i></div>
+                <div class="flex-grow">
+                    <div class="flex justify-between items-start">
+                        <h3 class="font-bold text-lg hover:text-green-600 cursor-pointer transition-colors">大家对‘お疲れ様’的使用场景有什么困惑吗？</h3>
+                        <span class="pixel-font bg-gray-100 px-2 text-xs">5h ago</span>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-2 line-clamp-2">我发现对不同级别的上司，语气的尾音真的很有讲究。我整理了一份清单，大家来看看准不准确...</p>
+                    <div class="mt-4 flex gap-6 text-xs font-bold text-gray-400">
+                        <span><i class="fa-solid fa-comment mr-1"></i> 8 COMMENTS</span>
+                        <span><i class="fa-solid fa-heart mr-1"></i> 23 LIKES</span>
+                        <span class="text-green-600">#职场日语 #干货</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="forum-card opacity-60">
+            <div class="flex gap-4">
+                <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center text-purple-600"><i class="fa-solid fa-ghost"></i></div>
+                <div class="flex-grow text-center py-4">
+                    <p class="pixel-font text-xl">更多讨论正在加载中...</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="max-w-4xl mx-auto mt-20 text-center text-gray-300 text-xs font-bold uppercase tracking-widest pb-12">
+        SCENE LAB COMMUNITY · SINCE 2026
+    </footer>
+</body>
+</html>

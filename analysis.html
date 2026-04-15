@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background-color: #F5F5F0;
+            color: #333333;
+            height: 100vh;
+            overflow-y: auto;
+            padding-bottom: 80px;
+        }
+        .dashboard-arc {
+            width: 120px;
+            height: 60px;
+            border-radius: 60px 60px 0 0;
+            background: conic-gradient(from 180deg at 50% 100%, #EF4444 0deg, #F59E0B 90deg, #10B981 180deg);
+            position: relative;
+        }
+        .dashboard-needle {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            width: 2px;
+            height: 45px;
+            background: #333;
+            transform-origin: bottom;
+            transform: rotate(45deg); /* Pointing to green/yellow area */
+        }
+        .pulse-ball {
+            width: 40px;
+            height: 40px;
+            background: #FF7E5F;
+            border-radius: 50%;
+            box-shadow: 0 0 15px rgba(255, 126, 95, 0.6);
+            animation: pulse 2s infinite ease-in-out;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.1); opacity: 1; box-shadow: 0 0 25px rgba(255, 126, 95, 0.8); }
+            100% { transform: scale(1); opacity: 0.8; }
+        }
+        .heatmap-circle {
+            background: rgba(139, 161, 137, 0.2);
+            border: 1px solid #8fa189;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+    </style>
+</head>
+<body class="p-6">
+    <!-- Loading Overlay -->
+    <div id="loading" class="fixed inset-0 bg-[#F5F5F0] z-[100] flex flex-col items-center justify-center">
+        <div class="w-12 h-12 border-4 border-green-200 border-t-green-600 rounded-full animate-spin mb-4"></div>
+        <p class="text-xs text-gray-400 uppercase tracking-widest font-bold">AI 场景分析中...</p>
+    </div>
+
+    <!-- Top Nav -->
+    <nav class="flex justify-between items-center mb-6">
+        <a href="home.html" class="text-gray-400"><i class="fa-solid fa-chevron-left"></i></a>
+        <div class="text-center">
+            <h2 class="text-lg font-bold">お疲れ様です</h2>
+            <span class="text-[10px] text-gray-400 uppercase tracking-widest">Analysis Results</span>
+        </div>
+        <div class="w-4"></div>
+    </nav>
+
+    <!-- Main Content -->
+    <div id="mainContent" class="flex flex-col gap-6 opacity-0 transition-opacity duration-500">
+        <!-- Visual Card Section -->
+        <div class="pixel-border overflow-hidden rounded-xl">
+            <img src="https://picsum.photos/id/237/800/450" 
+                class="w-full h-48 object-cover opacity-90" alt="Convenience Store">
+            <div class="p-4 bg-white border-t border-gray-200">
+                <div class="flex justify-between items-start mb-2">
+                    <div>
+                        <h3 id="wordDisplay" class="text-3xl font-bold tracking-tighter">コンビニ</h3>
+                        <div class="flex items-center gap-2 text-gray-400 mt-1">
+                            <span id="kanaDisplay" class="text-sm">konbini</span>
+                            <span id="posDisplay" class="text-xs px-1 border border-gray-200 rounded">名词</span>
+                            <span id="pitchDisplay" class="text-xs px-1 bg-gray-100 rounded text-gray-500">语调: [0]</span>
+                        </div>
+                    </div>
+                    <button class="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-gray-600 active:scale-90 transition-transform">
+                        <i class="fa-solid fa-volume-high"></i>
+                    </button>
+                </div>
+                
+                <div class="space-y-3 mt-4">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-bold text-gray-400 w-12">含义:</span>
+                        <p id="meaningDisplay" class="text-sm font-bold">便利店 (Convenience Store)</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-bold text-gray-400 w-12">频率:</span>
+                        <div id="starsDisplay" class="flex gap-0.5 text-[#F59E0B] text-[10px]">
+                            <!-- Stars injected here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contextual Translation Section (New) -->
+        <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm">
+            <h4 class="text-[10px] text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <i class="fa-solid fa-language"></i> 场景化翻译与语境
+            </h4>
+            <div class="space-y-4">
+                <div class="border-l-4 border-[#10B981] pl-3">
+                    <p id="contextTitle" class="text-xs text-gray-400 mb-1">当前搜索场景: 柜台结账</p>
+                    <p id="contextDesc" class="text-sm leading-relaxed italic">"在这里，这个词不仅指代店铺，通常也作为前往目的地的缩写，如'コンビニに行ってくる' (去一下便利店)。"</p>
+                </div>
+                <div>
+                    <p class="text-[10px] font-bold text-gray-500 mb-1">朗读实例 / 常用语:</p>
+                    <ul id="examplesList" class="text-xs space-y-2 text-gray-700">
+                        <!-- Examples injected here -->
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Attribute Radar Area -->
+        <div class="grid grid-cols-2 gap-4">
+            <!-- Social Safety Dashboard -->
+            <div class="bg-white p-4 rounded-xl border border-gray-100 flex flex-col items-center">
+                <span class="text-[10px] text-gray-400 uppercase mb-4">社交安全度</span>
+                <div class="dashboard-arc mb-2">
+                    <div class="dashboard-needle"></div>
+                </div>
+                <span class="text-xs font-bold text-green-600">社交安全</span>
+                <span class="text-[8px] text-gray-400">店员/初次见面适用</span>
+            </div>
+
+            <!-- Tone Indicator -->
+            <div class="bg-white p-4 rounded-xl border border-gray-100 flex flex-col items-center justify-center">
+                <span class="text-[10px] text-gray-400 uppercase mb-4">语气特征</span>
+                <div class="pulse-ball mb-4"></div>
+                <span class="text-xs font-bold">中性温和</span>
+                <span class="text-[8px] text-gray-400">Neutral & Soft</span>
+            </div>
+
+            <!-- Heatmap -->
+            <div class="col-span-2 bg-white p-4 rounded-xl border border-gray-100">
+                <span class="text-[10px] text-gray-400 uppercase mb-4 block">场景覆盖率</span>
+                <div class="flex items-end justify-around gap-2 h-24">
+                    <div class="heatmap-circle w-20 h-20 text-[10px] p-2">
+                        便利店<br>90%
+                    </div>
+                    <div class="heatmap-circle w-12 h-12 text-[8px] p-1">
+                        居酒屋<br>5%
+                    </div>
+                    <div class="heatmap-circle w-8 h-8 text-[6px]">
+                        他<br>5%
+                    </div>
+                </div>
+            </div>
+
+            <!-- New Logic Expansion Area -->
+            <div class="col-span-2 bg-gray-50/50 p-4 rounded-xl border border-dashed border-gray-200">
+                <div class="flex flex-wrap gap-2">
+                    <span class="text-[9px] bg-blue-50 text-blue-500 px-2 py-0.5 rounded-full border border-blue-100">外来语 (Gairaigo)</span>
+                    <span class="text-[9px] bg-purple-50 text-purple-500 px-2 py-0.5 rounded-full border border-purple-100">核心词汇 (Core)</span>
+                    <span class="text-[9px] bg-orange-50 text-orange-500 px-2 py-0.5 rounded-full border border-orange-100 underline decoration-dotted">音变可能</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Button -->
+        <button class="w-full bg-[#10B981] text-white py-4 rounded-2xl font-bold shadow-lg flex items-center justify-center gap-3 active:scale-95 transition-transform">
+            <i class="fa-solid fa-microphone-lines"></i>
+            开启此场景对练
+        </button>
+
+        <!-- AI Assistant In-Page Chat (New) -->
+        <div class="mt-4 bg-white/50 border-2 border-dashed border-green-200 rounded-2xl p-4">
+            <div class="flex items-center gap-2 mb-3">
+                <div class="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center text-white text-[10px]">
+                    <i class="fa-solid fa-sparkles"></i>
+                </div>
+                <span class="text-xs font-bold text-green-700">对这个单词有疑问？</span>
+            </div>
+            
+            <div class="space-y-3 mb-4">
+                <div class="chat-bubble-ai !text-[12px] !p-3 !max-w-full">
+                    “コンビニ”和“スーパー”有什么区别？
+                </div>
+                <div class="chat-bubble-ai !text-[12px] !p-3 !max-w-full bg-green-50/50 border-green-100">
+                    除了结账，在便利店还有哪些常用短语？
+                </div>
+            </div>
+
+            <div class="relative">
+                <input type="text" placeholder="向 AI 助手提问..." 
+                    class="w-full bg-white border border-gray-200 rounded-xl py-3 px-4 text-xs pr-10 outline-none focus:border-green-400">
+                <button class="absolute right-3 top-1/2 -translate-y-1/2 text-green-500">
+                    <i class="fa-solid fa-paper-plane text-xs"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Tab Bar -->
+    <div class="tab-bar">
+        <a href="home.html" class="tab-item">
+            <i class="fa-solid fa-house text-xl mb-1"></i>
+            <span>Home</span>
+        </a>
+        <a href="analysis.html" class="tab-item active">
+            <i class="fa-solid fa-magnifying-glass text-xl mb-1"></i>
+            <span>Search</span>
+        </a>
+        <a href="archive.html" class="tab-item">
+            <i class="fa-solid fa-calendar-days text-xl mb-1"></i>
+            <span>Memory</span>
+        </a>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const word = urlParams.get('word') || 'コンビニ';
+            
+            try {
+                const response = await fetch(`/api/analyze?word=${encodeURIComponent(word)}`);
+                const data = await response.json();
+                
+                // Update UI
+                document.getElementById('wordDisplay').innerText = data.word;
+                document.getElementById('kanaDisplay').innerText = `${data.kana} (${data.romaji})`;
+                document.getElementById('posDisplay').innerText = data.pos;
+                document.getElementById('pitchDisplay').innerText = `语调: [${data.pitch}]`;
+                document.getElementById('meaningDisplay').innerText = data.meaning;
+                
+                // Stars
+                const starsContainer = document.getElementById('starsDisplay');
+                starsContainer.innerHTML = '';
+                for(let i=0; i<5; i++) {
+                    const star = document.createElement('i');
+                    star.className = i < data.frequency ? 'fa-solid fa-star' : 'fa-regular fa-star';
+                    starsContainer.appendChild(star);
+                }
+                
+                // Examples
+                const examplesContainer = document.getElementById('examplesList');
+                examplesContainer.innerHTML = '';
+                data.examples.forEach(ex => {
+                    const li = document.createElement('li');
+                    li.className = 'flex items-start gap-2';
+                    li.innerHTML = `
+                        <i class="fa-solid fa-play text-[8px] mt-1 text-gray-300"></i>
+                        <span>${ex.jp}<br><span class="text-gray-400 text-[10px]">${ex.cn}</span></span>
+                    `;
+                    examplesContainer.appendChild(li);
+                });
+
+                // Context
+                document.getElementById('contextDesc').innerText = data.explanation;
+
+                // Show content
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('mainContent').style.opacity = '1';
+
+            } catch (error) {
+                console.error('Fetch error:', error);
+                document.getElementById('loading').innerHTML = '<p class="text-red-500">加载失败，请重试</p>';
+            }
+        });
+    </script>
+</body>
+</html>

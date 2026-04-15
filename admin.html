@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>站长管理后台 | SCENE LAB ADMIN</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+        body { background-color: #F0F0F0; color: #333; }
+        .pixel-font { font-family: 'VT323', monospace; }
+        .admin-card { background: white; border: 3px solid #333; box-shadow: 4px 4px 0px #333; padding: 24px; }
+    </style>
+</head>
+<body class="p-8">
+    <header class="flex justify-between items-center mb-12">
+        <div>
+            <h1 class="pixel-font text-4xl font-bold uppercase tracking-tighter">Admin Dashboard</h1>
+            <p class="text-xs text-gray-400">站长管理中心 v1.0</p>
+        </div>
+        <a href="/" class="pixel-font bg-white border-2 border-gray-800 px-4 py-2 hover:bg-gray-100 transition-colors">BACK TO SITE</a>
+    </header>
+
+    <div class="grid grid-cols-12 gap-8">
+        <!-- Stats -->
+        <div class="col-span-12 lg:col-span-3 admin-card bg-green-50">
+            <h4 class="pixel-font text-xl mb-2">TOTAL SEARCH</h4>
+            <p class="text-4xl font-bold">1,284</p>
+            <div class="mt-4 text-xs text-green-600 font-bold">+12% vs last week</div>
+        </div>
+        <div class="col-span-12 lg:col-span-3 admin-card bg-blue-50">
+            <h4 class="pixel-font text-xl mb-2">ACTIVE USERS</h4>
+            <p class="text-4xl font-bold">456</p>
+            <div class="mt-4 text-xs text-blue-600 font-bold">24 online now</div>
+        </div>
+        <div class="col-span-12 lg:col-span-3 admin-card bg-yellow-50">
+            <h4 class="pixel-font text-xl mb-2">AI REQUESTS</h4>
+            <p class="text-4xl font-bold">892</p>
+            <div class="mt-4 text-xs text-yellow-600 font-bold">Gemini-1.5-Flash</div>
+        </div>
+        <div class="col-span-12 lg:col-span-3 admin-card bg-purple-50">
+            <h4 class="pixel-font text-xl mb-2">NEW FEEDBACK</h4>
+            <p id="feedbackCount" class="text-4xl font-bold">0</p>
+            <div class="mt-4 text-xs text-purple-600 font-bold">Awaiting review</div>
+        </div>
+
+        <!-- Feedback List -->
+        <div class="col-span-12 lg:col-span-8 admin-card">
+            <h3 class="pixel-font text-2xl mb-6 border-b-2 border-gray-100 pb-4">USER FEEDBACK / 用户反馈</h3>
+            <div id="feedbackList" class="space-y-4">
+                <p class="text-gray-400 italic">正在加载反馈数据...</p>
+            </div>
+        </div>
+
+        <!-- Popular Words -->
+        <div class="col-span-12 lg:col-span-4 admin-card">
+            <h3 class="pixel-font text-2xl mb-6 border-b-2 border-gray-100 pb-4">POPULAR WORDS</h3>
+            <div class="space-y-4">
+                <div class="flex justify-between items-center">
+                    <span class="font-bold">居酒屋</span>
+                    <span class="pixel-font bg-gray-100 px-2">342 hits</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="font-bold">お疲れ様</span>
+                    <span class="pixel-font bg-gray-100 px-2">289 hits</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="font-bold">コンビニ</span>
+                    <span class="pixel-font bg-gray-100 px-2">156 hits</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadFeedbacks() {
+            try {
+                const res = await fetch('/api/feedbacks');
+                const data = await res.json();
+                const list = document.getElementById('feedbackList');
+                document.getElementById('feedbackCount').innerText = data.length;
+                
+                if (data.length === 0) {
+                    list.innerHTML = '<p class="text-gray-400 italic">暂无反馈数据</p>';
+                    return;
+                }
+
+                list.innerHTML = data.map((f, i) => `
+                    <div class="p-4 bg-gray-50 border-l-4 border-gray-800">
+                        <div class="flex justify-between text-[10px] text-gray-400 mb-2">
+                            <span>USER_ID: anonymous_${i+1}</span>
+                            <span>TIME: ${new Date(f.timestamp * 1000).toLocaleString()}</span>
+                        </div>
+                        <p class="text-sm">${f.content}</p>
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error(err);
+            }
+        }
+        loadFeedbacks();
+        setInterval(loadFeedbacks, 5000);
+    </script>
+</body>
+</html>

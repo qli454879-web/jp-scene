@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background-color: #F5F5F0;
+            color: #333333;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+        }
+        .calendar-day {
+            aspect-ratio: 1;
+            background: white;
+            border-radius: 8px;
+            padding: 4px;
+            position: relative;
+            cursor: pointer;
+            transition: transform 0.2s;
+            border: 1px solid #eee;
+        }
+        .calendar-day:active { transform: scale(0.9); }
+        .day-num { font-size: 8px; color: #ccc; }
+        .day-thumb {
+            width: 100%;
+            height: 80%;
+            object-fit: cover;
+            border-radius: 4px;
+            margin-top: 2px;
+            filter: grayscale(0.5);
+        }
+        .side-panel {
+            position: fixed;
+            top: 0;
+            right: -100%;
+            width: 85%;
+            height: 100%;
+            background: white;
+            z-index: 100;
+            transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            padding: 24px;
+            box-shadow: -10px 0 30px rgba(0,0,0,0.1);
+        }
+        .side-panel.open { right: 0; }
+        .overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.2);
+            display: none;
+            z-index: 90;
+        }
+        .overlay.active { display: block; }
+        .confuse-card {
+            background: #fdf2f2;
+            border-left: 4px solid #f87171;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+    </style>
+</head>
+<body class="p-6">
+    <!-- Header -->
+    <header class="mb-8 flex justify-between items-center">
+        <div>
+            <h2 class="text-2xl font-bold">April 2026</h2>
+            <span class="text-xs text-gray-400 uppercase tracking-widest">Memory Archive</span>
+        </div>
+        <div class="flex gap-2">
+            <button class="w-8 h-8 rounded-full bg-white flex items-center justify-center text-gray-400 border border-gray-100"><i class="fa-solid fa-chevron-left"></i></button>
+            <button class="w-8 h-8 rounded-full bg-white flex items-center justify-center text-gray-400 border border-gray-100"><i class="fa-solid fa-chevron-right"></i></button>
+        </div>
+    </header>
+
+    <!-- Calendar -->
+    <main class="calendar-grid">
+        <!-- Weekdays -->
+        <div class="text-center text-[10px] text-gray-400 font-bold py-2">S</div>
+        <div class="text-center text-[10px] text-gray-400 font-bold py-2">M</div>
+        <div class="text-center text-[10px] text-gray-400 font-bold py-2">T</div>
+        <div class="text-center text-[10px] text-gray-400 font-bold py-2">W</div>
+        <div class="text-center text-[10px] text-gray-400 font-bold py-2">T</div>
+        <div class="text-center text-[10px] text-gray-400 font-bold py-2">F</div>
+        <div class="text-center text-[10px] text-gray-400 font-bold py-2">S</div>
+
+        <!-- Days -->
+        <script>
+            const grid = document.querySelector('.calendar-grid');
+            const thumbs = [
+                'https://picsum.photos/id/1/200/200',
+                'https://picsum.photos/id/10/200/200',
+                'https://picsum.photos/id/20/200/200'
+            ];
+            for (let i = 1; i <= 30; i++) {
+                const day = document.createElement('div');
+                day.className = 'calendar-day';
+                day.onclick = () => openPanel(i);
+                day.innerHTML = `<span class="day-num">${i}</span>`;
+                if (Math.random() > 0.7) {
+                    const img = document.createElement('img');
+                    img.src = thumbs[Math.floor(Math.random() * thumbs.length)];
+                    img.className = 'day-thumb';
+                    day.appendChild(img);
+                }
+                grid.appendChild(day);
+            }
+        </script>
+    </main>
+
+    <!-- Side Panel -->
+    <div id="overlay" class="overlay" onclick="closePanel()"></div>
+    <div id="sidePanel" class="side-panel">
+        <div class="flex justify-between items-center mb-8">
+            <h3 class="text-xl font-bold">April <span id="selectedDay">16</span></h3>
+            <button onclick="closePanel()" class="text-gray-400"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div class="space-y-4">
+            <div class="bg-gray-50 p-4 rounded-xl flex items-center gap-4 border border-gray-100">
+                <img src="https://picsum.photos/id/1/200/200" class="w-12 h-12 rounded-lg object-cover">
+                <div>
+                    <h4 class="font-bold">コンビニ</h4>
+                    <span class="text-xs text-gray-400">Convenience Store</span>
+                </div>
+            </div>
+            
+            <div class="bg-gray-50 p-4 rounded-xl flex items-center gap-4 border border-gray-100">
+                <img src="https://picsum.photos/id/10/200/200" class="w-12 h-12 rounded-lg object-cover">
+                <div>
+                    <h4 class="font-bold">居酒屋</h4>
+                    <span class="text-xs text-gray-400">Izakaya Pub</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Confusion Engine -->
+        <div class="confuse-card">
+            <div class="flex items-center gap-2 mb-2">
+                <i class="fa-solid fa-triangle-exclamation text-red-500"></i>
+                <h5 class="text-xs font-bold text-red-700 uppercase tracking-widest">相似词辨析</h5>
+            </div>
+            <p class="text-xs text-gray-600 mb-2"><strong>居酒屋</strong> vs <strong>レストラン</strong></p>
+            <p class="text-[10px] text-gray-400">前者侧重于饮酒与小吃，后者侧重于正式用餐。在场景实验室中，注意语气差异。</p>
+        </div>
+    </div>
+
+    <script>
+        function openPanel(day) {
+            document.getElementById('selectedDay').innerText = day;
+            document.getElementById('sidePanel').classList.add('open');
+            document.getElementById('overlay').classList.add('active');
+        }
+        function closePanel() {
+            document.getElementById('sidePanel').classList.remove('open');
+            document.getElementById('overlay').classList.remove('active');
+        }
+    </script>
+
+    <!-- Bottom Tab Bar -->
+    <div class="tab-bar">
+        <a href="home.html" class="tab-item">
+            <i class="fa-solid fa-house text-xl mb-1"></i>
+            <span>Home</span>
+        </a>
+        <a href="analysis.html" class="tab-item">
+            <i class="fa-solid fa-magnifying-glass text-xl mb-1"></i>
+            <span>Search</span>
+        </a>
+        <a href="archive.html" class="tab-item active">
+            <i class="fa-solid fa-calendar-days text-xl mb-1"></i>
+            <span>Memory</span>
+        </a>
+    </div>
+</body>
+</html>

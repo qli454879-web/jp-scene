@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(rgba(245, 245, 240, 0.8), rgba(245, 245, 240, 0.8)), 
+                        url('https://picsum.photos/id/1018/800/800');
+            background-size: cover;
+            background-position: center;
+            height: 100vh;
+            overflow: hidden;
+            backdrop-filter: blur(8px);
+        }
+        .chat-bubble {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 20px;
+            margin-bottom: 12px;
+            font-size: 14px;
+            line-height: 1.5;
+            position: relative;
+        }
+        .bubble-ai {
+            background: white;
+            color: #333;
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .bubble-user {
+            background: #8fa189;
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .mic-btn {
+            width: 80px;
+            height: 80px;
+            background: #10B981;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 32px;
+            box-shadow: 0 10px 30px rgba(16, 185, 129, 0.4);
+            position: relative;
+            cursor: pointer;
+        }
+        .wave-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .wave {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border: 2px solid #10B981;
+            border-radius: 50%;
+            animation: wave 2s infinite;
+        }
+        @keyframes wave {
+            0% { transform: scale(1); opacity: 0.8; }
+            100% { transform: scale(1.8); opacity: 0; }
+        }
+        .score-card {
+            background: white;
+            border-radius: 30px;
+            padding: 24px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.9);
+            width: 85%;
+            z-index: 100;
+            display: none; /* Hidden by default */
+        }
+        .score-card.visible {
+            display: block;
+            animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        @keyframes popIn {
+            to { transform: translate(-50%, -50%) scale(1); }
+        }
+        .progress-bar {
+            height: 6px;
+            background: #f0f0f0;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #10B981;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="p-6 flex flex-col h-full">
+    <!-- Header -->
+    <header class="flex justify-between items-center mb-8">
+        <button class="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white"><i class="fa-solid fa-xmark"></i></button>
+        <div class="bg-white/20 backdrop-blur-md px-4 py-1 rounded-full text-xs text-white border border-white/20">
+            Convenience Store Lab
+        </div>
+        <div class="w-10 h-10"></div>
+    </header>
+
+    <!-- Chat Area -->
+    <main class="flex-grow flex flex-col overflow-y-auto pb-24">
+        <div class="chat-bubble bubble-ai">
+            いらっしゃいませ！<br>
+            お弁当の温めはどうされますか？
+        </div>
+        <div class="chat-bubble bubble-user">
+            お願いします。
+        </div>
+        <div class="chat-bubble bubble-ai">
+            かしこまりました。少々お待ちください。
+        </div>
+    </main>
+
+    <!-- Microphone & Action -->
+    <footer class="flex flex-col items-center gap-4 mb-12">
+        <div class="text-xs text-gray-500 uppercase tracking-widest font-bold">Tap to speak</div>
+        <div class="mic-btn" onclick="showScore()">
+            <div class="wave-container">
+                <div class="wave" style="animation-delay: 0s"></div>
+                <div class="wave" style="animation-delay: 0.5s"></div>
+            </div>
+            <i class="fa-solid fa-microphone"></i>
+        </div>
+    </footer>
+
+    <!-- Score Card Popup -->
+    <div id="scoreCard" class="score-card">
+        <div class="text-center mb-6">
+            <h3 class="text-2xl font-bold mb-1">素晴らしい！</h3>
+            <span class="text-gray-400 text-xs">Scenario Complete</span>
+        </div>
+        
+        <div class="space-y-6 mb-8">
+            <div>
+                <div class="flex justify-between text-xs font-bold mb-1">
+                    <span>发音 (Pronunciation)</span>
+                    <span class="text-green-500">88%</span>
+                </div>
+                <div class="progress-bar"><div class="progress-fill" style="width: 88%"></div></div>
+            </div>
+            <div>
+                <div class="flex justify-between text-xs font-bold mb-1">
+                    <span>流畅度 (Fluency)</span>
+                    <span class="text-green-500">92%</span>
+                </div>
+                <div class="progress-bar"><div class="progress-fill" style="width: 92%"></div></div>
+            </div>
+            <div>
+                <div class="flex justify-between text-xs font-bold mb-1">
+                    <span>社交得体度 (Propriety)</span>
+                    <span class="text-green-500">100%</span>
+                </div>
+                <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
+            </div>
+        </div>
+
+        <button onclick="window.location.href='archive.html'" class="w-full bg-charcoal text-white py-4 rounded-2xl font-bold active:scale-95 transition-transform bg-[#333]">
+            Save to Archive
+        </button>
+    </div>
+
+    <script>
+        function showScore() {
+            document.getElementById('scoreCard').classList.add('visible');
+        }
+    </script>
+</body>
+</html>

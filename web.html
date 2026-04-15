@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日语场景实验室 | 极简搜索</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@700&family=Noto+Sans+JP:wght@300;400;500;700&family=VT323&display=swap');
+        
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background-color: #F9F9F6;
+            color: #1A1A1A;
+            overflow-x: hidden;
+        }
+
+        .pixel-font { font-family: 'VT323', monospace; }
+        .serif { font-family: 'Noto Serif JP', serif; }
+
+        /* Floating Pixel Elements */
+        .pixel-float {
+            position: absolute;
+            image-rendering: pixelated;
+            z-index: 0;
+            opacity: 0.6;
+            pointer-events: none;
+            filter: sepia(0.2);
+        }
+
+        /* Layout */
+        .search-hero {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .search-hero.active {
+            height: 120px;
+            justify-content: center;
+            border-bottom: 1px solid #E5E5E0;
+            background: white;
+        }
+
+        .search-box-pixel {
+            width: 100%;
+            max-width: 600px;
+            background: white;
+            border: 3px solid #333;
+            box-shadow: 6px 6px 0px #333;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            transition: all 0.3s;
+            z-index: 10;
+        }
+
+        .search-box-pixel:focus-within {
+            transform: translate(-2px, -2px);
+            box-shadow: 8px 8px 0px #10B981;
+            border-color: #10B981;
+        }
+
+        /* Result Area */
+        .content-view {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            display: none;
+        }
+
+        .card-pixel {
+            background: white;
+            border: 3px solid #333;
+            box-shadow: 8px 8px 0px #F0F0E8;
+            padding: 0;
+            margin-bottom: 40px;
+            overflow: hidden;
+        }
+
+        .card-header-img {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+            border-bottom: 3px solid #333;
+            image-rendering: pixelated;
+        }
+
+        .card-body {
+            padding: 32px;
+        }
+
+        .audio-btn {
+            @apply w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full hover:bg-green-100 transition-colors cursor-pointer;
+        }
+
+        .heatmap-bar {
+            height: 1rem;
+            background-color: #F3F4F6;
+            border-radius: 9999px;
+            overflow: hidden;
+            display: flex;
+        }
+
+        .target-pill {
+            padding: 0.25rem 0.75rem;
+            border: 2px solid #1F2937;
+            font-size: 10px;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+        }
+        .target-pill.allowed { 
+            background-color: #DCFCE7; 
+            color: #15803D; 
+        }
+        .target-pill.denied { 
+            background-color: #FEF2F2; 
+            color: #9CA3AF; 
+            border-color: #E5E7EB;
+            text-decoration: line-through;
+        }
+
+        /* Navigation */
+        .logo-btn {
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .logo-btn:hover { transform: scale(1.1) rotate(-5deg); }
+
+        .back-btn {
+            @apply flex items-center gap-2 text-gray-400 hover:text-green-600 transition-colors mb-8 cursor-pointer text-sm font-bold;
+        }
+    </style>
+</head>
+<body>
+    <!-- Floating Pixel Decors -->
+    <div class="pixel-float text-4xl" style="top: 15%; left: 10%;"><i class="fa-solid fa-tree text-green-200"></i></div>
+    <div class="pixel-float text-3xl" style="top: 20%; right: 15%;"><i class="fa-solid fa-cloud text-gray-100"></i></div>
+    <div class="pixel-float text-5xl" style="bottom: 15%; left: 15%;"><i class="fa-solid fa-cat text-orange-100"></i></div>
+    <div class="pixel-float text-4xl" style="bottom: 20%; right: 10%;"><i class="fa-solid fa-seedling text-green-200"></i></div>
+
+    <!-- Feedback Button -->
+    <div class="fixed bottom-8 right-8 z-50">
+        <button onclick="toggleFeedback()" class="w-12 h-12 bg-white border-2 border-gray-800 flex items-center justify-center text-xl shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
+            <i class="fa-solid fa-comment-dots text-gray-600"></i>
+        </button>
+    </div>
+
+    <!-- Feedback Modal -->
+    <div id="feedbackModal" class="fixed inset-0 bg-black/20 backdrop-blur-sm z-[400] hidden flex items-center justify-center p-4">
+        <div class="card-pixel w-full max-w-md reveal relative">
+            <button onclick="toggleFeedback()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800"><i class="fa-solid fa-xmark"></i></button>
+            <h3 class="pixel-font text-2xl mb-6">FEEDBACK / 问题反馈</h3>
+            <textarea id="feedbackText" rows="4" placeholder="写下您的建议或遇到的问题..." class="w-full border-2 border-gray-800 p-4 mb-6 outline-none focus:border-green-500"></textarea>
+            <button onclick="submitFeedback()" class="w-full bg-gray-800 text-white py-3 font-bold hover:bg-green-600 transition-colors">SUBMIT</button>
+        </div>
+    </div>
+
+    <!-- Search Section -->
+    <section id="searchHero" class="search-hero">
+        <!-- Add Nav for Forum/Admin -->
+        <div class="fixed top-8 right-8 flex gap-4 z-50">
+            <a href="/forum" class="pixel-font text-xs bg-white border-2 border-gray-800 px-4 py-2 hover:bg-yellow-50 transition-colors shadow-[2px_2px_0px_#333]">FORUM</a>
+            <a href="/admin" class="pixel-font text-xs bg-gray-800 text-white px-4 py-2 hover:bg-gray-700 transition-colors shadow-[2px_2px_0px_#333]">ADMIN</a>
+        </div>
+        <div class="logo-btn mb-12 flex flex-col items-center" onclick="resetToHome()">
+            <div class="w-16 h-16 bg-green-600 rounded-2xl flex items-center justify-center text-white text-4xl font-bold italic shadow-[4px_4px_0px_#333]">シ</div>
+            <h2 class="mt-4 text-xl font-bold tracking-widest pixel-font">SCENE LAB</h2>
+        </div>
+
+        <div class="search-box-pixel">
+            <i class="fa-solid fa-magnifying-glass text-gray-300 mr-4"></i>
+            <input type="text" id="mainInput" placeholder="输入单词或场景问题..." 
+                class="w-full bg-transparent outline-none text-xl font-light">
+            <button id="searchBtn" class="ml-4 bg-gray-800 text-white px-6 py-2 text-sm font-bold pixel-font hover:bg-green-600 transition-colors">ENTER</button>
+        </div>
+        
+        <div id="modeIndicator" class="mt-6 flex gap-4 opacity-40">
+            <span class="text-[10px] font-bold uppercase tracking-widest">词汇解析</span>
+            <span class="text-[10px] font-bold uppercase tracking-widest">·</span>
+            <span class="text-[10px] font-bold uppercase tracking-widest">AI 咨询</span>
+        </div>
+    </section>
+
+    <!-- Content Section -->
+    <main id="contentView" class="content-view">
+        <div class="back-btn" onclick="resetToHome()">
+            <i class="fa-solid fa-arrow-left"></i> BACK TO SEARCH
+        </div>
+
+        <div class="grid grid-cols-12 gap-8">
+            <!-- Left Analysis -->
+            <div class="col-span-12 lg:col-span-8">
+                <div class="card-pixel">
+                    <!-- Top Image -->
+                    <img id="resImage" src="" alt="Scene Illustration" class="card-header-img hidden">
+
+                    <div class="card-body">
+                        <div class="flex justify-between items-start mb-8">
+                            <div>
+                                <div class="flex items-center gap-4 mb-2">
+                                    <h2 id="resTitle" class="text-5xl font-bold serif">---</h2>
+                                    <button class="audio-btn" onclick="playAudio()"><i class="fa-solid fa-volume-up text-gray-400"></i></button>
+                                </div>
+                                <div class="flex items-center gap-4">
+                                    <span id="resKana" class="text-xl text-gray-400 font-light">---</span>
+                                    <span id="resPos" class="text-xs font-bold px-2 py-1 bg-gray-100 rounded">---</span>
+                                </div>
+                            </div>
+                            <div id="resPitch" class="pixel-font text-2xl text-green-600 bg-green-50 px-3 py-1 border-2 border-green-200">PITCH: 0</div>
+                        </div>
+
+                        <!-- Meaning & Origin -->
+                        <div class="mb-8">
+                            <h4 class="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-2">含义与源词 / Meaning & Origin</h4>
+                            <div class="flex items-baseline gap-3">
+                                <span id="resMeaning" class="text-2xl font-bold">---</span>
+                                <span id="resOrigin" class="text-sm text-gray-400 font-mono italic"></span>
+                            </div>
+                        </div>
+
+                        <!-- Frequency -->
+                        <div class="mb-8">
+                            <h4 class="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-2">日常频次 / Frequency</h4>
+                            <div id="resFreq" class="flex gap-1 text-orange-300 text-xl"></div>
+                        </div>
+
+                        <!-- Social Targets -->
+                        <div class="mb-8">
+                            <h4 class="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-4">社交适用对象 / Social Compatibility</h4>
+                            <div id="resTargets" class="flex flex-wrap gap-3"></div>
+                        </div>
+
+                        <!-- Heatmap -->
+                        <div class="mb-10">
+                            <h4 class="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-4">高频出现场景 / Scenario Heatmap</h4>
+                            <div id="resHeatmap" class="space-y-4"></div>
+                        </div>
+
+                        <div class="pt-8 border-t-2 border-dashed border-gray-100">
+                            <h4 class="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-4">场景深度解析 / Insight</h4>
+                            <div class="p-6 bg-green-50/30 border-l-4 border-green-500 italic text-gray-600 leading-relaxed text-md">
+                                <i class="fa-solid fa-quote-left opacity-20 mr-2"></i>
+                                <span id="resExpl">---</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-pixel !p-0">
+                    <div class="p-6 bg-gray-800 text-white flex justify-between items-center">
+                        <h4 class="text-[10px] font-bold uppercase tracking-widest">地道例句 / Examples</h4>
+                        <i class="fa-solid fa-play-circle text-xl opacity-50"></i>
+                    </div>
+                    <div id="resExamples" class="p-8 space-y-6"></div>
+                </div>
+            </div>
+
+            <!-- Right Sidebar (AI Chat) -->
+            <div class="col-span-12 lg:col-span-4">
+                <div class="card-pixel !p-6 sticky top-8">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="w-10 h-10 bg-green-600 text-white flex items-center justify-center text-xl shadow-[2px_2px_0px_#333]">
+                            <i class="fa-solid fa-sparkles"></i>
+                        </div>
+                        <h4 class="font-bold pixel-font">AI CHAT</h4>
+                    </div>
+
+                    <div id="chatBox" class="space-y-4 max-h-[400px] overflow-y-auto mb-6 pr-2 custom-scrollbar text-sm">
+                        <div class="p-3 bg-gray-50 border-2 border-gray-100 rounded-lg text-gray-500">
+                            有什么想深入了解的吗？
+                        </div>
+                    </div>
+
+                    <div class="relative">
+                        <input type="text" id="aiInput" placeholder="输入问题..." 
+                            class="w-full border-2 border-gray-800 p-3 text-sm outline-none focus:border-green-500">
+                        <button id="aiSendBtn" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-800">
+                            <i class="fa-solid fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Loading Overlay -->
+    <div id="globalLoading" class="fixed inset-0 bg-white/95 z-[300] hidden flex flex-col items-center justify-center">
+        <div class="w-16 h-16 border-4 border-gray-800 border-t-green-500 animate-spin mb-6"></div>
+        <p class="pixel-font text-xl tracking-widest">ANALYZING SCENE...</p>
+    </div>
+
+    <script>
+        const mainInput = document.getElementById('mainInput');
+        const searchHero = document.getElementById('searchHero');
+        const contentView = document.getElementById('contentView');
+        const globalLoading = document.getElementById('globalLoading');
+
+        function playAudio() {
+            const word = document.getElementById('resTitle').innerText;
+            if (!word || word === '---') return;
+            const msg = new SpeechSynthesisUtterance(word);
+            msg.lang = 'ja-JP';
+            window.speechSynthesis.speak(msg);
+            
+            // Animation feedback
+            const btn = document.querySelector('.audio-btn i');
+            btn.classList.add('text-green-500');
+            setTimeout(() => btn.classList.remove('text-green-500'), 1000);
+        }
+
+        async function performSearch(query) {
+            if (!query) return;
+            globalLoading.classList.remove('hidden');
+            globalLoading.classList.add('flex');
+
+            try {
+                const isQuestion = query.includes(' ') || query.length > 6 || query.includes('？') || query.includes('?');
+                
+                if (isQuestion) {
+                    const res = await fetch(`/api/chat?q=${encodeURIComponent(query)}`);
+                    const data = await res.json();
+                    await loadData('居酒屋'); // Context filler
+                    appendChat(query, true);
+                    appendChat(data.answer);
+                } else {
+                    await loadData(query);
+                }
+
+                searchHero.classList.add('active');
+                contentView.style.display = 'block';
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            } catch (err) {
+                console.error(err);
+            } finally {
+                globalLoading.classList.add('hidden');
+                globalLoading.classList.remove('flex');
+            }
+        }
+
+        async function loadData(word) {
+            const res = await fetch(`/api/analyze?word=${encodeURIComponent(word)}`);
+            const data = await res.json();
+
+            // Image
+            const resImage = document.getElementById('resImage');
+            if (data.image) {
+                resImage.src = data.image;
+                resImage.classList.remove('hidden');
+            } else {
+                resImage.classList.add('hidden');
+            }
+
+            // Core Info
+            document.getElementById('resTitle').innerText = data.word;
+            document.getElementById('resKana').innerText = data.kana;
+            document.getElementById('resPos').innerText = data.pos;
+            document.getElementById('resPitch').innerText = `PITCH: ${data.pitch}`;
+            document.getElementById('resMeaning').innerText = data.meaning;
+            
+            const originSpan = document.getElementById('resOrigin');
+            if (data.origin) {
+                originSpan.innerText = `(${data.origin})`;
+            } else {
+                originSpan.innerText = '';
+            }
+            
+            document.getElementById('resExpl').innerText = data.explanation;
+            
+            // Targets
+            const targetsContainer = document.getElementById('resTargets');
+            targetsContainer.innerHTML = '';
+            if (data.social_targets) {
+                data.social_targets.forEach(t => {
+                    const pill = document.createElement('span');
+                    pill.className = `target-pill ${t.allowed ? 'allowed' : 'denied'}`;
+                    pill.innerHTML = `<i class="fa-solid ${t.allowed ? 'fa-check' : 'fa-xmark'} mr-1"></i> ${t.label}`;
+                    targetsContainer.appendChild(pill);
+                });
+            }
+
+            // Freq Stars
+            const freq = document.getElementById('resFreq');
+            freq.innerHTML = '';
+            for(let i=0; i<5; i++) {
+                const s = document.createElement('i');
+                s.className = i < data.frequency ? 'fa-solid fa-star text-orange-400' : 'fa-regular fa-star text-gray-200';
+                freq.appendChild(s);
+            }
+
+            // Heatmap
+            const heatmap = document.getElementById('resHeatmap');
+            heatmap.innerHTML = '';
+            if (data.contexts) {
+                data.contexts.forEach(c => {
+                    const row = document.createElement('div');
+                    row.innerHTML = `
+                        <div class="flex justify-between text-[10px] font-bold mb-1">
+                            <span>${c.scene}</span>
+                            <span>${c.usage}%</span>
+                        </div>
+                        <div class="heatmap-bar">
+                            <div class="bg-green-500" style="width: ${c.usage}%"></div>
+                        </div>
+                    `;
+                    heatmap.appendChild(row);
+                });
+            }
+
+            const exList = document.getElementById('resExamples');
+            exList.innerHTML = '';
+            data.examples.forEach(ex => {
+                const div = document.createElement('div');
+                div.className = 'border-b border-gray-100 last:border-none pb-6 last:pb-0';
+                div.innerHTML = `<p class="text-xl font-bold mb-2">${ex.jp}</p><p class="text-gray-400 text-sm">${ex.cn}</p>`;
+                exList.appendChild(div);
+            });
+        }
+
+        function resetToHome() {
+            searchHero.classList.remove('active');
+            contentView.style.display = 'none';
+            mainInput.value = '';
+            document.getElementById('chatBox').innerHTML = '<div class="p-3 bg-gray-50 border-2 border-gray-100 rounded-lg text-gray-500">有什么想深入了解的吗？</div>';
+        }
+
+        function appendChat(text, isUser = false) {
+            const box = document.getElementById('chatBox');
+            const div = document.createElement('div');
+            div.className = isUser ? 'p-3 bg-green-500 text-white rounded-lg ml-8' : 'p-3 bg-gray-50 border-2 border-gray-100 rounded-lg mr-8';
+            div.innerText = text;
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        document.getElementById('searchBtn').onclick = () => performSearch(mainInput.value.trim());
+        mainInput.onkeypress = (e) => { if (e.key === 'Enter') performSearch(mainInput.value.trim()); };
+
+        // Sidebar Chat
+        const aiInput = document.getElementById('aiInput');
+        const aiSendBtn = document.getElementById('aiSendBtn');
+        async function sendMsg() {
+            const q = aiInput.value.trim();
+            if(!q) return;
+            aiInput.value = '';
+            appendChat(q, true);
+            const res = await fetch(`/api/chat?q=${encodeURIComponent(q)}`);
+            const data = await res.json();
+            appendChat(data.answer);
+        }
+        aiSendBtn.onclick = sendMsg;
+        aiInput.onkeypress = (e) => { if (e.key === 'Enter') sendMsg(); };
+
+        // Feedback Logic
+        function toggleFeedback() {
+            const modal = document.getElementById('feedbackModal');
+            modal.classList.toggle('hidden');
+        }
+
+        async function submitFeedback() {
+            const text = document.getElementById('feedbackText').value.trim();
+            if (!text) return;
+            
+            try {
+                await fetch('/api/feedback', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ content: text })
+                });
+                alert('感谢您的反馈！');
+                document.getElementById('feedbackText').value = '';
+                toggleFeedback();
+            } catch (err) {
+                console.error(err);
+            }
+        }
+    </script>
+</body>
+</html>
