@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
         body { background-color: #FDFCF0; color: #333; }
@@ -16,67 +17,167 @@
     </style>
 </head>
 <body class="p-8">
-    <header class="max-w-4xl mx-auto flex justify-between items-end mb-12 border-b-4 border-gray-800 pb-8">
+    <header class="max-w-5xl mx-auto flex justify-between items-end mb-10 border-b-4 border-gray-800 pb-8">
         <div>
             <h1 class="pixel-font text-5xl font-bold uppercase">Forum</h1>
-            <p class="text-sm text-gray-500 mt-2">分享您的日语场景心得与趣事</p>
+            <p class="text-sm text-gray-500 mt-2">真实发帖 / 回帖社区</p>
         </div>
-        <div class="flex gap-4">
-            <a href="/" class="pixel-font bg-white border-2 border-gray-800 px-4 py-2 hover:bg-gray-100 transition-colors shadow-[2px_2px_0px_#333]">HOME</a>
-            <button class="pixel-font bg-green-600 text-white border-2 border-gray-800 px-4 py-2 hover:bg-green-700 transition-colors shadow-[2px_2px_0px_#333]">NEW POST</button>
-        </div>
+        <a href="/" class="pixel-font bg-white border-2 border-gray-800 px-4 py-2 hover:bg-gray-100 transition-colors shadow-[2px_2px_0px_#333]">HOME</a>
     </header>
 
-    <main class="max-w-4xl mx-auto space-y-6">
-        <!-- Mock Posts -->
-        <div class="forum-card">
-            <div class="flex gap-4">
-                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600"><i class="fa-solid fa-user-ninja"></i></div>
-                <div class="flex-grow">
-                    <div class="flex justify-between items-start">
-                        <h3 class="font-bold text-lg hover:text-green-600 cursor-pointer transition-colors">今天在新宿的居酒屋学到了地道的点餐方法！</h3>
-                        <span class="pixel-font bg-gray-100 px-2 text-xs">2h ago</span>
-                    </div>
-                    <p class="text-sm text-gray-500 mt-2 line-clamp-2">原来‘とりあえず生’真的是万能开头，店员小姐姐笑得特别开心。大家还有什么地道的居酒屋短语推荐吗？</p>
-                    <div class="mt-4 flex gap-6 text-xs font-bold text-gray-400">
-                        <span><i class="fa-solid fa-comment mr-1"></i> 12 COMMENTS</span>
-                        <span><i class="fa-solid fa-heart mr-1"></i> 45 LIKES</span>
-                        <span class="text-green-600">#居酒屋 #新宿</span>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <main class="max-w-5xl mx-auto grid grid-cols-12 gap-6">
+        <section class="col-span-12 lg:col-span-4 forum-card">
+            <h2 class="pixel-font text-2xl mb-4">发新帖</h2>
+            <input id="postTitle" placeholder="标题" class="w-full border-2 border-gray-800 p-2 mb-3">
+            <textarea id="postContent" rows="5" placeholder="内容..." class="w-full border-2 border-gray-800 p-2 mb-3"></textarea>
+            <p class="text-[11px] text-gray-500 mb-3">发帖将自动绑定你的昵称；若你开启等级公开，会显示等级标签。</p>
+            <button id="postBtn" class="pixel-font bg-green-600 text-white border-2 border-gray-800 px-4 py-2 hover:bg-green-700 shadow-[2px_2px_0px_#333]">发布</button>
+        </section>
 
-        <div class="forum-card">
-            <div class="flex gap-4">
-                <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center text-orange-600"><i class="fa-solid fa-cat"></i></div>
-                <div class="flex-grow">
-                    <div class="flex justify-between items-start">
-                        <h3 class="font-bold text-lg hover:text-green-600 cursor-pointer transition-colors">大家对‘お疲れ様’的使用场景有什么困惑吗？</h3>
-                        <span class="pixel-font bg-gray-100 px-2 text-xs">5h ago</span>
-                    </div>
-                    <p class="text-sm text-gray-500 mt-2 line-clamp-2">我发现对不同级别的上司，语气的尾音真的很有讲究。我整理了一份清单，大家来看看准不准确...</p>
-                    <div class="mt-4 flex gap-6 text-xs font-bold text-gray-400">
-                        <span><i class="fa-solid fa-comment mr-1"></i> 8 COMMENTS</span>
-                        <span><i class="fa-solid fa-heart mr-1"></i> 23 LIKES</span>
-                        <span class="text-green-600">#职场日语 #干货</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="forum-card opacity-60">
-            <div class="flex gap-4">
-                <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center text-purple-600"><i class="fa-solid fa-ghost"></i></div>
-                <div class="flex-grow text-center py-4">
-                    <p class="pixel-font text-xl">更多讨论正在加载中...</p>
-                </div>
-            </div>
-        </div>
+        <section class="col-span-12 lg:col-span-8 space-y-4" id="postsWrap">
+            <div class="forum-card text-gray-400">加载帖子中...</div>
+        </section>
     </main>
 
-    <footer class="max-w-4xl mx-auto mt-20 text-center text-gray-300 text-xs font-bold uppercase tracking-widest pb-12">
-        SCENE LAB COMMUNITY · SINCE 2026
-    </footer>
+    <script>
+        let authToken = localStorage.getItem('authToken') || null;
+        let supabaseClient = null;
+
+        function ts(t) {
+            const d = new Date(t || Date.now());
+            return d.toLocaleString();
+        }
+
+        async function initSupabase() {
+            try {
+                const cfgRes = await fetch('/api/config');
+                const cfg = await cfgRes.json();
+                if (!cfg?.supabase_enabled || !cfg?.supabase_url || !cfg?.supabase_anon_key) return;
+                supabaseClient = window.supabase.createClient(cfg.supabase_url, cfg.supabase_anon_key);
+                const { data } = await supabaseClient.auth.getSession();
+                const session = data?.session || null;
+                if (session?.access_token) {
+                    authToken = session.access_token;
+                    localStorage.setItem('authToken', authToken);
+                }
+                supabaseClient.auth.onAuthStateChange((_event, session2) => {
+                    if (session2?.access_token) {
+                        authToken = session2.access_token;
+                        localStorage.setItem('authToken', authToken);
+                    } else {
+                        authToken = null;
+                        localStorage.removeItem('authToken');
+                    }
+                });
+            } catch (e) {}
+        }
+
+        async function authFetch(url, options = {}) {
+            const headers = new Headers(options.headers || {});
+            if (authToken) headers.set('Authorization', `Bearer ${authToken}`);
+            return fetch(url, { ...options, headers });
+        }
+
+        // 防 XSS：论坛内容属于用户输入，渲染前必须转义
+        function escapeHtml(s) {
+            return String(s ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        async function requireLogin() {
+            if (!authToken) {
+                alert('论坛功能需要登录后使用。');
+                window.location.href = '/';
+                return false;
+            }
+            return true;
+        }
+
+        async function loadPosts() {
+            const wrap = document.getElementById('postsWrap');
+            try {
+                if (!await requireLogin()) return;
+                const res = await authFetch('/api/v2/forum/posts');
+                const posts = await res.json();
+                if (!Array.isArray(posts) || posts.length === 0) {
+                    wrap.innerHTML = '<div class="forum-card text-gray-400">还没有帖子，发一个试试吧。</div>';
+                    return;
+                }
+                wrap.innerHTML = posts.map(p => `
+                    <article class="forum-card">
+                        <div class="flex justify-between items-start gap-4">
+                            <h3 class="font-bold text-lg">${escapeHtml(p.title || '（无标题）')}</h3>
+                            <span class="text-xs text-gray-400">${ts(p.created_at)}</span>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">作者：${escapeHtml(p.nickname || '匿名用户')} ${p.level_label ? `<span class="ml-2 px-1 border border-green-500 text-green-700">[${escapeHtml(p.level_label)}]</span>` : ''}</div>
+                        <p class="mt-3 text-sm whitespace-pre-wrap">${escapeHtml(p.content)}</p>
+                        <div class="mt-3 text-xs text-gray-500">回复 ${p.reply_count || 0} 条</div>
+                        <div class="mt-3 space-y-2">
+                            ${(p.replies || []).map(r => `
+                                <div class="bg-gray-50 border border-gray-200 p-2">
+                                    <div class="text-xs text-gray-500">${escapeHtml(r.nickname || '匿名用户')} ${r.level_label ? `[${escapeHtml(r.level_label)}]` : ''} · ${ts(r.created_at)}</div>
+                                    <div class="text-sm whitespace-pre-wrap">${escapeHtml(r.content)}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="mt-3 flex gap-2">
+                            <input id="replyInput_${p.id}" placeholder="写回复..." class="flex-1 border-2 border-gray-800 p-2 text-sm">
+                            <button onclick="replyPost(${p.id})" class="px-3 border-2 border-gray-800 bg-white hover:bg-gray-100">回复</button>
+                        </div>
+                    </article>
+                `).join('');
+            } catch (e) {
+                wrap.innerHTML = '<div class="forum-card text-red-600">加载失败，请刷新重试。</div>';
+            }
+        }
+
+        async function createPost() {
+            const title = document.getElementById('postTitle').value.trim();
+            const content = document.getElementById('postContent').value.trim();
+            if (!title || !content) {
+                alert('请填写标题和内容');
+                return;
+            }
+            if (!await requireLogin()) return;
+            const res = await authFetch('/api/v2/forum/posts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({title, content})
+            });
+            if (res.status === 401) {
+                alert('登录已失效，请回首页重新登录');
+                return;
+            }
+            document.getElementById('postTitle').value = '';
+            document.getElementById('postContent').value = '';
+            loadPosts();
+        }
+
+        async function replyPost(postId) {
+            const inputEl = document.getElementById(`replyInput_${postId}`);
+            const content = (inputEl?.value || '').trim();
+            if (!content) return;
+            if (!await requireLogin()) return;
+            const res = await authFetch('/api/v2/forum/posts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({parent_id: postId, content})
+            });
+            if (res.status === 401) {
+                alert('登录已失效，请回首页重新登录');
+                return;
+            }
+            inputEl.value = '';
+            loadPosts();
+        }
+
+        document.getElementById('postBtn').onclick = createPost;
+        initSupabase().then(loadPosts);
+        setInterval(loadPosts, 15000);
+    </script>
 </body>
 </html>
