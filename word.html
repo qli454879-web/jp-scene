@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>单词详情 | Scene Lab</title>
+  <meta name="build" content="pos-freq-examples-2026-04-24-1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@700&family=Noto+Sans+JP:wght@300;400;500;700&family=VT323&display=swap');
+    body { font-family: 'Noto Sans JP', sans-serif; background:#FBF6E9; color:#1A1A1A; }
+    .pixel-font { font-family: 'VT323', monospace; }
+    .serif { font-family: 'Noto Serif JP', serif; }
+    .card-pixel { background:white; border:3px solid #333; box-shadow: 8px 8px 0px #F0F0E8; overflow:hidden; }
+    .badge-pixel { border:2px solid #333; box-shadow: 3px 3px 0px #333; }
+    .pixel-img { image-rendering: pixelated; object-fit: cover; }
+    .dash-placeholder {
+      border: 2px dashed #9CA3AF;
+      background: repeating-linear-gradient(45deg, rgba(156,163,175,0.08), rgba(156,163,175,0.08) 8px, rgba(156,163,175,0.02) 8px, rgba(156,163,175,0.02) 16px);
+    }
+    .toggle-card { border:2px solid #333; box-shadow: 4px 4px 0px #333; }
+    .toggle-on { background:#DCFCE7; border-color:#16A34A; box-shadow: 4px 4px 0px #16A34A; }
+    .toggle-off { background:#F3F4F6; border-color:#9CA3AF; box-shadow: 4px 4px 0px #9CA3AF; opacity:0.85; }
+    .bar-track { border:2px solid #333; background:#F3F4F6; box-shadow: 3px 3px 0px #333; }
+    .bar-fill { background:#22C55E; height: 10px; }
+    @keyframes xueSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .xue-spinner { width:14px; height:14px; border:2px solid #d1d5db; border-top-color:#10b981; border-radius:9999px; animation:xueSpin 0.8s linear infinite; flex-shrink:0; }
+
+    /* 移动端底部安全区：避免右下角按钮遮挡 */
+    :root { --fab-bottom: 32px; --fab-right: 32px; }
+    @media (max-width: 640px) {
+      :root { --fab-bottom: calc(max(env(safe-area-inset-bottom), 0px) + 24px); --fab-right: 12px; }
+      #floatingActionsWord button { width: 44px; height: 44px; }
+      #floatingActionsWord img { width: 28px; height: 28px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="max-w-3xl mx-auto p-4 md:p-8">
+    <div class="flex items-center justify-between mb-4">
+      <a href="/" class="text-[10px] font-bold text-gray-500 hover:text-gray-800">
+        <i class="fa-solid fa-arrow-left mr-1"></i> BACK / 返回
+      </a>
+      <div class="flex items-center gap-2">
+        <button id="reportBtnTop" class="badge-pixel px-3 py-1 bg-amber-50 text-[10px] font-bold hover:bg-amber-100">报错</button>
+        <div id="levelBadge" class="badge-pixel px-3 py-1 bg-white text-[10px] font-bold">JLPT</div>
+      </div>
+    </div>
+    <div class="mb-4 flex gap-2">
+      <input id="quickSearchInput" type="text" placeholder="搜单词 / 释义..." class="flex-1 min-w-0 border-2 border-gray-800 p-3 text-sm outline-none focus:border-green-500 bg-white" />
+      <button id="quickSearchBtn" class="bg-gray-800 text-white px-4 font-bold border-2 border-gray-800 hover:bg-green-600">搜索</button>
+    </div>
+
+    <div class="card-pixel">
+      <!-- Pixel cat container (16:9) -->
+      <div class="w-full aspect-[16/9] bg-white border-b-3 border-[#333] relative">
+        <img id="pixelCatImg" class="w-full h-full pixel-img hidden" alt="Pixel Cat" />
+        <div id="pixelCatPlaceholder" class="absolute inset-0 dash-placeholder flex items-center justify-center">
+          <div class="text-center">
+            <div class="pixel-font text-2xl text-gray-700">AI 像素猫绘制中...</div>
+            <div class="text-[10px] text-gray-500 mt-1">16:9 / 推荐 1024×576</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-6 md:p-8">
+        <!-- Header -->
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-3">
+              <h1 id="wordTitle" class="serif text-5xl md:text-6xl font-bold leading-none">---</h1>
+              <button class="w-9 h-9 flex items-center justify-center bg-gray-100 rounded-full hover:bg-green-100 transition-colors" id="audioBtn" title="播放读音">
+                <i class="fa-solid fa-volume-up text-gray-500"></i>
+              </button>
+              <button class="w-9 h-9 flex items-center justify-center bg-gray-100 rounded-full hover:bg-red-50 transition-colors" id="favBtn" title="收藏">
+                <i id="favIcon" class="fa-regular fa-heart text-gray-500"></i>
+              </button>
+            </div>
+            <div class="mt-2 flex items-center gap-2 flex-wrap">
+              <div id="wordReading" class="text-sm text-gray-600 font-mono">---</div>
+              <!-- 词性：按你的要求放在读音下面/旁边，用【】括起来；无数据则不显示 -->
+              <div id="posWrap" class="text-[12px] text-gray-700 hidden">
+                【<span id="posText" class="font-bold">—</span>】
+              </div>
+            </div>
+            <div class="mt-3 text-[12px] text-gray-700 font-bold">
+              <span class="text-gray-500">释义</span> / <span id="meaningText">---</span>
+            </div>
+          </div>
+          <div class="badge-pixel px-3 py-2 bg-emerald-50 text-emerald-800 text-[10px] font-bold">
+            PITCH: <span id="pitchVal">0</span>
+          </div>
+        </div>
+
+        <!-- Frequency -->
+        <div class="mt-4" id="freqSection">
+          <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">日常频次 / Frequency</div>
+          <div id="freqStars" class="text-orange-400 text-sm">—</div>
+        </div>
+
+        <!-- Social compatibility (ON/OFF) -->
+        <div class="mt-5">
+          <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">社交适用对象 / Social Compatibility</div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div id="cardCasual" class="toggle-card p-3 rounded toggle-off">
+              <div class="text-[11px] font-bold"><i class="fa-solid fa-circle text-gray-400 mr-1"></i><span id="casualJa">カジュアル</span></div>
+              <div class="text-[10px] text-gray-600 mt-0.5" id="casualZh">友人・同僚</div>
+              <div class="mt-2 flex items-center justify-between">
+                <div class="text-[10px] font-bold text-gray-700" id="casualToggle">OFF</div>
+                <div class="text-[10px] text-gray-500" id="casualReason"></div>
+              </div>
+            </div>
+            <div id="cardBusiness" class="toggle-card p-3 rounded toggle-off">
+              <div class="text-[11px] font-bold"><i class="fa-solid fa-circle text-gray-400 mr-1"></i><span id="businessJa">ビジネス</span></div>
+              <div class="text-[10px] text-gray-600 mt-0.5" id="businessZh">上司・目上</div>
+              <div class="mt-2 flex items-center justify-between">
+                <div class="text-[10px] font-bold text-gray-700" id="businessToggle">OFF</div>
+                <div class="text-[10px] text-gray-500" id="businessReason"></div>
+              </div>
+            </div>
+            <div id="cardFormal" class="toggle-card p-3 rounded toggle-off">
+              <div class="text-[11px] font-bold"><i class="fa-solid fa-circle text-gray-400 mr-1"></i><span id="formalJa">フォーマル</span></div>
+              <div class="text-[10px] text-gray-600 mt-0.5" id="formalZh">店員・陌生人</div>
+              <div class="mt-2 flex items-center justify-between">
+                <div class="text-[10px] font-bold text-gray-700" id="formalToggle">OFF</div>
+                <div class="text-[10px] text-gray-500" id="formalReason"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Scenario heatmap -->
+        <div class="mt-6">
+          <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">高频出现场景 / Scenario Heatmap</div>
+          <div id="heatmapList" class="space-y-3"></div>
+        </div>
+
+        <!-- Examples：放在“高频出现场景”下方，“场景深度解析”上方 -->
+        <div class="mt-6 hidden" id="examplesSection">
+          <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">例句 / Examples</div>
+          <div id="examplesList" class="space-y-3"></div>
+        </div>
+
+        <!-- Insight -->
+        <div class="mt-6">
+          <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">场景深度解析 / Insight</div>
+          <div class="p-4 bg-emerald-50 border-2 border-emerald-200 rounded">
+            <div id="insightText" class="text-[13px] md:text-[14px] leading-relaxed text-emerald-900">---</div>
+          </div>
+          <div class="mt-3 text-[11px] text-gray-500">
+            适用对象、高频场景等内容由 AI 生成，仅供参考。
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Floating Actions（与首页一致的位置：收藏夹/错词本/报错） -->
+  <div id="floatingActionsWord" class="fixed z-[900] flex flex-col gap-3 items-end" style="bottom: var(--fab-bottom); right: var(--fab-right);">
+    <button title="小雪梨" onclick="toggleXueMini()" class="w-12 h-12 bg-white border-2 border-gray-800 flex items-center justify-center text-xl shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
+      <img id="xueFabIcon" src="/xuexueli_avatar_64.png" alt="小雪梨" class="w-8 h-8" style="image-rendering: pixelated;" />
+    </button>
+    <button title="收藏夹" onclick="window.location.href='/?open=favorites'" class="w-12 h-12 bg-white border-2 border-gray-800 flex items-center justify-center text-xl shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
+      <i class="fa-solid fa-heart text-red-500"></i>
+    </button>
+    <button title="错词本" onclick="window.location.href='/?open=wrongbook'" class="w-12 h-12 bg-white border-2 border-gray-800 flex items-center justify-center text-xl shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
+      <i class="fa-solid fa-book-open text-gray-700"></i>
+    </button>
+    <button title="报错/反馈" onclick="openReportModal()" class="w-12 h-12 bg-white border-2 border-gray-800 flex items-center justify-center text-xl shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
+      <i class="fa-solid fa-triangle-exclamation text-yellow-500"></i>
+    </button>
+  </div>
+
+  <!-- 小雪梨：可拖动小弹窗（单词页也可随时问） -->
+  <div id="xueMini" class="fixed z-[920] hidden" style="bottom: calc(var(--fab-bottom) + 64px); right: var(--fab-right);">
+    <div class="w-[320px] bg-white border-3 border-[#333] shadow-[6px_6px_0px_#333]">
+      <div id="xueMiniHeader" class="px-3 py-2 border-b-3 border-[#333] flex items-center gap-2 cursor-move select-none">
+        <img id="xueMiniAvatar" src="/xuexueli_avatar_64.png" class="w-7 h-7 border-2 border-gray-800 bg-white" style="image-rendering: pixelated;" />
+        <div class="font-bold pixel-font tracking-widest text-lg leading-none">小雪梨</div>
+        <button class="ml-auto text-gray-500 hover:text-gray-900" onclick="closeXueMini(); return false;" title="关闭">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div id="xueMiniBox" class="p-3 space-y-2 max-h-[220px] overflow-y-auto text-sm">
+        <div class="flex items-start gap-2">
+          <img src="/xuexueli_avatar_64.png" class="w-7 h-7 border-2 border-gray-800 bg-white" style="image-rendering: pixelated;" />
+          <div class="p-3 bg-white text-gray-800 flex-1" style="border:2px solid #333; box-shadow:3px 3px 0px #333; border-radius:0.75rem; font-size:12px; line-height:1.4;">
+            你好！我叫小雪梨，我是哈基米日语博士！有什么日语问题尽管问我！
+          </div>
+        </div>
+      </div>
+      <div class="p-3 border-t-2 border-dashed border-gray-100 flex gap-2">
+        <input id="xueMiniInput" type="text" placeholder="问小雪梨..." class="flex-1 min-w-0 border-2 border-gray-800 p-2 text-sm outline-none focus:border-green-500">
+        <button id="xueMiniSend" class="px-3 bg-gray-800 text-white border-2 border-gray-800 hover:bg-green-600"><i class="fa-solid fa-paper-plane"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 复用的音频播放器（iOS/Safari 更稳定） -->
+  <audio id="globalAudio" preload="auto" playsinline webkit-playsinline style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;"></audio>
+
+  <!-- Report Modal -->
+  <div id="reportModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-[999] p-4">
+    <div class="card-pixel w-full max-w-lg">
+      <div class="p-5 border-b-3 border-[#333] flex items-center justify-between">
+        <div class="pixel-font text-2xl">报错 / 反馈</div>
+        <button id="reportCloseBtn" class="badge-pixel px-3 py-1 bg-white text-[10px] font-bold hover:bg-gray-100">关闭</button>
+      </div>
+      <div class="p-5">
+        <div class="text-[11px] text-gray-600 mb-3">
+          当前词条：<span id="reportWordLabel" class="font-bold text-gray-800">---</span>
+        </div>
+        <label class="text-[10px] font-bold text-gray-500 block mb-1">问题类型</label>
+        <select id="reportType" class="w-full border-2 border-[#333] p-2 text-[12px] bg-white">
+          <option value="meaning">释义/翻译问题</option>
+          <option value="reading">读音/假名问题</option>
+          <option value="social">适用对象不合理</option>
+          <option value="heatmap">高频场景不合理</option>
+          <option value="insight">深度解析不合理</option>
+          <option value="other">其他</option>
+        </select>
+        <label class="text-[10px] font-bold text-gray-500 block mt-4 mb-1">补充说明</label>
+        <textarea id="reportMsg" rows="4" class="w-full border-2 border-[#333] p-2 text-[12px] bg-white" placeholder="例如：释义应为… / 这个词不适合对上司说…"></textarea>
+        <div class="mt-4 flex items-center justify-end gap-2">
+          <button id="reportSubmitBtn" class="badge-pixel px-4 py-2 bg-emerald-50 text-[10px] font-bold hover:bg-emerald-100">提交</button>
+        </div>
+        <div id="reportStatus" class="mt-3 text-[11px] text-gray-500"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let authToken = localStorage.getItem('authToken') || null;
+    async function authFetch(url, options = {}) {
+      const headers = new Headers(options.headers || {});
+      if (authToken) headers.set('Authorization', `Bearer ${authToken}`);
+      return fetch(url, { ...options, headers });
+    }
+    function todayStr() {
+      const d = new Date();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${d.getFullYear()}-${mm}-${dd}`;
+    }
+    function xueTodayKey() { return `xueAiExhausted:${todayStr()}`; }
+    function xueIsExhausted() { try { return localStorage.getItem(xueTodayKey()) === '1'; } catch(e){ return false; } }
+    function xueSetExhausted() { try { localStorage.setItem(xueTodayKey(), '1'); } catch(e){} }
+    // 若今日已耗尽，按钮也显示“趴桌子”
+    if (xueIsExhausted()) {
+      try { document.getElementById('xueFabIcon')?.setAttribute('src', '/xuexueli_tired_64.png'); } catch(e) {}
+    }
+    // 用于排查“Render 已更新但页面仍旧”的缓存问题
+    window.__BUILD_VERSION__ = 'pos-freq-examples-2026-04-24-1';
+    let currentWordData = null;
+    function getSlug() {
+      const p = window.location.pathname || '';
+      const idx = p.indexOf('/word/');
+      if (idx === -1) return '';
+      return decodeURIComponent(p.slice(idx + 6));
+    }
+
+    function stars(n) {
+      const v = Math.max(1, Math.min(5, Number(n || 3)));
+      return '★★★★★'.slice(0, v) + '★★★★★'.slice(v).replace(/./g, '☆');
+    }
+
+    function formatPos(posRaw) {
+      const s = (posRaw || '').toString().trim();
+      if (!s) return '';
+      const key = s.toLowerCase();
+      const map = {
+        // 常见罗马字（你之前的 Meishi 就是这里来的）
+        "meishi": "名词",
+        "doushi": "动词",
+        "keiyoushi": "形容词",
+        "keiyoudoushi": "形容动词",
+        "fukushi": "副词",
+        "rentaishi": "连体词",
+        "setsuzokushi": "接续词",
+        "kandoushi": "感叹词",
+        "joshi": "助词",
+        "jodoushi": "助动词",
+        // 英文
+        "noun": "名词",
+        "verb": "动词",
+        "adj": "形容词",
+        "adjective": "形容词",
+        "adverb": "副词",
+      };
+      if (map[key]) return map[key];
+      return s; // 已经是「名詞/动词」等就原样展示
+    }
+
+    function setToggle(cardId, dot, toggleId, reasonId, allowed, reason) {
+      const card = document.getElementById(cardId);
+      const t = document.getElementById(toggleId);
+      const r = document.getElementById(reasonId);
+      if (!card || !t || !r) return;
+      card.classList.remove('toggle-on', 'toggle-off');
+      card.classList.add(allowed ? 'toggle-on' : 'toggle-off');
+      const icon = card.querySelector('i.fa-circle');
+      if (icon) {
+        icon.classList.toggle('text-green-600', !!allowed);
+        icon.classList.toggle('text-gray-400', !allowed);
+      }
+      t.innerText = allowed ? 'ON' : 'OFF';
+      r.innerText = reason || '';
+    }
+
+    function renderHeatmap(hm) {
+      const box = document.getElementById('heatmapList');
+      box.innerHTML = '';
+      const entries = hm && typeof hm === 'object' ? Object.entries(hm) : [];
+      entries.forEach(([label, pct]) => {
+        const p = Math.max(0, Math.min(100, Number(pct || 0)));
+        const row = document.createElement('div');
+        row.innerHTML = `
+          <div class="flex items-center justify-between text-[10px] text-gray-700 font-bold mb-1">
+            <div>${label}</div>
+            <div>${p}%</div>
+          </div>
+          <div class="bar-track rounded overflow-hidden">
+            <div class="bar-fill" style="width:${p}%"></div>
+          </div>
+        `;
+        box.appendChild(row);
+      });
+    }
+
+    function renderExamples(examples) {
+      const sec = document.getElementById('examplesSection');
+      const box = document.getElementById('examplesList');
+      if (!sec || !box) return;
+      box.innerHTML = '';
+      let arr = [];
+      if (Array.isArray(examples)) {
+        arr = examples;
+      } else if (typeof examples === 'string' && examples.trim()) {
+        // 兼容：后端若把 examples 当作字符串返回（例如某次导入导致类型不一致）
+        try { arr = JSON.parse(examples); } catch (e) { arr = []; }
+      }
+      if (!arr.length) {
+        sec.classList.add('hidden');
+        return;
+      }
+      sec.classList.remove('hidden');
+      arr.slice(0, 6).forEach((ex) => {
+        const jp = (ex && ex.jp) ? String(ex.jp) : '';
+        const cn = (ex && ex.cn) ? String(ex.cn) : '';
+        const div = document.createElement('div');
+        div.className = 'p-3 bg-white border-2 border-[#333] rounded';
+        div.innerHTML = `
+          <div class="text-[12px] font-bold text-gray-900">${jp || '—'}</div>
+          <div class="mt-1 text-[11px] text-gray-600">${cn || ''}</div>
+        `;
+        box.appendChild(div);
+      });
+    }
+
+    async function fetchWord(slug) {
+      const res = await fetch('/api/library/word?slug=' + encodeURIComponent(slug));
+      if (!res.ok) throw new Error('not_found');
+      return await res.json();
+    }
+
+    async function enrichWord(slug) {
+      const res = await fetch('/api/library/enrich', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ slug })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data && data.detail ? data.detail : 'enrich_failed');
+      return data && data.data ? data.data : null;
+    }
+
+    function applyData(data) {
+      currentWordData = data || null;
+      document.getElementById('levelBadge').innerText = data.level ? ('JLPT ' + data.level) : 'JLPT';
+      document.getElementById('wordTitle').innerText = data.word || '---';
+      document.getElementById('wordReading').innerText = data.reading || '—';
+      document.getElementById('meaningText').innerText = data.meaning || '—';
+
+      // pos（无数据就不显示，避免误导）
+      const posWrap = document.getElementById('posWrap');
+      const posEl = document.getElementById('posText');
+      const posText = formatPos(data.pos || data.part_of_speech || data.pos_tag || '');
+      if (posWrap && posEl) {
+        if (posText) {
+          posEl.innerText = posText;
+          posWrap.classList.remove('hidden');
+        } else {
+          posWrap.classList.add('hidden');
+        }
+      }
+
+      // image
+      const img = document.getElementById('pixelCatImg');
+      const ph = document.getElementById('pixelCatPlaceholder');
+      const url = (data.image_url || '').trim();
+      if (url) {
+        img.src = url;
+        img.classList.remove('hidden');
+        ph.classList.add('hidden');
+      } else {
+        img.classList.add('hidden');
+        ph.classList.remove('hidden');
+      }
+
+      // frequency：按数据库 frequency(1~5) 显示五角星
+      const hm = data.heatmap_data || {};
+      const freqSection = document.getElementById('freqSection');
+      const freqRaw = (data.frequency ?? data.usage_freq ?? data.usage_frequency);
+      const freqNum = Number(freqRaw);
+      if (freqSection) {
+        if (Number.isFinite(freqNum) && freqNum >= 1) {
+          document.getElementById('freqStars').innerText = stars(freqNum);
+          document.getElementById('freqStars').classList.remove('text-gray-400');
+          document.getElementById('freqStars').classList.add('text-orange-400');
+        } else {
+          // 没数据就留空占位，不再“猜测”
+          document.getElementById('freqStars').innerText = '—';
+          document.getElementById('freqStars').classList.remove('text-orange-400');
+          document.getElementById('freqStars').classList.add('text-gray-400');
+        }
+      }
+
+      // social
+      const sc = data.social_context || {};
+      const casual = sc.casual || {};
+      const business = sc.business || {};
+      const formal = sc.formal || {};
+      document.getElementById('casualJa').innerText = casual.label_ja || 'カジュアル';
+      document.getElementById('casualZh').innerText = casual.label_zh || '友人・同僚';
+      setToggle('cardCasual', null, 'casualToggle', 'casualReason', !!casual.allowed, casual.reason);
+      document.getElementById('businessJa').innerText = business.label_ja || 'ビジネス';
+      document.getElementById('businessZh').innerText = business.label_zh || '上司・目上';
+      setToggle('cardBusiness', null, 'businessToggle', 'businessReason', !!business.allowed, business.reason);
+      document.getElementById('formalJa').innerText = formal.label_ja || 'フォーマル';
+      document.getElementById('formalZh').innerText = formal.label_zh || '店員・陌生人';
+      setToggle('cardFormal', null, 'formalToggle', 'formalReason', !!formal.allowed, formal.reason);
+
+      renderHeatmap(hm);
+      renderExamples(data.examples || null);
+      document.getElementById('insightText').innerText = data.insight_text || '—';
+    }
+
+    function setupAudio(data) {
+      const btn = document.getElementById('audioBtn');
+      // iOS/Safari 兼容：复用一个 audio 实例 + playsInline，减少“点喇叭没声音”
+      const sharedAudio = document.getElementById('globalAudio') || window.__jpAudio || new Audio();
+      try {
+        sharedAudio.preload = 'auto';
+        sharedAudio.playsInline = true;
+        sharedAudio.setAttribute('playsinline', '');
+        sharedAudio.setAttribute('webkit-playsinline', '');
+        sharedAudio.muted = false;
+        sharedAudio.volume = 1;
+      } catch (e) {}
+      window.__jpAudio = sharedAudio;
+      btn.onclick = () => {
+        const word = data.word || '';
+        const fn = (data.mp3 || data.audio_filename || '').trim();
+        if (fn) {
+          try {
+            sharedAudio.pause();
+          } catch (e) {}
+          sharedAudio.src = '/api/vocab/audio/' + encodeURIComponent(fn);
+          try { sharedAudio.load(); } catch (e) {}
+          try { sharedAudio.currentTime = 0; } catch (e) {}
+          // 有些 iOS 机型在 load 后立刻 play 会失败：等到 canplay 再试一次
+          sharedAudio.play().catch(() => {
+            try {
+              sharedAudio.addEventListener('canplay', () => {
+                try { sharedAudio.currentTime = 0; } catch (e) {}
+                try { sharedAudio.play(); } catch (e) {}
+              }, { once: true });
+            } catch (e) {}
+            speakJa(word);
+            showAudioPrompt('/api/vocab/audio/' + encodeURIComponent(fn));
+          });
+          setTimeout(() => {
+            try {
+              if (sharedAudio.paused || (sharedAudio.currentTime || 0) <= 0) showAudioPrompt('/api/vocab/audio/' + encodeURIComponent(fn));
+            } catch (e) {}
+          }, 900);
+          return;
+        }
+        speakJa(word);
+      };
+    }
+
+    // iOS Safari 上 speechSynthesis 有时需要提前初始化 voice 列表，否则可能“完全不出声”
+    let __jaVoice = null;
+    function initSpeechVoices() {
+      try {
+        const pick = () => {
+          const vs = window.speechSynthesis?.getVoices?.() || [];
+          __jaVoice = vs.find(v => (v.lang || '').toLowerCase().startsWith('ja')) || null;
+        };
+        pick();
+        if (window.speechSynthesis) {
+          window.speechSynthesis.onvoiceschanged = () => pick();
+        }
+      } catch (e) {}
+    }
+    function speakJa(text) {
+      const t = (text || '').trim();
+      if (!t) return;
+      try {
+        window.speechSynthesis?.cancel?.();
+        const u = new SpeechSynthesisUtterance(t);
+        u.lang = 'ja-JP';
+        u.rate = 1;
+        u.pitch = 1;
+        u.volume = 1;
+        if (__jaVoice) u.voice = __jaVoice;
+        window.speechSynthesis?.speak?.(u);
+      } catch (e) {}
+    }
+    initSpeechVoices();
+
+    // iOS 音频兜底：如果播放失败/无声，给用户一个“再点一次播放”的按钮（第二次点击属于明确手势，成功率更高）
+    let __audioPromptEl = null;
+    function showAudioPrompt(url) {
+      try {
+        if (!url) return;
+        if (__audioPromptEl) __audioPromptEl.remove();
+        const wrap = document.createElement('div');
+        wrap.className = 'fixed z-[9999] left-3 right-3';
+        wrap.style.bottom = 'calc(env(safe-area-inset-bottom) + 12px)';
+        wrap.innerHTML = `
+          <div class="bg-white border-3 border-[#333] shadow-[6px_6px_0px_#333] p-3 flex items-center gap-3">
+            <div class="text-[12px] text-gray-700 flex-1">
+              iPhone 可能阻止了自动播放。点右侧按钮再触发一次即可播放。
+            </div>
+            <button id="audioPromptBtn" class="px-3 py-2 bg-gray-800 text-white border-2 border-gray-800 text-[12px] font-bold">
+              播放声音
+            </button>
+          </div>`;
+        document.body.appendChild(wrap);
+        __audioPromptEl = wrap;
+        const btn = wrap.querySelector('#audioPromptBtn');
+        if (btn) btn.onclick = () => {
+          try {
+            const w = window.open(url, '_blank');
+            if (!w) window.location.href = url;
+          } catch (e) {
+            window.location.href = url;
+          }
+          try { wrap.remove(); } catch (e) {}
+          __audioPromptEl = null;
+        };
+        setTimeout(() => {
+          try { wrap.remove(); } catch (e) {}
+          if (__audioPromptEl === wrap) __audioPromptEl = null;
+        }, 8000);
+      } catch (e) {}
+    }
+
+    // --- 收藏（单词页也可直接收藏）---
+    function getAuthToken() {
+      try { return localStorage.getItem('authToken') || ''; } catch (e) { return ''; }
+    }
+
+    async function authFetch(url, options = {}) {
+      const token = getAuthToken();
+      const headers = new Headers(options.headers || {});
+      if (token) headers.set('Authorization', `Bearer ${token}`);
+      return fetch(url, { ...options, headers });
+    }
+
+    function setupFavorite(data) {
+      const btn = document.getElementById('favBtn');
+      const icon = document.getElementById('favIcon');
+      if (!btn || !icon) return;
+      const entryId = data?.id ? String(data.id) : '';
+      const level = String(data?.level || '');
+      let isFav = false;
+
+      const render = () => {
+        if (isFav) {
+          icon.className = 'fa-solid fa-heart text-red-500';
+        } else {
+          icon.className = 'fa-regular fa-heart text-gray-500';
+        }
+      };
+      render();
+
+      async function refreshStatus() {
+        const token = getAuthToken();
+        if (!token || !entryId || !level) return;
+        try {
+          const res = await authFetch(`/api/v3/favorites?level=${encodeURIComponent(level)}`);
+          const arr = await res.json().catch(() => []);
+          if (res.ok && Array.isArray(arr)) {
+            isFav = arr.map(String).includes(entryId);
+            render();
+          }
+        } catch (e) {}
+      }
+
+      btn.onclick = async () => {
+        const token = getAuthToken();
+        if (!token) {
+          alert('请先在首页登录，再回来收藏该词条。');
+          return;
+        }
+        if (!entryId || !level) return;
+        const prev = isFav;
+        isFav = !isFav;
+        render();
+        try {
+          if (prev) {
+            const res = await authFetch(`/api/v3/favorites/${encodeURIComponent(entryId)}`, { method: 'DELETE' });
+            if (!res.ok) throw new Error('delete failed');
+          } else {
+            const res = await authFetch(`/api/v3/favorites`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ entry_id: entryId, level })
+            });
+            if (!res.ok) throw new Error('add failed');
+          }
+        } catch (e) {
+          // 回滚
+          isFav = prev;
+          render();
+          alert('收藏操作失败，请稍后再试。');
+        }
+      };
+
+      // 初次加载后拉一次收藏状态
+      refreshStatus();
+    }
+
+    (async function main() {
+      const slug = getSlug();
+      if (!slug) return;
+      let data = null;
+      try {
+        data = await fetchWord(slug);
+      } catch (e) {
+        document.getElementById('wordTitle').innerText = '未找到';
+        document.getElementById('meaningText').innerText = '该词不在词库中';
+        return;
+      }
+
+      applyData(data);
+      setupAudio(data);
+      setupFavorite(data);
+
+      // 如果是用“中文释义关键词”等方式命中，则尽量把 URL 归一到 id，避免重复搜索
+      if (data && data.id && slug !== data.id) {
+        history.replaceState({}, '', '/word/' + encodeURIComponent(data.id));
+      }
+
+      // 自动补全：失败时不影响“基础词条显示”（避免被误判为未找到）
+      if (!data.is_ai_enriched) {
+        document.getElementById('insightText').innerText = '正在生成场景解析，请稍候...';
+        try {
+          const updated = await enrichWord(data.id || slug);
+          if (updated) {
+            if (updated.id && slug !== updated.id) {
+              history.replaceState({}, '', '/word/' + encodeURIComponent(updated.id));
+            }
+            data = Object.assign({}, data, updated, { is_ai_enriched: true });
+            applyData(data);
+            setupAudio(data);
+            setupFavorite(data);
+          }
+        } catch (e) {
+          // ignore enrichment failure; keep base data
+          document.getElementById('insightText').innerText = (data.insight_text || '—');
+        }
+      }
+    })();
+
+    function openReportModal() {
+      const modal = document.getElementById('reportModal');
+      const label = document.getElementById('reportWordLabel');
+      const status = document.getElementById('reportStatus');
+      const msg = document.getElementById('reportMsg');
+      if (!modal) return;
+      if (label) label.innerText = (currentWordData && currentWordData.word) ? `${currentWordData.word} / ${currentWordData.level || ''}` : '---';
+      if (status) status.innerText = '';
+      if (msg) msg.value = '';
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeReportModal() {
+      const modal = document.getElementById('reportModal');
+      if (!modal) return;
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    async function submitReport() {
+      const status = document.getElementById('reportStatus');
+      const type = (document.getElementById('reportType')?.value || 'other').trim();
+      const msg = (document.getElementById('reportMsg')?.value || '').trim();
+      const payload = {
+        vocab_id: currentWordData?.id || null,
+        word: currentWordData?.word || '',
+        level: currentWordData?.level || '',
+        slug: getSlug(),
+        issue_type: type,
+        message: msg,
+        page: 'word_detail',
+        page_url: window.location.href,
+        user_agent: navigator.userAgent
+      };
+      try {
+        if (status) status.innerText = '正在提交...';
+        const res = await fetch('/api/library/report', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data && data.detail ? data.detail : '提交失败');
+        if (status) status.innerText = '已提交，感谢反馈（可在后台查看）。';
+        setTimeout(closeReportModal, 600);
+      } catch (e) {
+        if (status) status.innerText = '提交失败：' + (e?.message || '未知错误');
+      }
+    }
+
+    // bind modal events
+    document.getElementById('reportBtnTop')?.addEventListener('click', openReportModal);
+    document.getElementById('reportCloseBtn')?.addEventListener('click', closeReportModal);
+    document.getElementById('reportSubmitBtn')?.addEventListener('click', submitReport);
+
+    (function bindQuickSearch() {
+      const input = document.getElementById('quickSearchInput');
+      const btn = document.getElementById('quickSearchBtn');
+      const go = () => {
+        const q = (input?.value || '').trim();
+        if (!q) return;
+        window.location.href = '/?q=' + encodeURIComponent(q);
+      };
+      if (btn) btn.addEventListener('click', go);
+      if (input) input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    })();
+
+    // --- 小雪梨 mini（单词页） ---
+    function toggleXueMini() {
+      const m = document.getElementById('xueMini');
+      if (!m) return;
+      if (m.classList.contains('hidden')) openXueMini();
+      else closeXueMini();
+    }
+    function openXueMini() {
+      const m = document.getElementById('xueMini');
+      if (!m) return;
+      m.classList.remove('hidden');
+      document.getElementById('xueMiniInput')?.focus();
+    }
+    function closeXueMini() {
+      const m = document.getElementById('xueMini');
+      if (!m) return;
+      m.classList.add('hidden');
+    }
+
+    // 表情切换（与首页一致）
+    const XUE_FACE = {
+      default: '/xuexueli_avatar_64.png',
+      typing: '/xuexueli_typing_64.png',
+      love: '/xuexueli_love_64.png',
+      angry: '/xuexueli_angry_64.png',
+      sad: '/xuexueli_sad_64.png',
+      study: '/xuexueli_study_64.png',
+      shy: '/xuexueli_shy_64.png',
+      tired: '/xuexueli_tired_64.png'
+    };
+    function setXueFace(state) {
+      const img = document.getElementById('xueMiniAvatar');
+      const fab = document.getElementById('xueFabIcon');
+      if (!img) return;
+      const src = XUE_FACE[state] || XUE_FACE.default;
+      if (img.getAttribute('src') !== src) img.setAttribute('src', src);
+      if (fab && fab.getAttribute('src') !== src) fab.setAttribute('src', src);
+    }
+    function _containsAny(s, arr) { return arr.some((k) => s.includes(k)); }
+    function xueClassify(q) {
+      const s = (q || '').trim();
+      const low = s.toLowerCase();
+      const praiseCommon = ['谢谢','感谢','厉害','牛','棒','赞','太强','好用','太好了','学到了','专业','稳','太顶'];
+      const praiseMe = ['作者','站长','博主','开发者','做这个的人','写这个的人','你主人'];
+      const praiseMeAdjs = ['帅','好帅','真帅','厉害','牛','棒','赞','太强','专业','稳','太顶'];
+      const cuteXue = ['小雪梨可爱','好可爱','你可爱','喜欢你','好喜欢你','好爱你','萌','太萌','想抱','想rua','喜欢小雪梨','爱小雪梨','小雪梨我爱你'];
+      const cuteMe = ['喜欢作者','喜欢站长','喜欢这个网站','喜欢这个站','喜欢这个app','喜欢这个应用','好喜欢作者','好喜欢站长','好喜欢这个网站'];
+      const badAuthor = ['作者','站长','开发','做这个的人','写这个的人','你主人'];
+      const badWords = ['垃圾','烂','差','傻','蠢','恶心','讨厌','废物','滚','死','脑残'];
+      const badXue = ['笨蛋','笨','蠢','废','垃圾','傻'];
+      const studyTalk = ['怎么学','学习','背单词','记不住','复习','计划','效率','坚持','刷题','真题','语法','听力','阅读','写作','口语','jlpt','n1','n2','n3','n4','n5'];
+      const needReport = [
+        '报错','错误','bug','有问题','打不开','不显示','卡住','崩了','反馈','建议','修复','改进',
+        '出错','有错','错了','不对','不对劲','不正常','异常','显示错误','标注不对',
+        '标注','标注出错','解析错误','解析有误','释义错误','例句错误','频次错误','读音错误','假名错误','等级错误','翻译错误'
+      ];
+
+      if (_containsAny(low, badAuthor) && _containsAny(low, badWords)) {
+        return { mood: 'angry', local: '我理解你可能不满意，但请尽量文明表达～如果是功能问题/报错，请点右下角黄色三角形提交反馈，站长才能收到并修复。' };
+      }
+      if (_containsAny(low, badXue) || (low.includes('小雪梨') && _containsAny(low, badWords))) {
+        return { mood: 'sad', local: '果然哈基米日语系满足不了人类吗……不过我会努力变强的！你把具体的日语问题发我，我立刻认真解答。' };
+      }
+      if (_containsAny(low, needReport)) {
+        return { mood: 'study', local: '啊，小雪梨知道了！但我不懂编程（哭），请您点击右下角黄色三角形（!）向作者提交错误/反馈，我会督促作者赶快修改！' };
+      }
+      if (_containsAny(low, praiseMe) && _containsAny(low, praiseMeAdjs) || _containsAny(low, cuteMe) || low.includes('作者帅') || low.includes('站长帅')) {
+        return { mood: 'love', local: '我替站长（也就是作者本人）收下夸奖啦！谢谢你这么支持～你想学哪句日语？' };
+      }
+      if (_containsAny(low, praiseCommon)) {
+        return { mood: 'love', local: '收到夸夸！我会继续努力～现在把日语问题丢给我吧！' };
+      }
+      if (_containsAny(low, cuteXue)) {
+        return { mood: 'shy', local: '呜…被你夸得有点害羞！谢谢你喜欢小雪梨～想问什么日语问题尽管来！' };
+      }
+      if (_containsAny(low, studyTalk)) {
+        return { mood: 'study', local: null };
+      }
+      return { mood: null, local: null };
+    }
+
+    function looksLikeNeedAI(q) {
+      const s = (q || '').trim();
+      if (!s) return false;
+      if (s.includes('？') || s.includes('?')) return true;
+      if (/[\u3040-\u30FF]/.test(s)) return true;
+      if (/(怎么说|怎么写|翻译|语法|敬语|区别|用法|例句|自然吗|对吗)/.test(s)) return true;
+      if (s.includes(' ')) return true;
+      return false;
+    }
+
+    function appendXueMini(text, isUser=false) {
+      const box = document.getElementById('xueMiniBox');
+      if (!box) return;
+      if (isUser) {
+        const div = document.createElement('div');
+        div.style.cssText = "padding:12px;background:#22c55e;color:#fff;margin-left:24px;border:2px solid #333;box-shadow:3px 3px 0px #333;border-radius:0.75rem;font-size:12px;line-height:1.4;";
+        div.innerText = text;
+        box.appendChild(div);
+      } else {
+        const wrap = document.createElement('div');
+        wrap.className = 'flex items-start gap-2';
+        const img = document.createElement('img');
+        img.src = '/xuexueli_avatar_64.png';
+        img.className = 'w-7 h-7 border-2 border-gray-800 bg-white';
+        img.style.imageRendering = 'pixelated';
+        const bubble = document.createElement('div');
+        bubble.style.cssText = "padding:12px;background:#fff;color:#111;flex:1;border:2px solid #333;box-shadow:3px 3px 0px #333;border-radius:0.75rem;font-size:12px;line-height:1.4;";
+        bubble.innerText = text;
+        wrap.appendChild(img);
+        wrap.appendChild(bubble);
+        box.appendChild(wrap);
+      }
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function appendXueMiniLoading() {
+      const box = document.getElementById('xueMiniBox');
+      if (!box) return null;
+      const wrap = document.createElement('div');
+      wrap.className = 'flex items-start gap-2';
+      const img = document.createElement('img');
+      img.src = '/xuexueli_avatar_64.png';
+      img.className = 'w-7 h-7 border-2 border-gray-800 bg-white';
+      img.style.imageRendering = 'pixelated';
+      const bubble = document.createElement('div');
+      bubble.style.cssText = "padding:12px;background:#fff;color:#666;flex:1;display:flex;align-items:center;gap:8px;border:2px solid #333;box-shadow:3px 3px 0px #333;border-radius:0.75rem;font-size:12px;";
+      const spinner = document.createElement('span');
+      spinner.className = 'xue-spinner';
+      const text = document.createElement('span');
+      text.innerText = '哈基米语转人语中.....';
+      bubble.appendChild(spinner);
+      bubble.appendChild(text);
+      wrap.appendChild(img);
+      wrap.appendChild(bubble);
+      box.appendChild(wrap);
+      box.scrollTop = box.scrollHeight;
+      return wrap;
+    }
+
+    async function sendXueMini() {
+      const input = document.getElementById('xueMiniInput');
+      const q = (input?.value || '').trim();
+      if (!q) return;
+      input.value = '';
+      appendXueMini(q, true);
+      const loading = appendXueMiniLoading();
+
+      if (!authToken) {
+        loading?.remove();
+        alert('请先在首页登录后再使用小雪梨（每日限 10 次）。');
+        window.location.href = '/';
+        return;
+      }
+      if (xueIsExhausted()) {
+        loading?.remove();
+        setXueFace('tired');
+        appendXueMini('小雪梨今天回答累了，请明天再来问我吧。', false);
+        return;
+      }
+
+      const isQuestion = q.includes(' ') || q.includes('？') || q.includes('?') || q.length > 20;
+      try {
+        const cls = xueClassify(q);
+        if (cls.mood) setXueFace(cls.mood);
+        if (cls.local) appendXueMini(cls.local, false);
+        if (cls.local && !looksLikeNeedAI(q)) {
+          loading?.remove();
+          return;
+        }
+        let answer = '';
+        if (isQuestion) {
+          const r = await authFetch(`/api/sentence/analyze?q=${encodeURIComponent(q)}`);
+          if (r.status === 429) {
+            xueSetExhausted();
+            setXueFace('tired');
+            loading?.remove();
+            appendXueMini('小雪梨今天回答累了，请明天再来问我吧。', false);
+            return;
+          }
+          const d = await r.json();
+          answer = d.answer || '';
+        } else {
+          const word = (document.getElementById('wordTitle')?.innerText || '').trim();
+          const kana = (document.getElementById('wordReading')?.innerText || '').trim();
+          const meaning = (document.getElementById('meaningText')?.innerText || '').trim();
+          const level = (document.getElementById('levelBadge')?.innerText || '').replace('JLPT','').trim();
+          const params = new URLSearchParams({ q, word, kana, meaning, level });
+          const r = await authFetch(`/api/chat?${params.toString()}`);
+          if (r.status === 429) {
+            xueSetExhausted();
+            setXueFace('tired');
+            loading?.remove();
+            appendXueMini('小雪梨今天回答累了，请明天再来问我吧。', false);
+            return;
+          }
+          const d = await r.json();
+          answer = d.answer || '';
+        }
+        loading?.remove();
+        appendXueMini(answer || '我刚刚走神了，再问我一次吧！');
+      } catch (e) {
+        loading?.remove();
+        appendXueMini('我这边暂时连不上服务器，你稍后再试试～');
+      }
+    }
+
+    document.getElementById('xueMiniSend')?.addEventListener('click', sendXueMini);
+    document.getElementById('xueMiniInput')?.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendXueMini(); });
+    document.getElementById('xueMiniInput')?.addEventListener('focus', () => setXueFace('typing'));
+    document.getElementById('xueMiniInput')?.addEventListener('input', () => setXueFace('typing'));
+
+    // 拖动
+    (function bindXueMiniDrag() {
+      const m = document.getElementById('xueMini');
+      const h = document.getElementById('xueMiniHeader');
+      if (!m || !h) return;
+      let dragging = false;
+      let ox = 0, oy = 0;
+      h.addEventListener('pointerdown', (e) => {
+        if (e.target && e.target.closest && e.target.closest('button')) return;
+        dragging = true;
+        const r = m.getBoundingClientRect();
+        ox = e.clientX - r.left;
+        oy = e.clientY - r.top;
+        m.setPointerCapture?.(e.pointerId);
+      });
+      window.addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        m.style.right = 'auto';
+        m.style.bottom = 'auto';
+        m.style.left = Math.max(8, e.clientX - ox) + 'px';
+        m.style.top = Math.max(8, e.clientY - oy) + 'px';
+      });
+      window.addEventListener('pointerup', () => { dragging = false; });
+    })();
+  </script>
+</body>
+</html>
