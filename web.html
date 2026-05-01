@@ -2537,8 +2537,8 @@ async function startLearning() {
             const exBox = document.getElementById('siExamples');
             exBox.innerHTML = '';
             exArr.slice(0, 3).forEach((it) => {
-                const jp = (it.jp || '').trim();
-                const cn = (it.cn || '').trim();
+                const jp = (it.ja || it.jp || '').trim();
+                const cn = (it.zh || it.cn || '').trim();
                 const div = document.createElement('div');
                 div.className = 'p-3 bg-white border-2 border-[#333] rounded';
                 div.innerHTML = `<div class="text-[12px] font-bold text-gray-900">${jp || '—'}</div><div class="mt-1 text-[11px] text-gray-600">${cn || ''}</div>`;
