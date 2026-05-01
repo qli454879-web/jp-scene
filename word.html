@@ -347,8 +347,8 @@
       }
       sec.classList.remove('hidden');
       arr.slice(0, 6).forEach((ex) => {
-        const jp = (ex && ex.jp) ? String(ex.jp) : '';
-        const cn = (ex && ex.cn) ? String(ex.cn) : '';
+        const jp = (ex && (ex.ja || ex.jp)) ? String(ex.ja || ex.jp) : '';
+        const cn = (ex && (ex.zh || ex.cn)) ? String(ex.zh || ex.cn) : '';
         const div = document.createElement('div');
         div.className = 'p-3 bg-white border-2 border-[#333] rounded';
         div.innerHTML = `

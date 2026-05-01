@@ -1626,7 +1626,10 @@
             }
             if (!arr.length) return null;
             const it = arr[0] || {};
-            return { jp: (it.jp || '').trim(), cn: (it.cn || '').trim() };
+            return {
+                jp: String(it.ja || it.jp || '').trim(),
+                cn: String(it.zh || it.cn || '').trim()
+            };
         }
 
         function todayStr() {
