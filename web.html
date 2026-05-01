@@ -2976,10 +2976,12 @@ async function startLearning() {
 
             const exList = document.getElementById('resExamples');
             exList.innerHTML = '';
-            data.examples.forEach(ex => {
+            (data.examples || []).forEach(ex => {
+                const ja = ex?.ja || ex?.jp || '';
+                const zh = ex?.zh || ex?.cn || '';
                 const div = document.createElement('div');
                 div.className = 'border-b border-gray-100 last:border-none pb-6 last:pb-0';
-                div.innerHTML = `<p class="text-xl font-bold mb-2">${ex.jp}</p><p class="text-gray-400 text-sm">${ex.cn}</p>`;
+                div.innerHTML = `<p class="text-xl font-bold mb-2">${ja}</p><p class="text-gray-400 text-sm">${zh}</p>`;
                 exList.appendChild(div);
             });
         }
