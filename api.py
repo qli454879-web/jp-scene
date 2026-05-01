@@ -22,7 +22,7 @@ from typing import Optional, List, Dict, Any, Tuple
 import csv
 import re
 import mimetypes
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 import psycopg
 import psycopg.rows
 import uuid
@@ -2787,21 +2787,15 @@ async def get_user_stats(username: str = Depends(get_current_user)):
 
 @app.get("/api/vocab/audio/{filename}")
 async def serve_vocab_audio(filename: str):
-    if not re.fullmatch(r"[A-Za-z0-9._-]+", filename):
+    filename = unquote((filename or "").strip())
+    if (
+        not filename
+        or filename in {".", ".."}
+        or "/" in filename
+        or "\\" in filename
+        or any(ord(ch) < 32 for ch in filename)
+    ):
         raise HTTPException(status_code=404, detail="Invalid audio filename")
-    if VOCAB_AUDIO_DIR:
-        path = os.path.join(VOCAB_AUDIO_DIR, filename)
-        if os.path.isfile(path):
-            media_type, _ = mimetypes.guess_type(path)
-            return FileResponse(
-                path,
-                media_type=media_type or "audio/mpeg",
-                headers={
-                    "Accept-Ranges": "bytes",
-                    "Cache-Control": "public, max-age=604800, immutable",
-                },
-            )
-
     if VOCAB_AUDIO_BUCKET and (supabase_admin or supabase_auth):
         storage = (supabase_admin or supabase_auth).storage
         obj_path = f"{VOCAB_AUDIO_PREFIX}/{filename}" if VOCAB_AUDIO_PREFIX else filename
@@ -2836,7 +2830,7 @@ async def serve_vocab_audio(filename: str):
         except Exception:
             pass
 
-    raise HTTPException(status_code=404, detail="Audio file not found")
+    raise HTTPException(status_code=404, detail="Audio file not found in Supabase bucket")
 
 
 @app.get("/api/vocab/tip")
