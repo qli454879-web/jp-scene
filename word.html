@@ -376,9 +376,15 @@
       return data && data.data ? data.data : null;
     }
 
+    function formatLevelLabel(level) {
+      const lv = String(level || '').trim();
+      if (!lv) return '—';
+      return /^N[1-5]$/i.test(lv) ? ('JLPT ' + lv.toUpperCase()) : lv;
+    }
+
     function applyData(data) {
       currentWordData = data || null;
-      document.getElementById('levelBadge').innerText = data.level ? ('JLPT ' + data.level) : 'JLPT';
+      document.getElementById('levelBadge').innerText = formatLevelLabel(data.level || '');
       document.getElementById('wordTitle').innerText = data.word || '---';
       document.getElementById('wordReading').innerText = data.reading || '—';
       document.getElementById('meaningText').innerText = data.meaning || '—';
@@ -449,7 +455,6 @@
 
     function setupAudio(data) {
       const btn = document.getElementById('audioBtn');
-      // iOS/Safari 兼容：复用一个 audio 实例 + playsInline，减少“点喇叭没声音”
       const sharedAudio = document.getElementById('globalAudio') || window.__jpAudio || new Audio();
       try {
         sharedAudio.preload = 'auto';
@@ -461,103 +466,16 @@
       } catch (e) {}
       window.__jpAudio = sharedAudio;
       btn.onclick = () => {
-        const word = data.word || '';
         const fn = (data.mp3 || data.audio_filename || '').trim();
-        if (fn) {
-          try {
-            sharedAudio.pause();
-          } catch (e) {}
-          sharedAudio.src = '/api/vocab/audio/' + encodeURIComponent(fn);
-          try { sharedAudio.load(); } catch (e) {}
-          try { sharedAudio.currentTime = 0; } catch (e) {}
-          // 有些 iOS 机型在 load 后立刻 play 会失败：等到 canplay 再试一次
-          sharedAudio.play().catch(() => {
-            try {
-              sharedAudio.addEventListener('canplay', () => {
-                try { sharedAudio.currentTime = 0; } catch (e) {}
-                try { sharedAudio.play(); } catch (e) {}
-              }, { once: true });
-            } catch (e) {}
-            speakJa(word);
-            showAudioPrompt('/api/vocab/audio/' + encodeURIComponent(fn));
-          });
-          setTimeout(() => {
-            try {
-              if (sharedAudio.paused || (sharedAudio.currentTime || 0) <= 0) showAudioPrompt('/api/vocab/audio/' + encodeURIComponent(fn));
-            } catch (e) {}
-          }, 900);
-          return;
-        }
-        speakJa(word);
+        if (!fn) return;
+        try { sharedAudio.pause(); } catch (e) {}
+        sharedAudio.src = '/api/vocab/audio/' + encodeURIComponent(fn);
+        try { sharedAudio.load(); } catch (e) {}
+        try { sharedAudio.currentTime = 0; } catch (e) {}
+        sharedAudio.play().catch((err) => {
+          console.warn('audio play failed', err);
+        });
       };
-    }
-
-    // iOS Safari 上 speechSynthesis 有时需要提前初始化 voice 列表，否则可能“完全不出声”
-    let __jaVoice = null;
-    function initSpeechVoices() {
-      try {
-        const pick = () => {
-          const vs = window.speechSynthesis?.getVoices?.() || [];
-          __jaVoice = vs.find(v => (v.lang || '').toLowerCase().startsWith('ja')) || null;
-        };
-        pick();
-        if (window.speechSynthesis) {
-          window.speechSynthesis.onvoiceschanged = () => pick();
-        }
-      } catch (e) {}
-    }
-    function speakJa(text) {
-      const t = (text || '').trim();
-      if (!t) return;
-      try {
-        window.speechSynthesis?.cancel?.();
-        const u = new SpeechSynthesisUtterance(t);
-        u.lang = 'ja-JP';
-        u.rate = 1;
-        u.pitch = 1;
-        u.volume = 1;
-        if (__jaVoice) u.voice = __jaVoice;
-        window.speechSynthesis?.speak?.(u);
-      } catch (e) {}
-    }
-    initSpeechVoices();
-
-    // iOS 音频兜底：如果播放失败/无声，给用户一个“再点一次播放”的按钮（第二次点击属于明确手势，成功率更高）
-    let __audioPromptEl = null;
-    function showAudioPrompt(url) {
-      try {
-        if (!url) return;
-        if (__audioPromptEl) __audioPromptEl.remove();
-        const wrap = document.createElement('div');
-        wrap.className = 'fixed z-[9999] left-3 right-3';
-        wrap.style.bottom = 'calc(env(safe-area-inset-bottom) + 12px)';
-        wrap.innerHTML = `
-          <div class="bg-white border-3 border-[#333] shadow-[6px_6px_0px_#333] p-3 flex items-center gap-3">
-            <div class="text-[12px] text-gray-700 flex-1">
-              iPhone 可能阻止了自动播放。点右侧按钮再触发一次即可播放。
-            </div>
-            <button id="audioPromptBtn" class="px-3 py-2 bg-gray-800 text-white border-2 border-gray-800 text-[12px] font-bold">
-              播放声音
-            </button>
-          </div>`;
-        document.body.appendChild(wrap);
-        __audioPromptEl = wrap;
-        const btn = wrap.querySelector('#audioPromptBtn');
-        if (btn) btn.onclick = () => {
-          try {
-            const w = window.open(url, '_blank');
-            if (!w) window.location.href = url;
-          } catch (e) {
-            window.location.href = url;
-          }
-          try { wrap.remove(); } catch (e) {}
-          __audioPromptEl = null;
-        };
-        setTimeout(() => {
-          try { wrap.remove(); } catch (e) {}
-          if (__audioPromptEl === wrap) __audioPromptEl = null;
-        }, 8000);
-      } catch (e) {}
     }
 
     // --- 收藏（单词页也可直接收藏）---
