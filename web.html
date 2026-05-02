@@ -2381,139 +2381,147 @@ async function prefetchStudyQueue(level) {
 }
 
 async function startLearning() {
-    if (!authToken) {
-        toggleAuthModal();
-        return;
-    }
-    loadPendingRates();
-    isLearningSession = true;
-
-    const input = document.getElementById('dailyTargetInput');
-    const parsed = parseInt(input.value, 10);
-    sessionTarget = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 10), 200) : 50;
-    input.value = String(sessionTarget);
-
-    sessionStats = { know: 0, fuzzy: 0, dont_know: 0, newDone: 0, reviewDone: 0 };
-    queueIndex = 0;
-    studyQueue = [];
-    sessionStartTs = Date.now();
-    coverConfig = { word: false, kana: false, meaning: false };
-    isRevealed = true;
-
-    document.getElementById('vocabLevelSelector').classList.add('hidden');
-    document.getElementById('vocabSummaryScreen').classList.add('hidden');
-    document.getElementById('vocabLearningScreen').classList.remove('hidden');
-    document.getElementById('batchSummaryModal').classList.add('hidden');
-    document.getElementById('currentLevelBadge').innerText = formatLevelLabel(currentVocabLevel);
-
-    // 先给用户一个“立刻可见”的反馈，避免空白卡顿感
-    currentVocabData = null;
-    document.getElementById('vocabWord').innerText = '...';
-    document.getElementById('vocabKana').innerText = '正在加载';
-    document.getElementById('vocabMeaning').innerText = '正在生成学习队列（首次可能较慢）';
-    const card = document.getElementById('vocabCard');
-    if (card) card.classList.remove('is-flipped');
-
-    const date = todayStr();
-    const cacheKey = `studyQueue:${storageUserKey()}:${currentVocabLevel}:${date}`;
     try {
-        const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
-        if (cached && Array.isArray(cached.queue) && cached.queue.length) {
-            studyQueue = filterQueueByLocalProgress(cached.queue, date);
-            updateSessionProgress();
-            showCurrent();
-        }
-    } catch (e) {}
-    // 不阻塞 UI：先进入学习界面，再尽快把待同步评分冲到服务器
-    try {
-        if (pendingRates.length) {
-            await Promise.race([
-                flushPendingRates(),
-                new Promise(resolve => setTimeout(resolve, 1200))
-            ]);
-        }
-    } catch (e) {}
-    try {
-        await authFetch('/api/v3/plan', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                level: currentVocabLevel,
-                plan_date: date,
-                daily_new_count: sessionTarget
-            })
-        });
-    } catch (e) {
-        if (String(e && e.message) === 'unauthorized') {
-            alert('登录已失效，请重新登录后开始学习。');
+        if (!authToken) {
+            toggleAuthModal();
             return;
         }
-        console.error(e);
-    }
+        loadPendingRates();
+        isLearningSession = true;
 
-    try {
-        // 如果已预取该等级队列，则直接使用，减少“切换词书后还显示旧词”的时间窗口
-        if (window.__prefetchedQueues && window.__prefetchedQueues.has(currentVocabLevel)) {
-            const pre = window.__prefetchedQueues.get(currentVocabLevel);
-            if (pre && Array.isArray(pre.queue) && pre.queue.length) {
-                studyQueue = filterQueueByLocalProgress(pre.queue, date);
+        const input = document.getElementById('dailyTargetInput');
+        const parsed = parseInt(input?.value || '50', 10);
+        sessionTarget = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 10), 200) : 50;
+        if (input) input.value = String(sessionTarget);
+
+        sessionStats = { know: 0, fuzzy: 0, dont_know: 0, newDone: 0, reviewDone: 0 };
+        queueIndex = 0;
+        studyQueue = [];
+        sessionStartTs = Date.now();
+        coverConfig = { word: false, kana: false, meaning: false };
+        isRevealed = true;
+
+        document.getElementById('vocabLevelSelector').classList.add('hidden');
+        document.getElementById('vocabSummaryScreen').classList.add('hidden');
+        document.getElementById('vocabLearningScreen').classList.remove('hidden');
+        document.getElementById('batchSummaryModal').classList.add('hidden');
+        document.getElementById('currentLevelBadge').innerText = formatLevelLabel(currentVocabLevel);
+
+        // 先给用户一个“立刻可见”的反馈，避免空白卡顿感
+        currentVocabData = null;
+        document.getElementById('vocabWord').innerText = '...';
+        document.getElementById('vocabKana').innerText = '正在加载';
+        document.getElementById('vocabMeaning').innerText = '正在生成学习队列（首次可能较慢）';
+        const card = document.getElementById('vocabCard');
+        if (card) card.classList.remove('is-flipped');
+
+        const date = todayStr();
+        const cacheKey = `studyQueue:${storageUserKey()}:${currentVocabLevel}:${date}`;
+        try {
+            const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+            if (cached && Array.isArray(cached.queue) && cached.queue.length) {
+                studyQueue = filterQueueByLocalProgress(cached.queue, date);
                 updateSessionProgress();
                 showCurrent();
             }
+        } catch (e) {}
+
+        // 不阻塞 UI：先进入学习界面，再尽快把待同步评分冲到服务器
+        try {
+            if (pendingRates.length) {
+                await Promise.race([
+                    flushPendingRates(),
+                    new Promise(resolve => setTimeout(resolve, 1200))
+                ]);
+            }
+        } catch (e) {}
+
+        try {
+            await authFetch('/api/v3/plan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    level: currentVocabLevel,
+                    plan_date: date,
+                    daily_new_count: sessionTarget
+                })
+            });
+        } catch (e) {
+            if (String(e && e.message) === 'unauthorized') {
+                alert('登录已失效，请重新登录后开始学习。');
+                return;
+            }
+            console.error(e);
         }
-        const res = await authFetch(`/api/v3/tasks?level=${encodeURIComponent(currentVocabLevel)}&plan_date=${encodeURIComponent(date)}`);
-        
-        if (!res.ok) {
-            let msg = `学习队列生成失败（${res.status}）`;
+
+        try {
+            // 如果已预取该等级队列，则直接使用，减少“切换词书后还显示旧词”的时间窗口
+            if (window.__prefetchedQueues && window.__prefetchedQueues.has(currentVocabLevel)) {
+                const pre = window.__prefetchedQueues.get(currentVocabLevel);
+                if (pre && Array.isArray(pre.queue) && pre.queue.length) {
+                    studyQueue = filterQueueByLocalProgress(pre.queue, date);
+                    updateSessionProgress();
+                    showCurrent();
+                }
+            }
+            const res = await authFetch(`/api/v3/tasks?level=${encodeURIComponent(currentVocabLevel)}&plan_date=${encodeURIComponent(date)}`);
+            
+            if (!res.ok) {
+                let msg = `学习队列生成失败（${res.status}）`;
+                try {
+                    const err = await res.json();
+                    if (err && err.detail) msg = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
+                } catch (e) {}
+                alert(msg);
+                backToLevels();
+                return;
+            }
+            const data = await res.json();
+            studyQueue = filterQueueByLocalProgress(Array.isArray(data.queue) ? data.queue : [], date);
             try {
-                const err = await res.json();
-                if (err && err.detail) msg = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
+                localStorage.setItem(cacheKey, JSON.stringify({ queue: studyQueue, saved_at: Date.now() }));
             } catch (e) {}
-            alert(msg);
+
+            // 同步错词本/收藏夹（不阻塞主流程，失败也不影响背词）
+            try {
+                const favRes = await authFetch(`/api/v3/favorites?level=${encodeURIComponent(currentVocabLevel)}`);
+                const favArr = await favRes.json();
+                favoritesSet = new Set(Array.isArray(favArr) ? favArr.map(String) : []);
+            } catch (e) {
+                favoritesSet = new Set();
+            }
+            try {
+                const wRes = await authFetch(`/api/v3/wrongbook?level=${encodeURIComponent(currentVocabLevel)}`);
+                const wArr = await wRes.json();
+                wrongbookSet = new Set(Array.isArray(wArr) ? wArr.map(String) : []);
+            } catch (e) {
+                wrongbookSet = new Set();
+            }
+        } catch (e) {
+            if (String(e && e.message) === 'unauthorized') {
+                alert('登录已失效，请重新登录后开始学习。');
+                return;
+            }
+            console.error(e);
+            studyQueue = [];
+        }
+
+        if (!studyQueue.length) {
+            alert(`词书 ${currentVocabLevel} 暂无可学习单词。若你只导入了 N1 词库，请先切换到 N1；或先把该等级词库导入 Supabase。`);
             backToLevels();
             return;
         }
-        const data = await res.json();
-        studyQueue = filterQueueByLocalProgress(Array.isArray(data.queue) ? data.queue : [], date);
-        try {
-            localStorage.setItem(cacheKey, JSON.stringify({ queue: studyQueue, saved_at: Date.now() }));
-        } catch (e) {}
 
-        // 同步错词本/收藏夹（不阻塞主流程，失败也不影响背词）
-        try {
-            const favRes = await authFetch(`/api/v3/favorites?level=${encodeURIComponent(currentVocabLevel)}`);
-            const favArr = await favRes.json();
-            favoritesSet = new Set(Array.isArray(favArr) ? favArr.map(String) : []);
-        } catch (e) {
-            favoritesSet = new Set();
-        }
-        try {
-            const wRes = await authFetch(`/api/v3/wrongbook?level=${encodeURIComponent(currentVocabLevel)}`);
-            const wArr = await wRes.json();
-            wrongbookSet = new Set(Array.isArray(wArr) ? wArr.map(String) : []);
-        } catch (e) {
-            wrongbookSet = new Set();
-        }
+        updateSessionProgress();
+        showCurrent();
+        refreshForecast();
     } catch (e) {
-        if (String(e && e.message) === 'unauthorized') {
-            alert('登录已失效，请重新登录后开始学习。');
-            return;
-        }
-        console.error(e);
-        studyQueue = [];
+        console.error('startLearning failed:', e);
+        alert(`开始学习失败：${e && e.message ? e.message : '前端异常'}`);
+        try { backToLevels(); } catch (_) {}
     }
-
-    if (!studyQueue.length) {
-        alert(`词书 ${currentVocabLevel} 暂无可学习单词。若你只导入了 N1 词库，请先切换到 N1；或先把该等级词库导入 Supabase。`);
-        backToLevels();
-        return;
-    }
-
-    updateSessionProgress();
-    showCurrent();
-    refreshForecast();
 }
         function backToLevels() {
             isLearningSession = false;
