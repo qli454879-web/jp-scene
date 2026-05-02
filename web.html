@@ -1983,7 +1983,6 @@
             try { localStorage.setItem(pendingRateKey(), JSON.stringify(pendingRates.slice(0, 200))); } catch (e) {}
             updateSyncPill();
         }
-        loadPendingRates();
 
         function ratedTodayKey(date) {
             return `ratedToday:${storageUserKey()}:${date}`;
@@ -2096,6 +2095,7 @@
             if (lastSyncToastTimer) clearTimeout(lastSyncToastTimer);
             lastSyncToastTimer = setTimeout(() => pill.classList.add('hidden'), 1200);
         }
+        loadPendingRates();
 
         // 页面切后台/关闭前，尽量把待同步队列发出去（不打断体验）
         window.addEventListener('visibilitychange', () => {
