@@ -15,6 +15,54 @@
     .choice.active { background:#dcfce7; border-color:#16a34a; box-shadow:4px 4px 0 #16a34a; }
     .meter { height:12px; border:2px solid #222; box-shadow:3px 3px 0 #222; border-radius:999px; overflow:hidden; background:#f3f4f6; }
     .hidden-soft { opacity:.2; filter: blur(4px); user-select:none; }
+    .study-card {
+      background:#fff;
+      border:3px solid #222;
+      box-shadow:8px 8px 0 #222;
+      border-radius:18px;
+      min-height:320px;
+      padding:24px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      position:relative;
+      overflow:hidden;
+      transition:transform .18s ease, box-shadow .18s ease;
+    }
+    .study-card:hover { transform:translate(-1px,-1px); box-shadow:10px 10px 0 #222; }
+    .study-card-inner { width:100%; max-width:100%; text-align:center; }
+    .word-big {
+      font-weight:900;
+      line-height:1.12;
+      font-size:clamp(2rem, 7vw, 4rem);
+      word-break:break-word;
+      overflow-wrap:anywhere;
+    }
+    .reading-line {
+      font-size:clamp(1rem, 3vw, 1.25rem);
+      line-height:1.4;
+      color:#6b7280;
+      margin-top:.75rem;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+    }
+    .meaning-big {
+      font-weight:900;
+      line-height:1.35;
+      font-size:clamp(1.25rem, 3.2vw, 1.9rem);
+      word-break:break-word;
+      overflow-wrap:anywhere;
+    }
+    .flip-tip {
+      position:absolute;
+      bottom:16px;
+      left:50%;
+      transform:translateX(-50%);
+      font-size:11px;
+      color:#9ca3af;
+      font-weight:700;
+      white-space:nowrap;
+    }
   </style>
 </head>
 <body class="min-h-screen">
@@ -80,22 +128,33 @@
             <button id="audioBtn" class="btn-soft px-4 py-2 bg-white">播放音频</button>
           </div>
 
-          <div id="studyCardTap" class="text-center cursor-pointer">
-            <div id="promptHint" class="text-sm font-bold text-gray-500 mb-3">看到单词，先自己想意思，再点显示答案</div>
-            <div id="wordText" class="text-5xl font-black tracking-wide">あれ</div>
-            <div id="readingText" class="text-lg text-gray-500 mt-2">あれ</div>
-            <div id="meaningWrap" class="mt-5">
-              <div id="meaningText" class="text-2xl font-black hidden-soft">那个；那件事</div>
+          <div id="promptHint" class="text-sm font-bold text-gray-500 mb-3">看到单词，先自己想意思，再点显示答案</div>
+          <div id="studyCardTap" class="study-card cursor-pointer">
+            <div class="study-card-inner">
+              <div id="wordText" class="word-big tracking-wide">あれ</div>
+              <div id="readingText" class="reading-line">あれ</div>
+              <div id="meaningWrap" class="mt-6">
+                <div id="meaningText" class="meaning-big hidden-soft">那个；那件事</div>
+              </div>
             </div>
+            <div id="cardFlipHint" class="flip-tip">点击卡片：显示答案 / 再点可收起</div>
           </div>
 
-          <div id="inputArea" class="mt-6 hidden">
-            <label id="inputLabel" class="block text-sm font-bold text-gray-600 mb-2">请输入你听到的假名</label>
-            <input id="answerInput" class="w-full border-[3px] border-gray-900 rounded-xl px-4 py-3 text-lg outline-none bg-white" placeholder="例如：あれ" />
-            <div id="inputTip" class="text-xs text-gray-500 mt-2">样本里先做假输入判定，真实版可接你现有音频。</div>
+          <div id="inputArea" class="mt-8 hidden">
+            <div class="grid gap-4">
+              <div>
+                <label id="inputLabel" class="block text-sm font-bold text-gray-600 mb-2">请输入你听到的假名</label>
+                <input id="answerInput" class="w-full border-[3px] border-gray-900 rounded-xl px-4 py-3 text-lg outline-none bg-white" placeholder="例如：あれ" />
+              </div>
+              <div>
+                <label id="meaningInputLabel" class="block text-sm font-bold text-gray-600 mb-2">再输入中文意思</label>
+                <input id="meaningAnswerInput" class="w-full border-[3px] border-gray-900 rounded-xl px-4 py-3 text-lg outline-none bg-white" placeholder="例如：那个" />
+              </div>
+            </div>
+            <div id="inputTip" class="text-xs text-gray-500 mt-3">听音题需要“假名 + 意思”都正确，提交后才会自动进入下一题。</div>
           </div>
 
-          <div id="recallArea" class="mt-6 hidden">
+          <div id="recallArea" class="mt-8 hidden">
             <div class="choice p-4 bg-emerald-50">
               <div class="text-sm font-bold text-gray-500">给你中文，试着主动回忆日文</div>
               <div id="cnPrompt" class="text-2xl font-black mt-2">那个；那件事</div>
@@ -206,6 +265,7 @@
         $('submitInputBtn').classList.add('hidden');
         $('inputArea').classList.add('hidden');
         $('recallArea').classList.add('hidden');
+        $('cardFlipHint').innerText = '样本演示结束';
         return;
       }
 
@@ -222,6 +282,7 @@
       $('meaningText').classList.add('hidden-soft');
       $('cnPrompt').innerText = item.meaning;
       $('answerInput').value = '';
+      $('meaningAnswerInput').value = '';
 
       $('inputArea').classList.toggle('hidden', item.mode !== 'audio');
       $('recallArea').classList.toggle('hidden', item.mode !== 'reverse');
@@ -231,10 +292,13 @@
 
       if (item.mode === 'meaning') {
         $('promptHint').innerText = '看到单词，先自己想意思，再点显示答案';
+        $('cardFlipHint').innerText = '点击卡片：显示答案 / 再点可收起';
       } else if (item.mode === 'audio') {
-        $('promptHint').innerText = '先播放音频，再自己输入假名';
+        $('promptHint').innerText = '先播放音频，再输入假名和中文意思；全对会自动下一题';
+        $('cardFlipHint').innerText = '点击卡片：直接查看答案';
       } else {
         $('promptHint').innerText = '看到中文意思，先回忆日文，再点显示答案';
+        $('cardFlipHint').innerText = '点击卡片：显示答案 / 再点可收起';
       }
     }
 
@@ -253,6 +317,28 @@
       revealed = true;
       $('meaningText').classList.remove('hidden-soft');
       setRatingEnabled(true);
+      $('cardFlipHint').innerText = '已显示答案，再点卡片可收起';
+    }
+
+    function conceal() {
+      revealed = false;
+      $('meaningText').classList.add('hidden-soft');
+      setRatingEnabled(false);
+      $('cardFlipHint').innerText = '点击卡片：显示答案 / 再点可收起';
+    }
+
+    function normalizeText(v) {
+      return String(v || '')
+        .trim()
+        .replace(/[，、；;。.!！?？\s]+/g, '')
+        .toLowerCase();
+    }
+
+    function meaningCandidates(text) {
+      return String(text || '')
+        .split(/[；;、，,/]|(?:\s{2,})/)
+        .map(s => normalizeText(s))
+        .filter(Boolean);
     }
 
     function replayWrong(item) {
@@ -272,15 +358,23 @@
     $('revealBtn').onclick = reveal;
     $('studyCardTap').onclick = () => {
       if (!revealed) reveal();
+      else conceal();
     };
     $('submitInputBtn').onclick = () => {
-      reveal();
       const item = queue[index];
-      const val = ($('answerInput').value || '').trim();
-      if (val && val === item.reading) {
-        $('inputTip').innerText = '输入正确，这里只是样本演示。你也可以继续手动点“认识 / 模糊 / 不认识”。';
+      const readingOk = normalizeText($('answerInput').value) === normalizeText(item.reading);
+      const meaningInput = normalizeText($('meaningAnswerInput').value);
+      const meaningOk = meaningCandidates(item.meaning).some(x => x && meaningInput.includes(x));
+      if (readingOk && meaningOk) {
+        $('inputTip').innerText = '假名和意思都正确，自动进入下一题。';
+        done += 1;
+        index += 1;
+        setTimeout(() => render(), 220);
       } else {
-        $('inputTip').innerText = `样本判定：标准答案是「${item.reading}」`;
+        reveal();
+        const readingMsg = readingOk ? '假名正确' : `假名应为「${item.reading}」`;
+        const meaningMsg = meaningOk ? '意思正确' : `意思可写成「${item.meaning}」`;
+        $('inputTip').innerText = `${readingMsg}；${meaningMsg}。未全部正确，请手动评分。`;
       }
     };
     $('audioBtn').onclick = () => {
