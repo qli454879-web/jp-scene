@@ -1404,18 +1404,22 @@
 
                 if (data.status === 'returning_user') {
                     if (loadingStatus) loadingStatus.innerText = '正在恢复账号会话...';
-                    // 统一走后端 refresh，避免某些 supabase-js 版本出现 "Auth session missing!" 等状态异常
-                    const rr = await fetch('/api/v2/supabase/refresh', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ refresh_token: data.refresh_token })
-                    });
-                    const dd = await rr.json().catch(() => ({}));
-                    if (!rr.ok) {
-                        alert(dd?.detail || '邀请码登录失败');
-                        return;
+                    // 新逻辑：后端会优先直接 refresh；若发现 refresh_token 已轮换/失效，
+                    // 会直接返回一个可用的恢复会话，避免用户看到 “Already Used”。
+                    let session = data.session || null;
+                    if (!session?.access_token) {
+                        const rr = await fetch('/api/v2/supabase/refresh', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ refresh_token: data.refresh_token })
+                        });
+                        const dd = await rr.json().catch(() => ({}));
+                        if (!rr.ok) {
+                            alert(dd?.detail || '邀请码登录失败：会话恢复失败，请联系管理员处理邀请码绑定');
+                            return;
+                        }
+                        session = dd?.session || null;
                     }
-                    const session = dd?.session || null;
                     if (!session?.access_token) {
                         alert('邀请码登录失败：会话无效，请稍后重试');
                         return;
@@ -1431,20 +1435,22 @@
                     // 重要：Supabase 会轮换 refresh_token；必须把最新 refresh_token 写回 invitation_codes，
                     // 否则“退出后再次用邀请码登录”会遇到 refresh_token_not_found。
                     try {
-                        await fetch('/api/v2/code-auth/refresh-token', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                code,
-                                user_id: data.associated_uid || (session?.user?.id || ''),
-                                refresh_token: session.refresh_token || '',
-                                access_token: session.access_token || ''
-                            })
-                        });
+                        if (session.refresh_token) {
+                            await fetch('/api/v2/code-auth/refresh-token', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    code,
+                                    user_id: data.associated_uid || (session?.user?.id || ''),
+                                    refresh_token: session.refresh_token || '',
+                                    access_token: session.access_token || ''
+                                })
+                            });
+                        }
                     } catch (e) {}
 
                     // 若 supabase-js 可用，同步写入本地 session（失败不致命，站内接口仍用 Bearer token）
-                    if (supabaseClient) {
+                    if (supabaseClient && session.refresh_token) {
                         try {
                             await supabaseClient.auth.setSession({
                                 access_token: session.access_token,

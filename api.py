@@ -819,6 +819,37 @@ def _decode_supabase_token(token: str) -> Dict[str, Any]:
         raise HTTPException(status_code=401, detail="Invalid Supabase token")
 
 
+def _mint_invite_recovery_session(user_id: str, email: str = "") -> Dict[str, Any]:
+    """
+    当邀请码绑定的 Supabase refresh_token 已失效/被轮换时，
+    使用 SUPABASE_JWT_SECRET 为原 UID 签一个后端可识别的恢复会话，
+    让老用户仍能进入原账号，不必因为 refresh_token 轮换而被挡在门外。
+    """
+    if not SUPABASE_JWT_SECRET:
+        raise HTTPException(status_code=500, detail="SUPABASE_JWT_SECRET is not configured")
+    now = datetime.utcnow()
+    exp = now + timedelta(days=30)
+    payload = {
+        "sub": str(user_id),
+        "role": "authenticated",
+        "email": email or "",
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+    access_token = jwt.encode(payload, SUPABASE_JWT_SECRET, algorithm="HS256")
+    return {
+        "access_token": access_token,
+        "refresh_token": "",
+        "token_type": "bearer",
+        "expires_in": int((exp - now).total_seconds()),
+        "user": {
+            "id": str(user_id),
+            "email": email or "",
+        },
+        "session_source": "invite_recovery",
+    }
+
+
 def _compute_next_review(repetition: int, rating: str) -> Tuple[int, int, float]:
     repetition = max(0, repetition)
     ease = 2.5
@@ -1346,17 +1377,82 @@ async def code_auth_login_v2(code: str = Body(..., embed=True)):
                 expired = bool((cur.fetchone() or {}).get("expired") or False)
                 if expired:
                     raise HTTPException(status_code=410, detail="邀请码已过期，请联系管理员获取新邀请码")
-            if not row.get("associated_uid") or not row.get("associated_refresh_token"):
-                raise HTTPException(status_code=409, detail="邀请码已绑定，但会话数据缺失，请联系管理员重置")
-            return {
-                "status": "returning_user",
-                "code": code_clean,
-                "associated_uid": str(row["associated_uid"]),
-                "refresh_token": row["associated_refresh_token"],
-                "access_token": row.get("associated_access_token"),
-            }
+            associated_uid = str(row.get("associated_uid") or "")
+            stored_refresh_token = str(row.get("associated_refresh_token") or "").strip()
+            stored_access_token = str(row.get("associated_access_token") or "").strip()
+            if not associated_uid:
+                raise HTTPException(status_code=409, detail="邀请码已绑定，但缺少用户标识，请联系管理员重置")
     finally:
         conn.close()
+
+    # 走到这里表示“老用户邀请码恢复”
+    # 优先在后端直接 refresh，并把轮换后的 refresh_token 写回 DB；
+    # 若遇到 Already Used / token_not_found，则自动回退为恢复会话，避免把用户卡死。
+    session = None
+    session_source = "supabase_refresh"
+    refresh_error_detail = ""
+    if stored_refresh_token:
+        try:
+            session = await _supabase_refresh_session(stored_refresh_token)
+        except HTTPException as e:
+            refresh_error_detail = str(e.detail or "")
+            msg = refresh_error_detail.lower()
+            if ("already used" in msg) or ("refresh_token_not_found" in msg) or ("invalid refresh token" in msg):
+                session = _mint_invite_recovery_session(associated_uid)
+                session_source = "invite_recovery"
+            else:
+                raise
+    else:
+        session = _mint_invite_recovery_session(associated_uid)
+        session_source = "invite_recovery"
+
+    # 若拿到了新的 Supabase session，则把轮换后的 token 回写，避免下次继续踩坑
+    if session_source == "supabase_refresh" and session and session.get("refresh_token"):
+        conn2 = _pg_conn()
+        try:
+            with conn2.cursor() as cur2:
+                cur2.execute(
+                    """
+                    UPDATE invitation_codes
+                    SET associated_refresh_token=%s,
+                        associated_access_token=%s,
+                        updated_at=NOW()
+                    WHERE code=%s AND associated_uid=%s::uuid
+                    """,
+                    (session.get("refresh_token"), session.get("access_token") or None, code_clean, associated_uid),
+                )
+            conn2.commit()
+        finally:
+            conn2.close()
+
+    # 恢复会话也把 access_token 更新一下，便于站内直接继续用 Bearer token
+    if session_source == "invite_recovery" and session and session.get("access_token"):
+        conn3 = _pg_conn()
+        try:
+            with conn3.cursor() as cur3:
+                cur3.execute(
+                    """
+                    UPDATE invitation_codes
+                    SET associated_access_token=%s,
+                        updated_at=NOW()
+                    WHERE code=%s AND associated_uid=%s::uuid
+                    """,
+                    (session.get("access_token"), code_clean, associated_uid),
+                )
+            conn3.commit()
+        finally:
+            conn3.close()
+
+    return {
+        "status": "returning_user",
+        "code": code_clean,
+        "associated_uid": associated_uid,
+        "refresh_token": stored_refresh_token,
+        "access_token": stored_access_token or (session or {}).get("access_token"),
+        "session": session,
+        "session_source": session_source,
+        "refresh_error_detail": refresh_error_detail or None,
+    }
 
 
 async def _supabase_anonymous_signup() -> Dict[str, Any]:
