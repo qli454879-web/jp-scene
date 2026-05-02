@@ -2386,7 +2386,6 @@ async function startLearning() {
         return;
     }
     loadPendingRates();
-    await flushPendingRates();
     isLearningSession = true;
 
     const input = document.getElementById('dailyTargetInput');
@@ -2423,6 +2422,15 @@ async function startLearning() {
             studyQueue = filterQueueByLocalProgress(cached.queue, date);
             updateSessionProgress();
             showCurrent();
+        }
+    } catch (e) {}
+    // 不阻塞 UI：先进入学习界面，再尽快把待同步评分冲到服务器
+    try {
+        if (pendingRates.length) {
+            await Promise.race([
+                flushPendingRates(),
+                new Promise(resolve => setTimeout(resolve, 1200))
+            ]);
         }
     } catch (e) {}
     try {
