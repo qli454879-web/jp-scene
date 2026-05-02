@@ -4078,6 +4078,20 @@ async def study_prototype_page():
             headers={"Cache-Control": "no-store, max-age=0"},
         )
 
+@app.api_route("/study-prototype-v2", methods=["GET", "HEAD"], response_class=HTMLResponse)
+async def study_prototype_v2_page():
+    try:
+        return HTMLResponse(
+            content=_read_local_file("study-prototype-v2.html"),
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
+    except FileNotFoundError:
+        return HTMLResponse(
+            content="study-prototype-v2.html not found on server.",
+            status_code=404,
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page():
     return _read_local_file("admin.html")
