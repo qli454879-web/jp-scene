@@ -719,7 +719,7 @@
 
     <!-- Study Insight Modal（改成与“搜单词单词卡”同风格） -->
     <div id="studyInsightModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-[650] p-4">
-        <div class="w-full max-w-4xl reveal">
+        <div class="w-full max-w-3xl reveal">
             <div class="card-pixel !p-0 bg-white">
             <div class="p-4 border-b-3 border-[#333] flex items-center justify-between">
                 <div class="pixel-font text-xl">单词卡 / Insight</div>
@@ -779,15 +779,6 @@
                     </div>
                 </div>
             </div>
-            </div>
-
-            <!-- Examples Card -->
-            <div class="card-pixel !p-0 mt-4 bg-white">
-                <div class="p-6 bg-gray-800 text-white flex justify-between items-center">
-                    <h4 class="text-[10px] font-bold uppercase tracking-widest">地道例句 / Examples</h4>
-                    <i class="fa-solid fa-play-circle text-xl opacity-50"></i>
-                </div>
-                <div id="siExamples" class="p-8 space-y-6"></div>
             </div>
         </div>
     </div>
@@ -2593,25 +2584,13 @@ async function startLearning() {
                 const row = document.createElement('div');
                 row.innerHTML = `
                     <div class="flex justify-between text-[10px] font-bold mb-1"><span>${k}</span><span>${pct}%</span></div>
-                    <div class="w-full h-2 bg-gray-100 border-2 border-[#333] rounded overflow-hidden">
+                    <div class="w-full h-3 bg-gray-100 border-2 border-[#333] shadow-[3px_3px_0px_#333] rounded overflow-hidden">
                         <div class="h-full bg-green-500" style="width:${pct}%"></div>
                     </div>
                 `;
                 heatBox.appendChild(row);
             });
             if (!entries.length) heatBox.innerHTML = `<div class="text-[11px] text-gray-400">—</div>`;
-
-            const exBox = document.getElementById('siExamples');
-            exBox.innerHTML = '';
-            exArr.slice(0, 3).forEach((it) => {
-                const jp = (it.ja || it.jp || '').trim();
-                const cn = (it.zh || it.cn || '').trim();
-                const div = document.createElement('div');
-                div.className = 'border-b border-gray-100 last:border-none pb-6 last:pb-0';
-                div.innerHTML = `<p class="text-xl font-bold mb-2">${jp || '—'}</p><p class="text-gray-400 text-sm">${cn || ''}</p>`;
-                exBox.appendChild(div);
-            });
-            if (!exArr.length) exBox.innerHTML = `<div class="text-[11px] text-gray-400">—</div>`;
 
             document.getElementById('siInsight').innerText = (data.insight_text || '').trim() || '—';
             syncFavButton();
@@ -2630,10 +2609,10 @@ async function startLearning() {
                     const obj = (sc && typeof sc === 'object') ? (sc[c.key] || null) : null;
                     const allowed = obj ? (obj.allowed === true) : false;
                     const el = document.createElement('div');
-                    el.className = `p-4 border-2 border-[#333] ${allowed ? 'bg-green-50' : 'bg-gray-50'} shadow-[3px_3px_0px_#333]`;
+                    el.className = `p-4 border-2 ${allowed ? 'border-green-500 bg-green-50 shadow-[4px_4px_0px_#4CAF50]' : 'border-gray-400 bg-gray-50 shadow-[4px_4px_0px_#9CA3AF]'}`;
                     el.innerHTML = `
                         <div class="flex items-center gap-2 text-[11px] font-bold mb-2">
-                            <span class="inline-block w-2 h-2 ${allowed ? 'bg-green-500' : 'bg-gray-300'}"></span>
+                            <span class="inline-block w-2.5 h-2.5 ${allowed ? 'bg-green-500' : 'bg-gray-300'}"></span>
                             <span>${obj?.label_ja || c.title}</span>
                         </div>
                         <div class="text-[10px] text-gray-600">${obj?.label_zh || c.sub}</div>
