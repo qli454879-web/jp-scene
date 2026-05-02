@@ -225,8 +225,8 @@
         .vocab-card-container {
             perspective: 1000px;
             width: 100%;
-            max-width: 520px;
-            height: 420px;
+            max-width: 460px;
+            height: 340px;
             margin: 0 auto;
         }
         .vocab-card {
@@ -252,7 +252,7 @@
             border: 3px solid #333;
             box-shadow: 6px 6px 0px #333;
             background: white;
-            padding: 24px 20px 36px;
+            padding: 18px 18px 24px;
             overflow-y: auto;
             overflow-x: hidden;
         }
@@ -263,8 +263,8 @@
         #vocabWord, #vocabWordRuby {
             width: 100%;
             max-width: 100%;
-            font-size: clamp(2.3rem, 5.2vw, 4.2rem);
-            line-height: 1.12;
+            font-size: clamp(1.9rem, 4.4vw, 3.2rem);
+            line-height: 1.18;
             word-break: break-word;
             overflow-wrap: anywhere;
         }
@@ -275,7 +275,7 @@
         #vocabKana {
             width: 100%;
             max-width: 100%;
-            font-size: clamp(1.1rem, 2.6vw, 1.8rem);
+            font-size: clamp(1rem, 2.1vw, 1.35rem);
             line-height: 1.35;
             word-break: break-word;
             overflow-wrap: anywhere;
@@ -283,18 +283,32 @@
         #vocabMeaning {
             width: 100%;
             max-width: 100%;
-            font-size: clamp(1.1rem, 2.8vw, 1.7rem);
-            line-height: 1.42;
+            font-size: clamp(1rem, 2.2vw, 1.3rem);
+            line-height: 1.5;
             word-break: break-word;
             overflow-wrap: anywhere;
+        }
+        #vocabLearningScreen #studyPromptLabel,
+        #vocabLearningScreen #studyFrontHint,
+        #vocabLearningScreen #frontCardActions,
+        #vocabLearningScreen #vocabTipBox {
+            display: none !important;
+        }
+        #vocabLearningScreen #vocabMetaRow {
+            margin-bottom: 0.5rem;
+            justify-content: center;
+        }
+        #vocabLearningScreen #vocabBackActions {
+            margin-top: auto;
+            justify-content: center;
         }
         @media (max-width: 640px) {
             .vocab-card-container {
                 max-width: 100%;
-                height: 400px;
+                height: 320px;
             }
             .vocab-card-front, .vocab-card-back {
-                padding: 20px 16px 34px;
+                padding: 16px 14px 22px;
             }
         }
 
@@ -647,7 +661,7 @@
                         <span id="studyPromptLabel" class="text-[10px] text-gray-400 mb-4 tracking-widest uppercase">Word / 単語</span>
                         <h2 id="vocabWord" class="text-6xl font-bold serif">---</h2>
                         <div id="vocabWordRuby" class="hidden text-6xl font-bold serif leading-tight"></div>
-                        <div class="mt-6 flex justify-center gap-4">
+                        <div id="frontCardActions" class="mt-6 flex justify-center gap-4">
                             <button type="button" onclick="playVocabAudio()" class="audio-btn"><i class="fa-solid fa-volume-up"></i></button>
                             <button type="button" onclick="toggleVocabFavorite()" id="vocabFavBtn" class="w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full hover:bg-red-50 transition-colors"><i class="fa-regular fa-heart text-gray-400"></i></button>
                         </div>
@@ -659,13 +673,13 @@
                         </div>
                         <h3 id="vocabKana" class="text-2xl text-green-600 mb-2">---</h3>
                         <p id="vocabMeaning" class="text-xl font-bold mb-4">---</p>
-                        <div class="flex flex-wrap gap-2 mb-3">
+                        <div id="vocabMetaRow" class="flex flex-wrap gap-2 mb-3">
                             <span id="vocabPosBadge" class="text-[10px] px-2 py-1 bg-white border border-gray-200">词性：---</span>
                             <span id="vocabUsageFreq" class="text-[10px] px-2 py-1 bg-orange-50 border border-orange-300">频次：---</span>
                         </div>
 
                         <!-- AI Partner Tip Box -->
-                        <div class="mb-4 p-3 bg-blue-50 border-2 border-blue-100 rounded-xl relative text-left">
+                        <div id="vocabTipBox" class="mb-4 p-3 bg-blue-50 border-2 border-blue-100 rounded-xl relative text-left">
                             <div class="absolute -top-3 left-4 bg-blue-500 text-white text-[8px] px-2 py-0.5 rounded-full font-bold">AI 伙伴</div>
                             <p id="vocabTip" class="text-[11px] text-blue-800 leading-relaxed italic">需要提示时点一下生成（避免卡顿与重复消耗）。</p>
                             <div class="mt-2 flex justify-end">
@@ -673,7 +687,7 @@
                             </div>
                         </div>
 
-                        <div class="flex gap-3">
+                        <div id="vocabBackActions" class="flex gap-3">
                             <button type="button" onclick="toggleVocabFavorite()" class="px-3 py-2 bg-gray-100 text-[10px] font-bold hover:bg-red-50 transition-colors">
                                 <i class="fa-regular fa-heart mr-1"></i> 收藏
                             </button>
@@ -685,10 +699,12 @@
                 </div>
             </div>
 
-            <div id="studyInputArea" class="hidden mb-5">
+            <div id="studyInputArea" class="hidden mt-10 mb-6">
                 <div class="p-4 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333] text-left">
                     <label id="studyInputLabel" class="block text-[11px] text-gray-500 font-bold mb-2">请输入你听到的假名</label>
                     <input id="studyAnswerInput" type="text" class="w-full border-2 border-gray-800 p-3 text-lg font-bold outline-none focus:border-green-500 bg-white" placeholder="例如：あれ">
+                    <label id="studyMeaningInputLabel" class="block text-[11px] text-gray-500 font-bold mt-4 mb-2 hidden">再输入中文意思</label>
+                    <input id="studyMeaningInput" type="text" class="hidden w-full border-2 border-gray-800 p-3 text-lg font-bold outline-none focus:border-green-500 bg-white" placeholder="例如：那个">
                     <div id="studyInputFeedback" class="mt-2 text-[11px] text-gray-500">先播放音频，再输入假名。</div>
                 </div>
             </div>
@@ -1835,6 +1851,17 @@
             }
         }
 
+        function normalizeStudyText(v) {
+            return String(v || '').trim().replace(/[，、；;。.!！?？\s]+/g, '').toLowerCase();
+        }
+
+        function studyMeaningCandidates(text) {
+            return String(text || '')
+                .split(/[；;、，,/]/)
+                .map(s => normalizeStudyText(s))
+                .filter(Boolean);
+        }
+
         function studyModeLabel(mode) {
             if (mode === 'audio') return '听音输入假名';
             if (mode === 'reverse') return '看义回忆词';
@@ -2005,6 +2032,8 @@
             const inputArea = document.getElementById('studyInputArea');
             const inputLabel = document.getElementById('studyInputLabel');
             const inputBox = document.getElementById('studyAnswerInput');
+            const meaningLabel = document.getElementById('studyMeaningInputLabel');
+            const meaningBox = document.getElementById('studyMeaningInput');
             const inputFeedback = document.getElementById('studyInputFeedback');
             if (kindBadge) {
                 const retry = !!item.retry_round;
@@ -2017,7 +2046,10 @@
             if (submitBtn) submitBtn.classList.toggle('hidden', currentStudyMode !== 'audio');
             if (revealBtn) revealBtn.innerText = currentStudyMode === 'audio' ? '不会，显示答案' : '显示答案';
             if (inputBox) inputBox.value = '';
-            if (inputFeedback) inputFeedback.innerText = currentStudyMode === 'audio' ? '先播放音频，再输入假名。' : '';
+            if (meaningBox) meaningBox.value = '';
+            if (meaningLabel) meaningLabel.classList.toggle('hidden', currentStudyMode !== 'audio');
+            if (meaningBox) meaningBox.classList.toggle('hidden', currentStudyMode !== 'audio');
+            if (inputFeedback) inputFeedback.innerText = currentStudyMode === 'audio' ? '已自动播放音频。请填写假名和中文意思，两个都正确会自动进入下一题。' : '';
             setStudyRatingEnabled(false);
 
             if (currentStudyMode === 'audio') {
@@ -2027,9 +2059,12 @@
                     plain.innerText = '♪';
                 }
                 if (promptLabel) promptLabel.innerText = 'Listen / 听音输入';
-                if (promptHint) promptHint.innerText = '先播放音频，听完后输入假名，再决定是否看答案。';
+                if (promptHint) promptHint.innerText = '已自动播放音频。先输入假名和中文意思；都对就直接下一题，不对再看答案。';
                 if (frontHint) frontHint.innerText = '这题不看单词，只靠听音';
                 if (inputLabel) inputLabel.innerText = '请输入你听到的假名';
+                setTimeout(() => {
+                    if (currentVocabData === item && currentStudyMode === 'audio') playVocabAudio();
+                }, 80);
             } else if (currentStudyMode === 'reverse') {
                 if (plain && ruby) {
                     plain.classList.remove('hidden');
@@ -2042,7 +2077,7 @@
             } else {
                 renderWordRuby(currentVocabData.word, reading);
                 if (promptLabel) promptLabel.innerText = 'Word / 単語';
-                if (promptHint) promptHint.innerText = '看到单词，先自己想意思，再点显示答案。';
+                if (promptHint) promptHint.innerText = '看到单词，先自己想意思。卡片正面只保留单词，点卡片或点按钮看答案。';
                 if (frontHint) frontHint.innerText = '先回忆，再显示答案';
             }
             updateSessionProgress();
@@ -2061,12 +2096,23 @@
             const item = studyQueue[queueIndex];
             if (!item) return;
             const input = document.getElementById('studyAnswerInput');
+            const meaningInput = document.getElementById('studyMeaningInput');
             const feedback = document.getElementById('studyInputFeedback');
-            const got = String(input?.value || '').trim().replace(/\s+/g, '');
-            const expected = String(getReading(item) || '').trim().replace(/\s+/g, '');
+            const got = normalizeStudyText(input?.value || '');
+            const expected = normalizeStudyText(getReading(item) || '');
+            const meaningGot = normalizeStudyText(meaningInput?.value || '');
+            const meaningOk = studyMeaningCandidates(getMeaning(item)).some(x => x && (meaningGot.includes(x) || x.includes(meaningGot)));
+            const readingOk = !!got && !!expected && got === expected;
+            if (readingOk && meaningOk) {
+                if (feedback) feedback.innerText = '假名和意思都正确，自动进入下一题。';
+                studyAnswerShown = true;
+                rateCurrent('know');
+                return;
+            }
             if (feedback) {
-                if (got && expected && got === expected) feedback.innerText = '输入正确，继续看答案并评分。';
-                else feedback.innerText = `标准答案：${expected || '—'}`;
+                const readingMsg = readingOk ? '假名正确' : `假名应为「${getReading(item) || '—'}」`;
+                const meaningMsg = meaningOk ? '意思正确' : `意思可写作「${getMeaning(item) || '—'}」`;
+                feedback.innerText = `${readingMsg}；${meaningMsg}。未全部正确，请看答案后手动评分。`;
             }
             revealStudyAnswer();
         }
