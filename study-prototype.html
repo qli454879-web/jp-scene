@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>背词流程样本</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background:#f7f1e3; color:#1f2937; }
+    .panel { background:#fffdf8; border:3px solid #222; box-shadow:8px 8px 0 #222; border-radius:18px; }
+    .chip { border:2px solid #222; box-shadow:3px 3px 0 #222; border-radius:999px; padding:.25rem .7rem; font-weight:700; font-size:12px; background:#fff; }
+    .btn-main { border:3px solid #222; box-shadow:6px 6px 0 #222; border-radius:14px; font-weight:800; }
+    .btn-soft { border:2px solid #222; box-shadow:4px 4px 0 #222; border-radius:12px; font-weight:700; }
+    .choice { border:2px solid #222; box-shadow:4px 4px 0 #222; border-radius:14px; background:#fff; }
+    .choice.active { background:#dcfce7; border-color:#16a34a; box-shadow:4px 4px 0 #16a34a; }
+    .meter { height:12px; border:2px solid #222; box-shadow:3px 3px 0 #222; border-radius:999px; overflow:hidden; background:#f3f4f6; }
+    .hidden-soft { opacity:.2; filter: blur(4px); user-select:none; }
+  </style>
+</head>
+<body class="min-h-screen">
+  <div class="max-w-6xl mx-auto px-4 py-8">
+    <div class="flex flex-col lg:flex-row gap-6">
+      <main class="flex-1 space-y-5">
+        <section class="panel p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div class="text-sm text-gray-500 font-bold">背词流程样本</div>
+              <h1 class="text-3xl font-black mt-1">先复习，再学新，再混合抽查</h1>
+              <p class="text-sm text-gray-600 mt-2">样本目标：让用户一眼知道当前是复习还是新词，并通过多题型提高主动回忆强度。</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <span class="chip bg-amber-100">复习优先</span>
+              <span class="chip bg-emerald-100">新词有标注</span>
+              <span class="chip bg-sky-100">多题型混合</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel p-5">
+          <div class="flex items-center justify-between gap-4 mb-4">
+            <div>
+              <div class="text-sm text-gray-500 font-bold">今日学习</div>
+              <div class="text-xl font-black"><span id="doneCount">0</span> / <span id="totalCount">6</span></div>
+            </div>
+            <div class="min-w-[220px]">
+              <div class="flex justify-between text-xs font-bold mb-1">
+                <span>当前进度</span>
+                <span id="progressText">0%</span>
+              </div>
+              <div class="meter"><div id="progressBar" class="h-full bg-green-500" style="width:0%"></div></div>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-4 gap-3">
+            <div class="choice p-4">
+              <div class="text-xs text-gray-500 font-bold">待复习</div>
+              <div id="reviewLeft" class="text-2xl font-black mt-1">3</div>
+            </div>
+            <div class="choice p-4">
+              <div class="text-xs text-gray-500 font-bold">待学习</div>
+              <div id="newLeft" class="text-2xl font-black mt-1">3</div>
+            </div>
+            <div class="choice p-4">
+              <div class="text-xs text-gray-500 font-bold">当前题型</div>
+              <div id="modeLabelTop" class="text-lg font-black mt-1">看词想义</div>
+            </div>
+            <div class="choice p-4">
+              <div class="text-xs text-gray-500 font-bold">当前阶段</div>
+              <div id="phaseLabelTop" class="text-lg font-black mt-1">先复习</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel p-6">
+          <div class="flex items-center justify-between gap-3 mb-5">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span id="kindBadge" class="chip bg-amber-100">复习</span>
+              <span id="modeBadge" class="chip bg-sky-100">看词想义</span>
+              <span id="queueBadge" class="chip bg-white">第 1 题</span>
+            </div>
+            <button id="audioBtn" class="btn-soft px-4 py-2 bg-white">播放音频</button>
+          </div>
+
+          <div class="text-center">
+            <div id="promptHint" class="text-sm font-bold text-gray-500 mb-3">看到单词，先自己想意思，再点显示答案</div>
+            <div id="wordText" class="text-5xl font-black tracking-wide">あれ</div>
+            <div id="readingText" class="text-lg text-gray-500 mt-2">あれ</div>
+            <div id="meaningWrap" class="mt-5">
+              <div id="meaningText" class="text-2xl font-black hidden-soft">那个；那件事</div>
+            </div>
+          </div>
+
+          <div id="inputArea" class="mt-6 hidden">
+            <label id="inputLabel" class="block text-sm font-bold text-gray-600 mb-2">请输入你听到的假名</label>
+            <input id="answerInput" class="w-full border-[3px] border-gray-900 rounded-xl px-4 py-3 text-lg outline-none bg-white" placeholder="例如：あれ" />
+            <div id="inputTip" class="text-xs text-gray-500 mt-2">样本里先做假输入判定，真实版可接你现有音频。</div>
+          </div>
+
+          <div id="recallArea" class="mt-6 hidden">
+            <div class="choice p-4 bg-emerald-50">
+              <div class="text-sm font-bold text-gray-500">给你中文，试着主动回忆日文</div>
+              <div id="cnPrompt" class="text-2xl font-black mt-2">那个；那件事</div>
+            </div>
+          </div>
+
+          <div class="mt-6 flex flex-wrap gap-3 justify-center">
+            <button id="revealBtn" class="btn-main px-6 py-3 bg-gray-900 text-white">显示答案</button>
+            <button id="submitInputBtn" class="btn-main px-6 py-3 bg-sky-500 text-white hidden">提交输入</button>
+          </div>
+
+          <div id="ratingArea" class="mt-6 hidden">
+            <div class="grid md:grid-cols-3 gap-3">
+              <button class="btn-soft px-4 py-4 bg-red-100" data-rate="again">不认识 / Again</button>
+              <button class="btn-soft px-4 py-4 bg-yellow-100" data-rate="hard">模糊 / Hard</button>
+              <button class="btn-soft px-4 py-4 bg-green-100" data-rate="good">认识 / Good</button>
+            </div>
+            <div class="text-xs text-gray-500 mt-3 text-center">样本逻辑：先复习牌，再新牌；错的会在本轮后半段再出现一次。</div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="w-full lg:w-[340px] space-y-5">
+        <section class="panel p-5">
+          <div class="text-sm text-gray-500 font-bold">我借鉴的点</div>
+          <ul class="mt-3 space-y-3 text-sm leading-6">
+            <li><b>先复习再新词</b>：成熟 SRS 会优先清掉到期复习，避免新词把复习堆爆。</li>
+            <li><b>主动回忆，不只翻卡</b>：看词想义只是最低门槛，最好再混入听音输入、看义回忆词。</li>
+            <li><b>明确标注新 / 复习</b>：否则用户会以为系统卡住，或者不知道为什么重复出现。</li>
+            <li><b>一个会话内多题型</b>：识别、回忆、听写混合，记忆更牢。</li>
+          </ul>
+        </section>
+
+        <section class="panel p-5">
+          <div class="text-sm text-gray-500 font-bold">建议流程</div>
+          <ol class="mt-3 space-y-3 text-sm leading-6 list-decimal pl-5">
+            <li>先推今日到期复习卡</li>
+            <li>复习完成后再发新词</li>
+            <li>新词第一次用“看词想义”熟悉</li>
+            <li>同轮追加“听音输入假名 / 看义回忆词”做强化</li>
+            <li>答错卡回收到本轮尾部再见一次</li>
+          </ol>
+        </section>
+
+        <section class="panel p-5">
+          <div class="text-sm text-gray-500 font-bold mb-3">样本里的题型</div>
+          <div class="space-y-2">
+            <div class="chip bg-sky-100 inline-flex">1. 看词想义</div>
+            <div class="chip bg-violet-100 inline-flex">2. 听音输入假名</div>
+            <div class="chip bg-emerald-100 inline-flex">3. 看义回忆词</div>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const baseQueue = [
+      { kind: 'review', mode: 'meaning', word: 'あれ', reading: 'あれ', meaning: '那个；那件事' },
+      { kind: 'review', mode: 'audio', word: '会議', reading: 'かいぎ', meaning: '会议' },
+      { kind: 'review', mode: 'reverse', word: '依頼', reading: 'いらい', meaning: '请求；委托' },
+      { kind: 'new', mode: 'meaning', word: '靡く', reading: 'なびく', meaning: '随风摆动；倾倒' },
+      { kind: 'new', mode: 'audio', word: '古事記', reading: 'こじき', meaning: '《古事记》' },
+      { kind: 'new', mode: 'reverse', word: '委ねる', reading: 'ゆだねる', meaning: '委托；交由' }
+    ];
+
+    let queue = JSON.parse(JSON.stringify(baseQueue));
+    let index = 0;
+    let revealed = false;
+    let done = 0;
+
+    const $ = (id) => document.getElementById(id);
+
+    function modeLabel(mode) {
+      return mode === 'meaning' ? '看词想义' : mode === 'audio' ? '听音输入假名' : '看义回忆词';
+    }
+
+    function kindLabel(kind) {
+      return kind === 'review' ? '复习' : '新词';
+    }
+
+    function phaseLabel() {
+      const hasReview = queue.slice(index).some(i => i.kind === 'review');
+      return hasReview ? '先复习' : '开始新词';
+    }
+
+    function updateStats() {
+      $('doneCount').innerText = String(done);
+      $('totalCount').innerText = String(queue.length);
+      const pct = queue.length ? Math.round(done / queue.length * 100) : 100;
+      $('progressText').innerText = `${pct}%`;
+      $('progressBar').style.width = `${pct}%`;
+      $('reviewLeft').innerText = String(queue.slice(index).filter(i => i.kind === 'review').length);
+      $('newLeft').innerText = String(queue.slice(index).filter(i => i.kind === 'new').length);
+      $('phaseLabelTop').innerText = phaseLabel();
+    }
+
+    function render() {
+      updateStats();
+      const item = queue[index];
+      if (!item) {
+        $('wordText').innerText = '今日完成';
+        $('readingText').innerText = '你可以决定是否把这个方向写入正式代码';
+        $('meaningText').innerText = '样本演示结束';
+        $('meaningText').classList.remove('hidden-soft');
+        $('promptHint').innerText = '这个样本主要让你看流程和题型，不是最终视觉稿。';
+        $('revealBtn').classList.add('hidden');
+        $('submitInputBtn').classList.add('hidden');
+        $('ratingArea').classList.add('hidden');
+        $('inputArea').classList.add('hidden');
+        $('recallArea').classList.add('hidden');
+        return;
+      }
+
+      revealed = false;
+      $('kindBadge').innerText = kindLabel(item.kind);
+      $('kindBadge').className = `chip ${item.kind === 'review' ? 'bg-amber-100' : 'bg-emerald-100'}`;
+      $('modeBadge').innerText = modeLabel(item.mode);
+      $('queueBadge').innerText = `第 ${index + 1} 题`;
+      $('modeLabelTop').innerText = modeLabel(item.mode);
+
+      $('wordText').innerText = item.word;
+      $('readingText').innerText = item.mode === 'reverse' ? '请先自己回忆日文' : item.reading;
+      $('meaningText').innerText = item.meaning;
+      $('meaningText').classList.add('hidden-soft');
+      $('cnPrompt').innerText = item.meaning;
+      $('answerInput').value = '';
+
+      $('inputArea').classList.toggle('hidden', item.mode !== 'audio');
+      $('recallArea').classList.toggle('hidden', item.mode !== 'reverse');
+      $('submitInputBtn').classList.toggle('hidden', item.mode !== 'audio');
+      $('revealBtn').classList.remove('hidden');
+      $('ratingArea').classList.add('hidden');
+
+      if (item.mode === 'meaning') {
+        $('promptHint').innerText = '看到单词，先自己想意思，再点显示答案';
+      } else if (item.mode === 'audio') {
+        $('promptHint').innerText = '先播放音频，再自己输入假名';
+      } else {
+        $('promptHint').innerText = '看到中文意思，先回忆日文，再点显示答案';
+      }
+    }
+
+    function reveal() {
+      revealed = true;
+      $('meaningText').classList.remove('hidden-soft');
+      $('ratingArea').classList.remove('hidden');
+    }
+
+    function replayWrong(item) {
+      const clone = { ...item, kind: 'review' };
+      queue.push(clone);
+    }
+
+    function rate(result) {
+      const item = queue[index];
+      if (!item) return;
+      if (result === 'again') replayWrong(item);
+      done += 1;
+      index += 1;
+      render();
+    }
+
+    $('revealBtn').onclick = reveal;
+    $('submitInputBtn').onclick = () => {
+      reveal();
+      const item = queue[index];
+      const val = ($('answerInput').value || '').trim();
+      if (val && val === item.reading) {
+        $('inputTip').innerText = '输入正确，这里只是样本演示。你也可以继续手动点“认识 / 模糊 / 不认识”。';
+      } else {
+        $('inputTip').innerText = `样本判定：标准答案是「${item.reading}」`;
+      }
+    };
+    $('audioBtn').onclick = () => {
+      const item = queue[index];
+      alert(`样本播放：${item ? item.reading : ''}\n\n正式版这里会直接播你现有 mp3。`);
+    };
+    document.querySelectorAll('[data-rate]').forEach(btn => {
+      btn.onclick = () => rate(btn.dataset.rate);
+    });
+
+    render();
+  </script>
+</body>
+</html>

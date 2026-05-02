@@ -576,18 +576,43 @@
                 </div>
             </div>
 
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 text-left">
+                <div class="p-3 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
+                    <div class="text-[10px] text-gray-400 font-bold">待复习</div>
+                    <div id="studyReviewLeft" class="text-xl font-bold pixel-font">0</div>
+                </div>
+                <div class="p-3 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
+                    <div class="text-[10px] text-gray-400 font-bold">待新词</div>
+                    <div id="studyNewLeft" class="text-xl font-bold pixel-font">0</div>
+                </div>
+                <div class="p-3 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
+                    <div class="text-[10px] text-gray-400 font-bold">当前题型</div>
+                    <div id="studyModeTop" class="text-sm font-bold">看词想义</div>
+                </div>
+                <div class="p-3 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
+                    <div class="text-[10px] text-gray-400 font-bold">当前阶段</div>
+                    <div id="studyPhaseTop" class="text-sm font-bold">先复习</div>
+                </div>
+            </div>
+
             <!-- Vocab Card -->
             <div class="vocab-card-container mb-8">
+                <div class="flex justify-center gap-2 flex-wrap mb-4">
+                    <span id="studyKindBadge" class="text-[10px] px-3 py-1 bg-amber-100 border-2 border-gray-800 font-bold shadow-[3px_3px_0px_#333]">复习</span>
+                    <span id="studyModeBadge" class="text-[10px] px-3 py-1 bg-sky-100 border-2 border-gray-800 font-bold shadow-[3px_3px_0px_#333]">看词想义</span>
+                    <span id="studyQueueBadge" class="text-[10px] px-3 py-1 bg-white border-2 border-gray-800 font-bold shadow-[3px_3px_0px_#333]">第 1 题</span>
+                </div>
+                <div id="studyPromptHint" class="mb-4 text-[12px] font-bold text-gray-500">看到单词，先自己想意思，再点显示答案</div>
                 <div id="vocabCard" class="vocab-card">
                     <div class="vocab-card-front">
-                        <span class="text-[10px] text-gray-400 mb-4 tracking-widest uppercase">Word / 単語</span>
+                        <span id="studyPromptLabel" class="text-[10px] text-gray-400 mb-4 tracking-widest uppercase">Word / 単語</span>
                         <h2 id="vocabWord" class="text-6xl font-bold serif">---</h2>
                         <div id="vocabWordRuby" class="hidden text-6xl font-bold serif leading-tight"></div>
                         <div class="mt-6 flex justify-center gap-4">
                             <button type="button" onclick="playVocabAudio()" class="audio-btn"><i class="fa-solid fa-volume-up"></i></button>
                             <button type="button" onclick="toggleVocabFavorite()" id="vocabFavBtn" class="w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full hover:bg-red-50 transition-colors"><i class="fa-regular fa-heart text-gray-400"></i></button>
                         </div>
-                        <p class="mt-8 text-[10px] text-gray-300 animate-pulse">点击翻转查看详情</p>
+                        <p id="studyFrontHint" class="mt-8 text-[10px] text-gray-300 animate-pulse">先回忆，再显示答案</p>
                     </div>
                     <div class="vocab-card-back">
                         <div id="offenseRiskBanner" class="hidden mb-3 p-2 border-2 border-red-500 bg-red-50 text-red-700 text-[10px] font-bold text-left">
@@ -621,7 +646,20 @@
                 </div>
             </div>
 
-            <div class="flex justify-center gap-3 flex-wrap">
+            <div id="studyInputArea" class="hidden mb-5">
+                <div class="p-4 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333] text-left">
+                    <label id="studyInputLabel" class="block text-[11px] text-gray-500 font-bold mb-2">请输入你听到的假名</label>
+                    <input id="studyAnswerInput" type="text" class="w-full border-2 border-gray-800 p-3 text-lg font-bold outline-none focus:border-green-500 bg-white" placeholder="例如：あれ">
+                    <div id="studyInputFeedback" class="mt-2 text-[11px] text-gray-500">先播放音频，再输入假名。</div>
+                </div>
+            </div>
+
+            <div class="flex justify-center gap-3 flex-wrap mb-4">
+                <button id="revealAnswerBtn" onclick="revealStudyAnswer()" class="bg-gray-800 text-white border-2 border-gray-800 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#10B981] hover:bg-green-600 transition-all">显示答案</button>
+                <button id="submitAnswerBtn" onclick="submitStudyInput()" class="hidden bg-sky-100 border-2 border-sky-500 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#333] hover:bg-sky-500 hover:text-white transition-all">提交输入</button>
+            </div>
+
+            <div id="ratingArea" class="hidden flex justify-center gap-3 flex-wrap">
                 <button id="rateDontKnowBtn" onclick="rateCurrent('dont_know')" class="bg-red-50 border-2 border-red-500 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#333] hover:bg-red-500 hover:text-white transition-all">不认识</button>
                 <button id="rateFuzzyBtn" onclick="rateCurrent('fuzzy')" class="bg-yellow-50 border-2 border-yellow-500 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#333] hover:bg-yellow-500 hover:text-white transition-all">模糊</button>
                 <button id="rateKnowBtn" onclick="rateCurrent('know')" class="bg-green-100 border-2 border-green-500 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#333] hover:bg-green-500 hover:text-white transition-all">认识</button>
@@ -1538,6 +1576,9 @@
         const vocabTipCache = new Map(); // AI 伙伴提示缓存（避免重复消耗）
         let favoritesSet = new Set();
         let wrongbookSet = new Set();
+        let currentStudyMode = 'meaning';
+        let studyAnswerShown = false;
+        let manualCardFlipEnabled = false;
 
         function hasChinese(text) {
             return /[\u4e00-\u9fff]/.test(text || '');
@@ -1740,12 +1781,54 @@
             update('siFavBtn', currentStudyModalData);
         }
 
+        function studyModeLabel(mode) {
+            if (mode === 'audio') return '听音输入假名';
+            if (mode === 'reverse') return '看义回忆词';
+            return '看词想义';
+        }
+
+        function studyPhaseLabel() {
+            const remaining = studyQueue.slice(queueIndex);
+            return remaining.some(it => String(it.kind || '') === 'review') ? '先复习' : '开始新词';
+        }
+
+        function pickStudyMode(item, idx) {
+            if (item && item.study_mode) return item.study_mode;
+            const reviewModes = ['meaning', 'audio', 'reverse'];
+            const newModes = ['meaning', 'reverse', 'audio'];
+            return (item && item.kind === 'review' ? reviewModes : newModes)[idx % 3];
+        }
+
+        function prepareStudyQueue(queue) {
+            const list = Array.isArray(queue) ? queue.filter(Boolean).map(it => ({ ...it })) : [];
+            const reviews = list.filter(it => String(it.kind || '') === 'review');
+            const fresh = list.filter(it => String(it.kind || '') !== 'review');
+            const assign = (arr) => arr.map((it, idx) => ({
+                ...it,
+                kind: String(it.kind || '') === 'review' ? 'review' : 'new',
+                study_mode: pickStudyMode(it, idx),
+            }));
+            return [...assign(reviews), ...assign(fresh)];
+        }
+
         function updateSessionProgress() {
             const done = sessionStats.newDone + sessionStats.reviewDone;
-            const total = sessionTarget || 50;
+            const total = studyQueue.length || sessionTarget || 50;
             const percent = Math.min(Math.round((done / total) * 100), 100);
             document.getElementById('vocabProgress').innerText = `${done} / ${total} (新${sessionStats.newDone} 复${sessionStats.reviewDone})`;
             document.getElementById('vocabProgressBar').style.width = `${percent}%`;
+            const remain = studyQueue.slice(queueIndex);
+            const reviewLeft = remain.filter(it => String(it.kind || '') === 'review').length;
+            const newLeft = remain.filter(it => String(it.kind || '') !== 'review').length;
+            const current = studyQueue[queueIndex];
+            const reviewEl = document.getElementById('studyReviewLeft');
+            const newEl = document.getElementById('studyNewLeft');
+            const modeEl = document.getElementById('studyModeTop');
+            const phaseEl = document.getElementById('studyPhaseTop');
+            if (reviewEl) reviewEl.innerText = String(reviewLeft);
+            if (newEl) newEl.innerText = String(newLeft);
+            if (modeEl) modeEl.innerText = current ? studyModeLabel(current.study_mode || 'meaning') : '—';
+            if (phaseEl) phaseEl.innerText = remain.length ? studyPhaseLabel() : '已完成';
         }
 
         function syncCoverButtons() {
@@ -1822,12 +1905,15 @@
             const item = studyQueue[queueIndex];
             if (!item) return;
             currentVocabData = item;
+            currentStudyMode = item.study_mode || 'meaning';
+            studyAnswerShown = false;
             const card = document.getElementById('vocabCard');
             if (card) card.classList.remove('is-flipped');
-            document.getElementById('vocabTip').innerText = item.kind === 'review' ? '复习：先回想，再揭示，然后自评。' : '新词：先看一遍，再试着回想。';
+            document.getElementById('vocabTip').innerText = item.kind === 'review' ? '复习：先主动回想，再看答案，然后评分。' : '新词：先建立第一印象，再用回忆题型加固。';
 
             const reading = getReading(currentVocabData);
-            renderWordRuby(currentVocabData.word, reading);
+            const plain = document.getElementById('vocabWord');
+            const ruby = document.getElementById('vocabWordRuby');
             document.getElementById('vocabKana').innerText = reading || '—';
 
             const baseMeaning = getMeaning(currentVocabData);
@@ -1853,6 +1939,84 @@
             if (id && vocabTipCache.has(String(id))) {
                 document.getElementById('vocabTip').innerText = vocabTipCache.get(String(id));
             }
+
+            const kindBadge = document.getElementById('studyKindBadge');
+            const modeBadge = document.getElementById('studyModeBadge');
+            const queueBadge = document.getElementById('studyQueueBadge');
+            const promptLabel = document.getElementById('studyPromptLabel');
+            const promptHint = document.getElementById('studyPromptHint');
+            const frontHint = document.getElementById('studyFrontHint');
+            const revealBtn = document.getElementById('revealAnswerBtn');
+            const submitBtn = document.getElementById('submitAnswerBtn');
+            const ratingArea = document.getElementById('ratingArea');
+            const inputArea = document.getElementById('studyInputArea');
+            const inputLabel = document.getElementById('studyInputLabel');
+            const inputBox = document.getElementById('studyAnswerInput');
+            const inputFeedback = document.getElementById('studyInputFeedback');
+            if (kindBadge) {
+                const retry = !!item.retry_round;
+                kindBadge.innerText = retry ? '本轮重练' : (item.kind === 'review' ? '复习' : '新词');
+                kindBadge.className = `text-[10px] px-3 py-1 border-2 border-gray-800 font-bold shadow-[3px_3px_0px_#333] ${retry ? 'bg-red-100' : (item.kind === 'review' ? 'bg-amber-100' : 'bg-emerald-100')}`;
+            }
+            if (modeBadge) modeBadge.innerText = studyModeLabel(currentStudyMode);
+            if (queueBadge) queueBadge.innerText = `第 ${queueIndex + 1} 题`;
+            if (ratingArea) ratingArea.classList.add('hidden');
+            if (inputArea) inputArea.classList.toggle('hidden', currentStudyMode !== 'audio');
+            if (submitBtn) submitBtn.classList.toggle('hidden', currentStudyMode !== 'audio');
+            if (revealBtn) revealBtn.innerText = currentStudyMode === 'audio' ? '不会，显示答案' : '显示答案';
+            if (inputBox) inputBox.value = '';
+            if (inputFeedback) inputFeedback.innerText = currentStudyMode === 'audio' ? '先播放音频，再输入假名。' : '';
+
+            if (currentStudyMode === 'audio') {
+                if (plain && ruby) {
+                    plain.classList.remove('hidden');
+                    ruby.classList.add('hidden');
+                    plain.innerText = '♪';
+                }
+                if (promptLabel) promptLabel.innerText = 'Listen / 听音输入';
+                if (promptHint) promptHint.innerText = '先播放音频，听完后输入假名，再决定是否看答案。';
+                if (frontHint) frontHint.innerText = '这题不看单词，只靠听音';
+                if (inputLabel) inputLabel.innerText = '请输入你听到的假名';
+            } else if (currentStudyMode === 'reverse') {
+                if (plain && ruby) {
+                    plain.classList.remove('hidden');
+                    ruby.classList.add('hidden');
+                    plain.innerText = baseMeaning || '—';
+                }
+                if (promptLabel) promptLabel.innerText = 'Meaning / 释义';
+                if (promptHint) promptHint.innerText = '看到中文意思，先主动回忆日文，再点显示答案。';
+                if (frontHint) frontHint.innerText = '不要急着翻，先自己想';
+            } else {
+                renderWordRuby(currentVocabData.word, reading);
+                if (promptLabel) promptLabel.innerText = 'Word / 単語';
+                if (promptHint) promptHint.innerText = '看到单词，先自己想意思，再点显示答案。';
+                if (frontHint) frontHint.innerText = '先回忆，再显示答案';
+            }
+            updateSessionProgress();
+        }
+
+        function revealStudyAnswer() {
+            const item = studyQueue[queueIndex];
+            if (!item) return;
+            studyAnswerShown = true;
+            const card = document.getElementById('vocabCard');
+            if (card) card.classList.add('is-flipped');
+            const ratingArea = document.getElementById('ratingArea');
+            if (ratingArea) ratingArea.classList.remove('hidden');
+        }
+
+        function submitStudyInput() {
+            const item = studyQueue[queueIndex];
+            if (!item) return;
+            const input = document.getElementById('studyAnswerInput');
+            const feedback = document.getElementById('studyInputFeedback');
+            const got = String(input?.value || '').trim().replace(/\s+/g, '');
+            const expected = String(getReading(item) || '').trim().replace(/\s+/g, '');
+            if (feedback) {
+                if (got && expected && got === expected) feedback.innerText = '输入正确，继续看答案并评分。';
+                else feedback.innerText = `标准答案：${expected || '—'}`;
+            }
+            revealStudyAnswer();
         }
 
         // 背单词卡：点击卡片翻转；点击按钮不触发翻转（解决你说的“点深度解析却翻回去”）
@@ -1861,6 +2025,7 @@
             if (!card) return;
             card.addEventListener('click', (e) => {
                 if (e.target && e.target.closest && e.target.closest('button')) return;
+                if (!manualCardFlipEnabled) return;
                 card.classList.toggle('is-flipped');
             });
         })();
@@ -1893,6 +2058,7 @@
             if (ratingBusy) return;
             const item = studyQueue[queueIndex];
             if (!item) return;
+            if (!studyAnswerShown) revealStudyAnswer();
 
             ratingBusy = true;
             setRatingButtonsEnabled(false);
@@ -1907,6 +2073,14 @@
             const wordId = item.id || item.word_id;
             if (rating === 'dont_know' && wordId) {
                 wrongbookSet.add(String(wordId));
+            }
+            if (rating === 'dont_know' && !item.retry_round) {
+                studyQueue.push({
+                    ...item,
+                    kind: 'review',
+                    retry_round: true,
+                    study_mode: item.study_mode === 'meaning' ? 'reverse' : 'meaning'
+                });
             }
             // 记录“今天已背过”（用于过滤缓存队列，避免重复出现）
             try {
@@ -2364,7 +2538,7 @@ async function prefetchStudyQueue(level) {
             });
             const res = await authFetch(`/api/v3/tasks?level=${encodeURIComponent(level)}&plan_date=${encodeURIComponent(date)}`);
             const data = await res.json();
-            const q = filterQueueByLocalProgress(Array.isArray(data.queue) ? data.queue : [], date);
+            const q = prepareStudyQueue(filterQueueByLocalProgress(Array.isArray(data.queue) ? data.queue : [], date));
             window.__prefetchedQueues.set(level, { queue: q, saved_at: Date.now(), key });
             // 也写入本地缓存，防止刷新/返回后再慢
             try {
@@ -2417,7 +2591,7 @@ async function startLearning() {
         try {
             const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
             if (cached && Array.isArray(cached.queue) && cached.queue.length) {
-                studyQueue = filterQueueByLocalProgress(cached.queue, date);
+                studyQueue = prepareStudyQueue(filterQueueByLocalProgress(cached.queue, date));
                 updateSessionProgress();
                 showCurrent();
             }
@@ -2458,7 +2632,7 @@ async function startLearning() {
             if (window.__prefetchedQueues && window.__prefetchedQueues.has(currentVocabLevel)) {
                 const pre = window.__prefetchedQueues.get(currentVocabLevel);
                 if (pre && Array.isArray(pre.queue) && pre.queue.length) {
-                    studyQueue = filterQueueByLocalProgress(pre.queue, date);
+                    studyQueue = prepareStudyQueue(filterQueueByLocalProgress(pre.queue, date));
                     updateSessionProgress();
                     showCurrent();
                 }
@@ -2476,7 +2650,7 @@ async function startLearning() {
                 return;
             }
             const data = await res.json();
-            studyQueue = filterQueueByLocalProgress(Array.isArray(data.queue) ? data.queue : [], date);
+            studyQueue = prepareStudyQueue(filterQueueByLocalProgress(Array.isArray(data.queue) ? data.queue : [], date));
             try {
                 localStorage.setItem(cacheKey, JSON.stringify({ queue: studyQueue, saved_at: Date.now() }));
             } catch (e) {}

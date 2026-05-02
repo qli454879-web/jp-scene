@@ -4064,6 +4064,20 @@ async def root():
 async def web_html_alias():
     return await root()
 
+@app.api_route("/study-prototype", methods=["GET", "HEAD"], response_class=HTMLResponse)
+async def study_prototype_page():
+    try:
+        return HTMLResponse(
+            content=_read_local_file("study-prototype.html"),
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
+    except FileNotFoundError:
+        return HTMLResponse(
+            content="study-prototype.html not found on server.",
+            status_code=404,
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page():
     return _read_local_file("admin.html")
