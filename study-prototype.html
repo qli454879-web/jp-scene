@@ -80,7 +80,7 @@
             <button id="audioBtn" class="btn-soft px-4 py-2 bg-white">播放音频</button>
           </div>
 
-          <div class="text-center">
+          <div id="studyCardTap" class="text-center cursor-pointer">
             <div id="promptHint" class="text-sm font-bold text-gray-500 mb-3">看到单词，先自己想意思，再点显示答案</div>
             <div id="wordText" class="text-5xl font-black tracking-wide">あれ</div>
             <div id="readingText" class="text-lg text-gray-500 mt-2">あれ</div>
@@ -270,6 +270,9 @@
     }
 
     $('revealBtn').onclick = reveal;
+    $('studyCardTap').onclick = () => {
+      if (!revealed) reveal();
+    };
     $('submitInputBtn').onclick = () => {
       reveal();
       const item = queue[index];

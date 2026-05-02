@@ -603,7 +603,7 @@
                     <span id="studyQueueBadge" class="text-[10px] px-3 py-1 bg-white border-2 border-gray-800 font-bold shadow-[3px_3px_0px_#333]">第 1 题</span>
                 </div>
                 <div id="studyPromptHint" class="mb-4 text-[12px] font-bold text-gray-500">看到单词，先自己想意思，再点显示答案</div>
-                <div id="vocabCard" class="vocab-card">
+                <div id="vocabCard" class="vocab-card cursor-pointer">
                     <div class="vocab-card-front">
                         <span id="studyPromptLabel" class="text-[10px] text-gray-400 mb-4 tracking-widest uppercase">Word / 単語</span>
                         <h2 id="vocabWord" class="text-6xl font-bold serif">---</h2>
@@ -612,7 +612,7 @@
                             <button type="button" onclick="playVocabAudio()" class="audio-btn"><i class="fa-solid fa-volume-up"></i></button>
                             <button type="button" onclick="toggleVocabFavorite()" id="vocabFavBtn" class="w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full hover:bg-red-50 transition-colors"><i class="fa-regular fa-heart text-gray-400"></i></button>
                         </div>
-                        <p id="studyFrontHint" class="mt-8 text-[10px] text-gray-300 animate-pulse">先回忆，再显示答案</p>
+                        <p id="studyFrontHint" class="mt-8 text-[10px] text-gray-300 animate-pulse">点击卡片或点下方按钮，显示答案</p>
                     </div>
                     <div class="vocab-card-back">
                         <div id="offenseRiskBanner" class="hidden mb-3 p-2 border-2 border-red-500 bg-red-50 text-red-700 text-[10px] font-bold text-left">
@@ -2038,6 +2038,10 @@
             if (!card) return;
             card.addEventListener('click', (e) => {
                 if (e.target && e.target.closest && e.target.closest('button')) return;
+                if (!studyAnswerShown) {
+                    revealStudyAnswer();
+                    return;
+                }
                 if (!manualCardFlipEnabled) return;
                 card.classList.toggle('is-flipped');
             });
