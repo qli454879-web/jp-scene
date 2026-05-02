@@ -1686,6 +1686,13 @@
             return (entry?.reading || entry?.kana || '').trim();
         }
 
+        function getCanonicalStudyReading(entry) {
+            const word = String(entry?.word || '').trim();
+            const reading = getReading(entry);
+            if (word && isKatakana(word)) return word;
+            return reading;
+        }
+
         function getMeaning(entry) {
             return (entry?.meaning || entry?.meaning_zh || '').trim();
         }
@@ -1851,7 +1858,7 @@
         }
 
         function normalizeStudyText(v) {
-            return String(v || '').trim().replace(/[，、；;。.!！?？\s]+/g, '').toLowerCase();
+            return String(v || '').trim().replace(/[，、；;。.!！?？\s]+/g, '');
         }
 
         function studyMeaningCandidates(text) {
@@ -1991,7 +1998,7 @@
             if (card) card.classList.remove('is-flipped');
             document.getElementById('vocabTip').innerText = item.kind === 'review' ? '复习：先主动回想，再看答案，然后评分。' : '新词：先建立第一印象，再用回忆题型加固。';
 
-            const reading = getReading(currentVocabData);
+            const reading = getCanonicalStudyReading(currentVocabData);
             const plain = document.getElementById('vocabWord');
             const ruby = document.getElementById('vocabWordRuby');
             document.getElementById('vocabKana').innerText = reading || '—';
@@ -2045,6 +2052,7 @@
             if (submitBtn) submitBtn.classList.toggle('hidden', currentStudyMode !== 'audio');
             if (revealBtn) revealBtn.innerText = currentStudyMode === 'audio' ? '不会，显示答案' : '显示答案';
             if (inputBox) inputBox.value = '';
+            if (inputBox) inputBox.placeholder = `例如：${reading || '按词库读音填写'}`;
             if (meaningBox) meaningBox.value = '';
             if (meaningLabel) meaningLabel.classList.toggle('hidden', currentStudyMode !== 'audio');
             if (meaningBox) meaningBox.classList.toggle('hidden', currentStudyMode !== 'audio');
@@ -2097,8 +2105,9 @@
             const input = document.getElementById('studyAnswerInput');
             const meaningInput = document.getElementById('studyMeaningInput');
             const feedback = document.getElementById('studyInputFeedback');
+            const rawExpected = String(getCanonicalStudyReading(item) || '').trim();
             const got = normalizeStudyText(input?.value || '');
-            const expected = normalizeStudyText(getReading(item) || '');
+            const expected = normalizeStudyText(rawExpected);
             const meaningGot = normalizeStudyText(meaningInput?.value || '');
             const meaningOk = studyMeaningCandidates(getMeaning(item)).some(x => x && (meaningGot.includes(x) || x.includes(meaningGot)));
             const readingOk = !!got && !!expected && got === expected;
@@ -2109,7 +2118,7 @@
                 return;
             }
             if (feedback) {
-                const readingMsg = readingOk ? '假名正确' : `假名应为「${getReading(item) || '—'}」`;
+                const readingMsg = readingOk ? '读音写法正确' : `读音必须按词库写法填写：${rawExpected || '—'}`;
                 const meaningMsg = meaningOk ? '意思正确' : `意思可写作「${getMeaning(item) || '—'}」`;
                 feedback.innerText = `${readingMsg}；${meaningMsg}。未全部正确，请看答案后手动评分。`;
             }
