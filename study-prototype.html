@@ -107,13 +107,13 @@
             <button id="submitInputBtn" class="btn-main px-6 py-3 bg-sky-500 text-white hidden">提交输入</button>
           </div>
 
-          <div id="ratingArea" class="mt-6 hidden">
+          <div id="ratingArea" class="mt-6">
             <div class="grid md:grid-cols-3 gap-3">
               <button class="btn-soft px-4 py-4 bg-red-100" data-rate="again">不认识 / Again</button>
               <button class="btn-soft px-4 py-4 bg-yellow-100" data-rate="hard">模糊 / Hard</button>
               <button class="btn-soft px-4 py-4 bg-green-100" data-rate="good">认识 / Good</button>
             </div>
-            <div class="text-xs text-gray-500 mt-3 text-center">样本逻辑：先复习牌，再新牌；错的会在本轮后半段再出现一次。</div>
+            <div id="ratingHint" class="text-xs text-gray-500 mt-3 text-center">先点“显示答案”，再评分。</div>
           </div>
         </section>
       </main>
@@ -204,7 +204,6 @@
         $('promptHint').innerText = '这个样本主要让你看流程和题型，不是最终视觉稿。';
         $('revealBtn').classList.add('hidden');
         $('submitInputBtn').classList.add('hidden');
-        $('ratingArea').classList.add('hidden');
         $('inputArea').classList.add('hidden');
         $('recallArea').classList.add('hidden');
         return;
@@ -228,7 +227,7 @@
       $('recallArea').classList.toggle('hidden', item.mode !== 'reverse');
       $('submitInputBtn').classList.toggle('hidden', item.mode !== 'audio');
       $('revealBtn').classList.remove('hidden');
-      $('ratingArea').classList.add('hidden');
+      setRatingEnabled(false);
 
       if (item.mode === 'meaning') {
         $('promptHint').innerText = '看到单词，先自己想意思，再点显示答案';
@@ -239,10 +238,21 @@
       }
     }
 
+    function setRatingEnabled(enabled) {
+      document.querySelectorAll('[data-rate]').forEach((btn) => {
+        btn.disabled = !enabled;
+        btn.classList.toggle('opacity-40', !enabled);
+        btn.classList.toggle('cursor-not-allowed', !enabled);
+      });
+      $('ratingHint').innerText = enabled
+        ? '现在可以评分了。'
+        : '先点“显示答案”，再评分。';
+    }
+
     function reveal() {
       revealed = true;
       $('meaningText').classList.remove('hidden-soft');
-      $('ratingArea').classList.remove('hidden');
+      setRatingEnabled(true);
     }
 
     function replayWrong(item) {
