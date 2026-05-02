@@ -985,6 +985,7 @@
         let historyIndex = -1;
         let totalWordsInLevel = 0;
         let currentUser = null;
+        let currentUserKey = localStorage.getItem('currentUserKey') || null;
         let authToken = localStorage.getItem('authToken');
         let supabaseClient = null;
         let supabaseProfile = null;
@@ -997,6 +998,10 @@
             const lastLv = (localStorage.getItem('lastVocabLevel') || '').trim();
             if (lastLv) currentVocabLevel = lastLv;
         } catch (e) {}
+
+        function storageUserKey() {
+            return currentUserKey || currentUser || 'anon';
+        }
 
         // --- Auth Functions ---
         function toggleAuthModal() {
@@ -1064,11 +1069,15 @@
                     const session = data?.session || null;
                     if (session?.access_token) {
                         authToken = session.access_token;
+                        currentUserKey = session?.user?.id || currentUserKey;
                         localStorage.setItem('authToken', authToken);
+                        if (currentUserKey) localStorage.setItem('currentUserKey', currentUserKey);
                         await loadProfile();
                     } else {
                         authToken = null;
+                        currentUserKey = null;
                         localStorage.removeItem('authToken');
+                        localStorage.removeItem('currentUserKey');
                     }
                 }
                 updateUserUI();
@@ -1078,7 +1087,9 @@
                 supabaseClient.auth.onAuthStateChange(async (_event, session2) => {
                     if (session2?.access_token) {
                         authToken = session2.access_token;
+                        currentUserKey = session2?.user?.id || currentUserKey;
                         localStorage.setItem('authToken', authToken);
+                        if (currentUserKey) localStorage.setItem('currentUserKey', currentUserKey);
                         await loadProfile();
                         if (activeInviteCode && session2?.user?.id) {
                             try {
@@ -1096,9 +1107,11 @@
                         }
                     } else {
                         authToken = null;
+                        currentUserKey = null;
                         supabaseProfile = null;
                         localStorage.removeItem('authToken');
                         localStorage.removeItem('currentUser');
+                        localStorage.removeItem('currentUserKey');
                     }
                     updateUserUI();
                     refreshForecast();
@@ -1113,12 +1126,15 @@
                 const res = await authFetch('/api/v2/profile/me');
                 const data = await res.json();
                 supabaseProfile = data || null;
+                currentUserKey = (supabaseProfile && (supabaseProfile.user_id || supabaseProfile.id)) ? (supabaseProfile.user_id || supabaseProfile.id) : currentUserKey;
                 if (supabaseProfile && supabaseProfile.nickname) {
                     currentUser = supabaseProfile.nickname;
                 } else {
                     currentUser = '已登录';
                 }
                 localStorage.setItem('currentUser', currentUser);
+                if (currentUserKey) localStorage.setItem('currentUserKey', currentUserKey);
+                loadPendingRates();
                 const lv = (supabaseProfile && (supabaseProfile.current_level || supabaseProfile.initial_level)) ? (supabaseProfile.current_level || supabaseProfile.initial_level) : null;
                 // 若用户已经手动选择过词书（lastVocabLevel 存在），不要用 profile 覆盖，避免跳回 N5
                 const hasManual = !!((localStorage.getItem('lastVocabLevel') || '').trim());
@@ -1126,6 +1142,7 @@
             } catch (e) {
                 currentUser = '已登录';
                 localStorage.setItem('currentUser', currentUser);
+                loadPendingRates();
             }
         }
 
@@ -1896,7 +1913,7 @@
             }
             // 记录“今天已背过”（用于过滤缓存队列，避免重复出现）
             try {
-                const ratedKey = `ratedToday:${currentUser || 'anon'}:${date}`;
+                const ratedKey = `ratedToday:${storageUserKey()}:${date}`;
                 const arr = JSON.parse(localStorage.getItem(ratedKey) || '[]');
                 const s = new Set(Array.isArray(arr) ? arr.map(String) : []);
                 if (wordId) s.add(String(wordId));
@@ -1937,14 +1954,59 @@
         }
 
         // --- 后台同步评分（不阻塞背词体验） ---
-        const pendingRateKey = () => `pendingRates:${currentUser || 'anon'}`;
+        const pendingRateKey = () => `pendingRates:${storageUserKey()}`;
         let pendingRates = [];
         let flushingRates = false;
-        try {
-            const raw = localStorage.getItem(pendingRateKey());
-            const arr = JSON.parse(raw || '[]');
-            if (Array.isArray(arr)) pendingRates = arr;
-        } catch (e) {}
+
+        function loadPendingRates() {
+            const merged = [];
+            const seen = new Set();
+            const keys = Array.from(new Set([
+                `pendingRates:${storageUserKey()}`,
+                currentUser ? `pendingRates:${currentUser}` : '',
+                'pendingRates:anon'
+            ].filter(Boolean)));
+            keys.forEach((k) => {
+                try {
+                    const raw = localStorage.getItem(k);
+                    const arr = JSON.parse(raw || '[]');
+                    if (!Array.isArray(arr)) return;
+                    arr.forEach((it) => {
+                        const sig = JSON.stringify([it?.entry_id || '', it?.level || '', it?.rating || '']);
+                        if (seen.has(sig)) return;
+                        seen.add(sig);
+                        merged.push(it);
+                    });
+                } catch (e) {}
+            });
+            pendingRates = merged;
+            try { localStorage.setItem(pendingRateKey(), JSON.stringify(pendingRates.slice(0, 200))); } catch (e) {}
+            updateSyncPill();
+        }
+        loadPendingRates();
+
+        function ratedTodayKey(date) {
+            return `ratedToday:${storageUserKey()}:${date}`;
+        }
+
+        function getRatedTodaySet(date) {
+            let ratedSet = new Set();
+            try {
+                const arr = JSON.parse(localStorage.getItem(ratedTodayKey(date)) || '[]');
+                if (Array.isArray(arr)) ratedSet = new Set(arr.map(String));
+            } catch (e) {}
+            return ratedSet;
+        }
+
+        function filterQueueByLocalProgress(queue, date) {
+            const ratedSet = getRatedTodaySet(date);
+            const pendingSet = new Set((pendingRates || []).map(x => String(x?.entry_id || '')));
+            return (Array.isArray(queue) ? queue : []).filter(it => {
+                const id = String(getEntryId(it) || '');
+                if (!id) return true;
+                return !ratedSet.has(id) && !pendingSet.has(id);
+            });
+        }
 
         function savePendingRates() {
             try { localStorage.setItem(pendingRateKey(), JSON.stringify(pendingRates.slice(0, 200))); } catch (e) {}
@@ -2044,6 +2106,7 @@
         });
 
         function finishSessionEarly() {
+            try { flushPendingRates(); } catch (e) {}
             showSessionSummary();
         }
 
@@ -2304,11 +2367,11 @@ async function prefetchStudyQueue(level) {
             });
             const res = await authFetch(`/api/v3/tasks?level=${encodeURIComponent(level)}&plan_date=${encodeURIComponent(date)}`);
             const data = await res.json();
-            const q = Array.isArray(data.queue) ? data.queue : [];
+            const q = filterQueueByLocalProgress(Array.isArray(data.queue) ? data.queue : [], date);
             window.__prefetchedQueues.set(level, { queue: q, saved_at: Date.now(), key });
             // 也写入本地缓存，防止刷新/返回后再慢
             try {
-                const cacheKey = `studyQueue:${currentUser || 'anon'}:${level}:${date}`;
+                const cacheKey = `studyQueue:${storageUserKey()}:${level}:${date}`;
                 localStorage.setItem(cacheKey, JSON.stringify({ queue: q, saved_at: Date.now() }));
             } catch (e) {}
         } catch (e) {
@@ -2322,6 +2385,8 @@ async function startLearning() {
         toggleAuthModal();
         return;
     }
+    loadPendingRates();
+    await flushPendingRates();
     isLearningSession = true;
 
     const input = document.getElementById('dailyTargetInput');
@@ -2351,23 +2416,11 @@ async function startLearning() {
     if (card) card.classList.remove('is-flipped');
 
     const date = todayStr();
-    const cacheKey = `studyQueue:${currentUser || 'anon'}:${currentVocabLevel}:${date}`;
+    const cacheKey = `studyQueue:${storageUserKey()}:${currentVocabLevel}:${date}`;
     try {
         const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
         if (cached && Array.isArray(cached.queue) && cached.queue.length) {
-            // 过滤掉今天已背过/待同步的词，避免“已认识又重复出现”
-            const ratedKey = `ratedToday:${currentUser || 'anon'}:${date}`;
-            let ratedSet = new Set();
-            try {
-                const arr = JSON.parse(localStorage.getItem(ratedKey) || '[]');
-                if (Array.isArray(arr)) ratedSet = new Set(arr.map(String));
-            } catch (e) {}
-            const pendingSet = new Set((pendingRates || []).map(x => String(x?.entry_id || '')));
-            studyQueue = cached.queue.filter(it => {
-                const id = String(getEntryId(it) || '');
-                if (!id) return true;
-                return !ratedSet.has(id) && !pendingSet.has(id);
-            });
+            studyQueue = filterQueueByLocalProgress(cached.queue, date);
             updateSessionProgress();
             showCurrent();
         }
@@ -2397,7 +2450,7 @@ async function startLearning() {
         if (window.__prefetchedQueues && window.__prefetchedQueues.has(currentVocabLevel)) {
             const pre = window.__prefetchedQueues.get(currentVocabLevel);
             if (pre && Array.isArray(pre.queue) && pre.queue.length) {
-                studyQueue = pre.queue;
+                studyQueue = filterQueueByLocalProgress(pre.queue, date);
                 updateSessionProgress();
                 showCurrent();
             }
@@ -2415,20 +2468,7 @@ async function startLearning() {
             return;
         }
         const data = await res.json();
-        // 过滤掉今天已背过/待同步的词，避免重复出现
-        const ratedKey = `ratedToday:${currentUser || 'anon'}:${date}`;
-        let ratedSet = new Set();
-        try {
-            const arr = JSON.parse(localStorage.getItem(ratedKey) || '[]');
-            if (Array.isArray(arr)) ratedSet = new Set(arr.map(String));
-        } catch (e) {}
-        const pendingSet = new Set((pendingRates || []).map(x => String(x?.entry_id || '')));
-        const rawQueue = Array.isArray(data.queue) ? data.queue : [];
-        studyQueue = rawQueue.filter(it => {
-            const id = String(getEntryId(it) || '');
-            if (!id) return true;
-            return !ratedSet.has(id) && !pendingSet.has(id);
-        });
+        studyQueue = filterQueueByLocalProgress(Array.isArray(data.queue) ? data.queue : [], date);
         try {
             localStorage.setItem(cacheKey, JSON.stringify({ queue: studyQueue, saved_at: Date.now() }));
         } catch (e) {}
@@ -2469,6 +2509,7 @@ async function startLearning() {
 }
         function backToLevels() {
             isLearningSession = false;
+            try { flushPendingRates(); } catch (e) {}
             document.getElementById('vocabLevelSelector').classList.remove('hidden');
             document.getElementById('vocabLearningScreen').classList.add('hidden');
             document.getElementById('vocabSummaryScreen').classList.add('hidden');
