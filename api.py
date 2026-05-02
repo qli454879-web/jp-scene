@@ -4060,6 +4060,10 @@ async def root():
             headers={"Cache-Control": "no-store, max-age=0"},
         )
 
+@app.api_route("/web.html", methods=["GET", "HEAD"], response_class=HTMLResponse)
+async def web_html_alias():
+    return await root()
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page():
     return _read_local_file("admin.html")
