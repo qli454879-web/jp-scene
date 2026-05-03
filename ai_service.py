@@ -223,7 +223,7 @@ class AIService:
         try:
             if self.provider == "openai":
                 response = await self.openai_client.chat.completions.create(
-                    model="gpt-3.5-turbo",
+                    model=OPENAI_MODEL,
                     messages=[{"role": "system", "content": "Return JSON only."}, {"role": "user", "content": prompt}],
                     response_format={"type": "json_object"},
                     timeout=20
@@ -321,7 +321,7 @@ class AIService:
         try:
             if self.provider == "openai":
                 response = await self.openai_client.chat.completions.create(
-                    model="gpt-3.5-turbo",
+                    model=OPENAI_MODEL,
                     messages=[
                         {"role": "system", "content": "You output JSON only for Japanese CJK learners."},
                         {"role": "user", "content": prompt},
@@ -413,7 +413,7 @@ class AIService:
         try:
             if self.provider == "openai":
                 response = await self.openai_client.chat.completions.create(
-                    model="gpt-3.5-turbo",
+                    model=OPENAI_MODEL,
                     messages=[
                         {"role": "system", "content": "Return JSON only."},
                         {"role": "user", "content": prompt},
