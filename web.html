@@ -117,6 +117,14 @@
             border: 2px solid rgba(51,51,51,0.25);
         }
         .audio-btn:hover { background: rgba(16,185,129,0.12); }
+        .audio-btn[disabled] {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .audio-btn.is-playing {
+            background: rgba(16,185,129,0.18);
+            border-color: rgba(16,185,129,0.85);
+        }
 
         .heatmap-bar {
             height: 1rem;
@@ -675,7 +683,7 @@
                         <h2 id="vocabWord" class="text-6xl font-bold serif">---</h2>
                         <div id="vocabWordRuby" class="hidden text-6xl font-bold serif leading-tight"></div>
                         <div id="frontCardActions" class="mt-6 flex justify-center gap-4">
-                            <button type="button" onclick="playVocabAudio()" class="audio-btn"><i class="fa-solid fa-volume-up"></i></button>
+                            <button type="button" onclick="playVocabAudio()" id="vocabFrontAudioBtn" class="audio-btn" title="播放读音"><i class="fa-solid fa-volume-up"></i></button>
                             <button type="button" onclick="toggleVocabFavorite()" id="vocabFavBtn" class="w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full hover:bg-red-50 transition-colors"><i class="fa-regular fa-heart text-gray-400"></i></button>
                         </div>
                         <p id="studyFrontHint" class="mt-8 text-[10px] text-gray-300 animate-pulse">点击卡片或点下方按钮，显示答案</p>
@@ -701,7 +709,10 @@
                         </div>
 
                         <div id="vocabBackActions" class="flex gap-3">
-                            <button type="button" onclick="toggleVocabFavorite()" class="px-3 py-2 bg-gray-100 text-[10px] font-bold hover:bg-red-50 transition-colors">
+                            <button type="button" onclick="playVocabAudio()" id="vocabBackAudioBtn" class="px-3 py-2 bg-white border-2 border-gray-800 text-[10px] font-bold hover:bg-green-50 transition-colors" title="播放读音">
+                                <i class="fa-solid fa-volume-up mr-1"></i> 听读音
+                            </button>
+                            <button type="button" onclick="toggleVocabFavorite()" id="vocabBackFavBtn" class="px-3 py-2 bg-gray-100 text-[10px] font-bold hover:bg-red-50 transition-colors">
                                 <i class="fa-regular fa-heart mr-1"></i> 收藏
                             </button>
                             <button type="button" onclick="analyzeVocab()" class="px-4 py-2 bg-gray-800 text-white text-[10px] font-bold hover:bg-green-600 transition-all">
@@ -1810,14 +1821,41 @@
                 sharedAudio.volume = 1;
             } catch (e) {}
             window.__jpAudio = sharedAudio;
-            if (!fn) return;
+            if (!fn) {
+                syncStudyAudioButtons(false);
+                const inputFeedback = document.getElementById('studyInputFeedback');
+                if (currentStudyMode === 'audio' && inputFeedback) inputFeedback.innerText = '当前词条暂无音频，请直接看答案并评分。';
+                return;
+            }
             const url = `/api/vocab/audio/${encodeURIComponent(fn)}`;
             try { sharedAudio.pause(); } catch (e) {}
             sharedAudio.src = url;
             try { sharedAudio.load(); } catch (e) {}
             try { sharedAudio.currentTime = 0; } catch (e) {}
+            setAudioButtonsPlaying(true);
+            sharedAudio.onended = () => setAudioButtonsPlaying(false);
+            sharedAudio.onpause = () => setAudioButtonsPlaying(false);
+            sharedAudio.onerror = () => setAudioButtonsPlaying(false);
             sharedAudio.play().catch((err) => {
                 console.warn('audio play failed', err);
+                setAudioButtonsPlaying(false);
+            });
+        }
+
+        function setAudioButtonsPlaying(playing) {
+            ['vocabFrontAudioBtn', 'vocabBackAudioBtn'].forEach((id) => {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                btn.classList.toggle('is-playing', !!playing);
+            });
+        }
+
+        function syncStudyAudioButtons(hasAudio) {
+            ['vocabFrontAudioBtn', 'vocabBackAudioBtn'].forEach((id) => {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                btn.disabled = !hasAudio;
+                btn.title = hasAudio ? '播放读音' : '当前词条暂无音频';
             });
         }
 
@@ -1853,13 +1891,18 @@
                 const isFav = id ? favoritesSet.has(String(id)) : false;
                 if (isFav) {
                     btn.classList.add('favorited');
-                    btn.innerHTML = '<i class="fa-solid fa-heart text-red-500"></i>';
+                    btn.innerHTML = btnId === 'vocabBackFavBtn'
+                        ? '<i class="fa-solid fa-heart text-red-500 mr-1"></i> 已收藏'
+                        : '<i class="fa-solid fa-heart text-red-500"></i>';
                 } else {
                     btn.classList.remove('favorited');
-                    btn.innerHTML = '<i class="fa-regular fa-heart text-gray-400"></i>';
+                    btn.innerHTML = btnId === 'vocabBackFavBtn'
+                        ? '<i class="fa-regular fa-heart text-gray-400 mr-1"></i> 收藏'
+                        : '<i class="fa-regular fa-heart text-gray-400"></i>';
                 }
             };
             update('vocabFavBtn', currentVocabData);
+            update('vocabBackFavBtn', currentVocabData);
             update('siFavBtn', currentStudyModalData);
         }
 
@@ -2019,6 +2062,7 @@
             document.getElementById('vocabTip').innerText = item.kind === 'review' ? '复习：先主动回想，再看答案，然后评分。' : '新词：先建立第一印象，再用回忆题型加固。';
 
             const reading = getCanonicalStudyReading(currentVocabData);
+            const hasAudio = !!String(currentVocabData?.mp3 || currentVocabData?.audio_filename || '').trim();
             const plain = document.getElementById('vocabWord');
             const ruby = document.getElementById('vocabWordRuby');
             document.getElementById('vocabKana').innerText = reading || '—';
@@ -2041,6 +2085,8 @@
 
             // 收藏按钮状态同步
             syncFavButton();
+            syncStudyAudioButtons(hasAudio);
+            setAudioButtonsPlaying(false);
             // AI 伙伴：不再自动请求（避免卡顿+消耗 tokens）。用户点击“AI 伙伴”按钮时再生成。
             const id = getEntryId(currentVocabData);
             if (id && vocabTipCache.has(String(id))) {
@@ -2076,7 +2122,9 @@
             if (meaningBox) meaningBox.value = '';
             if (meaningLabel) meaningLabel.classList.toggle('hidden', currentStudyMode !== 'audio');
             if (meaningBox) meaningBox.classList.toggle('hidden', currentStudyMode !== 'audio');
-            if (inputFeedback) inputFeedback.innerText = currentStudyMode === 'audio' ? '已自动播放音频。请填写假名和中文意思，两个都正确会自动进入下一题。' : '';
+            if (inputFeedback) inputFeedback.innerText = currentStudyMode === 'audio'
+                ? (hasAudio ? '已自动播放音频。请填写假名和中文意思，两个都正确会自动进入下一题。' : '当前词条暂无音频，请直接看答案并评分。')
+                : '';
             setStudyRatingEnabled(false);
 
             if (currentStudyMode === 'audio') {
@@ -2086,7 +2134,7 @@
                     plain.innerText = '♪';
                 }
                 if (promptLabel) promptLabel.innerText = 'Listen / 听音输入';
-                if (promptHint) promptHint.innerText = '已自动播放音频。先输入假名和中文意思；都对就直接下一题，不对再看答案。';
+                if (promptHint) promptHint.innerText = hasAudio ? '已自动播放音频。先输入假名和中文意思；都对就直接下一题，不对再看答案。' : '这题暂时没有音频，请直接看答案并评分。';
                 if (frontHint) frontHint.innerText = '这题不看单词，只靠听音';
                 if (inputLabel) inputLabel.innerText = '请输入你听到的假名';
                 setTimeout(() => {
@@ -2774,6 +2822,7 @@ async function startLearning() {
         } catch (e) {
             if (String(e && e.message) === 'unauthorized') {
                 alert('登录已失效，请重新登录后开始学习。');
+                backToLevels();
                 return;
             }
             console.error(e);
@@ -2825,6 +2874,7 @@ async function startLearning() {
         } catch (e) {
             if (String(e && e.message) === 'unauthorized') {
                 alert('登录已失效，请重新登录后开始学习。');
+                backToLevels();
                 return;
             }
             console.error(e);
