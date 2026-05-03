@@ -298,9 +298,6 @@
         #vocabLearningScreen #studyPromptLabel,
         #vocabLearningScreen #studyFrontHint,
         #vocabLearningScreen #frontCardActions,
-        #vocabLearningScreen #vocabTipBox {
-            display: none !important;
-        }
         #vocabLearningScreen #vocabMetaRow {
             margin-bottom: 0.5rem;
             justify-content: center;
@@ -1828,9 +1825,13 @@
                 return;
             }
             const url = `/api/vocab/audio/${encodeURIComponent(fn)}`;
+            const sameSrc = (sharedAudio.getAttribute('data-src') || '') === url;
             try { sharedAudio.pause(); } catch (e) {}
-            sharedAudio.src = url;
-            try { sharedAudio.load(); } catch (e) {}
+            if (!sameSrc) {
+                sharedAudio.src = url;
+                sharedAudio.setAttribute('data-src', url);
+                try { sharedAudio.load(); } catch (e) {}
+            }
             try { sharedAudio.currentTime = 0; } catch (e) {}
             setAudioButtonsPlaying(true);
             sharedAudio.onended = () => setAudioButtonsPlaying(false);
@@ -1840,6 +1841,24 @@
                 console.warn('audio play failed', err);
                 setAudioButtonsPlaying(false);
             });
+        }
+
+        function primeVocabAudio(data) {
+            const fn = String(data?.mp3 || data?.audio_filename || '').trim();
+            if (!fn) return;
+            const sharedAudio = document.getElementById('globalAudio') || window.__jpAudio || new Audio();
+            try {
+                sharedAudio.preload = 'auto';
+                sharedAudio.playsInline = true;
+                sharedAudio.setAttribute('playsinline', '');
+                sharedAudio.setAttribute('webkit-playsinline', '');
+            } catch (e) {}
+            window.__jpAudio = sharedAudio;
+            const url = `/api/vocab/audio/${encodeURIComponent(fn)}`;
+            if ((sharedAudio.getAttribute('data-src') || '') === url) return;
+            sharedAudio.src = url;
+            sharedAudio.setAttribute('data-src', url);
+            try { sharedAudio.load(); } catch (e) {}
         }
 
         function setAudioButtonsPlaying(playing) {
@@ -1910,13 +1929,14 @@
             ['rateDontKnowBtn', 'rateFuzzyBtn', 'rateKnowBtn'].forEach((id) => {
                 const btn = document.getElementById(id);
                 if (!btn) return;
-                btn.disabled = !enabled;
-                btn.classList.toggle('opacity-40', !enabled);
-                btn.classList.toggle('cursor-not-allowed', !enabled);
+                const allow = enabled || id === 'rateKnowBtn';
+                btn.disabled = !allow;
+                btn.classList.toggle('opacity-40', !allow);
+                btn.classList.toggle('cursor-not-allowed', !allow);
             });
             const hint = document.getElementById('ratingHint');
             if (hint) {
-                hint.innerText = enabled ? '现在可以评分了。' : '先点“显示答案”，再进行评分。';
+                hint.innerText = enabled ? '现在可以评分了。' : '如果你已经确定认识，可以直接点“认识”；否则先点“显示答案”。';
             }
         }
 
@@ -2059,7 +2079,7 @@
             studyAnswerShown = false;
             const card = document.getElementById('vocabCard');
             if (card) card.classList.remove('is-flipped');
-            document.getElementById('vocabTip').innerText = item.kind === 'review' ? '复习：先主动回想，再看答案，然后评分。' : '新词：先建立第一印象，再用回忆题型加固。';
+            document.getElementById('vocabTip').innerText = (String(item.insight_text || '').trim()) || (item.kind === 'review' ? '复习时先抓住这个词最常出现的搭配，再回忆意思和读音。' : '新词先记一个最顺手的使用场景，再把读音和意思一起连起来记。');
 
             const reading = getCanonicalStudyReading(currentVocabData);
             const hasAudio = !!String(currentVocabData?.mp3 || currentVocabData?.audio_filename || '').trim();
@@ -2087,6 +2107,7 @@
             syncFavButton();
             syncStudyAudioButtons(hasAudio);
             setAudioButtonsPlaying(false);
+            if (hasAudio) primeVocabAudio(currentVocabData);
             // AI 伙伴：不再自动请求（避免卡顿+消耗 tokens）。用户点击“AI 伙伴”按钮时再生成。
             const id = getEntryId(currentVocabData);
             if (id && vocabTipCache.has(String(id))) {
