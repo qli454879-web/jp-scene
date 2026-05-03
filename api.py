@@ -884,6 +884,7 @@ def _build_daily_task_queue_pg(user_id: str, level: str, daily_new_count: int) -
     conn = _pg_conn()
     try:
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            review_limit = max(1, int(daily_new_count))
             cur.execute(
                 """
                 SELECT w.id, w.word, w.kana, w.meaning_zh, w.origin, w.social_targets, w.offense_risk, w.usage_frequency,
@@ -898,9 +899,39 @@ def _build_daily_task_queue_pg(user_id: str, level: str, daily_new_count: int) -
                 ORDER BY up.next_review_at ASC
                 LIMIT %s
                 """,
-                (user_id, level, max(1, int(daily_new_count))),
+                (user_id, level, review_limit),
             )
             review_rows = cur.fetchall()
+            due_count = len(review_rows)
+
+            # 如果今天没有到期复习词，仍优先给用户一批“学过的词”做开场复习，
+            # 避免一进入背词就直接开始新词。
+            if len(review_rows) < review_limit:
+                cur.execute(
+                    """
+                    SELECT w.id, w.word, w.kana, w.meaning_zh, w.origin, w.social_targets, w.offense_risk, w.usage_frequency,
+                           w.scene_tags, w.register_social, w.scene_deep_dive, w.example_ja, w.example_zh,
+                           w.usage_frequency_note, w.audio_filename, w.image_prompt
+                    FROM user_progress up
+                    JOIN words w ON w.id = up.word_id
+                    WHERE up.user_id = %s::uuid
+                      AND up.level = %s
+                      AND (up.next_review_at IS NULL OR up.next_review_at > NOW())
+                    ORDER BY COALESCE(up.last_review_at, up.updated_at, up.next_review_at) ASC NULLS FIRST
+                    LIMIT %s
+                    """,
+                    (user_id, level, max(review_limit * 4, 20)),
+                )
+                seen_ids = {str(row.get("id")) for row in review_rows}
+                for row in cur.fetchall():
+                    row_id = str(row.get("id"))
+                    if row_id in seen_ids:
+                        continue
+                    row["kind"] = "review"
+                    review_rows.append(row)
+                    seen_ids.add(row_id)
+                    if len(review_rows) >= review_limit:
+                        break
 
             cur.execute(
                 """
@@ -916,7 +947,7 @@ def _build_daily_task_queue_pg(user_id: str, level: str, daily_new_count: int) -
                 ORDER BY w.order_no ASC
                 LIMIT %s
                 """,
-                (level, user_id, max(1, int(daily_new_count))),
+                (level, user_id, review_limit),
             )
             new_rows = cur.fetchall()
 
@@ -946,7 +977,7 @@ def _build_daily_task_queue_pg(user_id: str, level: str, daily_new_count: int) -
             return {
                 "queue": queue,
                 "total": len(queue),
-                "due": len(review_rows),
+                "due": due_count,
                 "new": len(new_rows),
                 "remaining_new_words": remaining,
                 "estimated_days_left": days_left,
@@ -962,6 +993,7 @@ def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count
     conn = _pg_conn()
     try:
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            review_limit = max(1, int(daily_new_count))
             if _is_kaoyan_selector(selector):
                 cur.execute("SELECT COUNT(*) AS c FROM vocab_library WHERE 'kaoyan' = ANY(tags)")
             else:
@@ -985,9 +1017,38 @@ def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count
                 ORDER BY lp.next_review_at ASC
                 LIMIT %s
                 """,
-                (user_id, selector, max(1, int(daily_new_count))),
+                (user_id, selector, review_limit),
             )
             review_rows = cur.fetchall()
+            due_count = len(review_rows)
+
+            # 若没有到期复习，也优先抽取一批已学过词汇做复习开场。
+            if len(review_rows) < review_limit:
+                cur.execute(
+                    """
+                    SELECT v.id, v.level, v.word, v.reading, v.meaning, v.mp3,
+                           v.pos, v.frequency, v.examples,
+                           v.social_context, v.heatmap_data, v.insight_text, v.image_url, v.is_ai_enriched, v.order_no
+                    FROM library_progress lp
+                    JOIN vocab_library v ON v.id = lp.entry_id
+                    WHERE lp.user_id = %s::uuid
+                      AND lp.level = %s
+                      AND (lp.next_review_at IS NULL OR lp.next_review_at > NOW())
+                    ORDER BY COALESCE(lp.last_review_at, lp.updated_at, lp.next_review_at) ASC NULLS FIRST
+                    LIMIT %s
+                    """,
+                    (user_id, selector, max(review_limit * 4, 20)),
+                )
+                seen_ids = {str(row.get("id")) for row in review_rows}
+                for row in cur.fetchall():
+                    row_id = str(row.get("id"))
+                    if row_id in seen_ids:
+                        continue
+                    row["kind"] = "review"
+                    review_rows.append(row)
+                    seen_ids.add(row_id)
+                    if len(review_rows) >= review_limit:
+                        break
 
             if _is_kaoyan_selector(selector):
                 cur.execute(
@@ -1004,7 +1065,7 @@ def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count
                     ORDER BY v.level ASC, v.order_no ASC
                     LIMIT %s
                     """,
-                    (user_id, max(1, int(daily_new_count))),
+                    (user_id, review_limit),
                 )
             else:
                 cur.execute(
@@ -1021,7 +1082,7 @@ def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count
                     ORDER BY v.order_no ASC
                     LIMIT %s
                     """,
-                    (selector, user_id, max(1, int(daily_new_count))),
+                    (selector, user_id, review_limit),
                 )
             new_rows = cur.fetchall()
 
@@ -1059,7 +1120,7 @@ def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count
             return {
                 "queue": queue,
                 "total": len(queue),
-                "due": len(review_rows),
+                "due": due_count,
                 "new": len(new_rows),
                 "remaining_new_words": remaining,
                 "estimated_days_left": days_left,

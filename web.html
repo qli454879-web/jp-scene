@@ -1985,12 +1985,12 @@
             const done = sessionStats.newDone + sessionStats.reviewDone;
             const total = studyQueue.length || sessionTarget || 50;
             const percent = Math.min(Math.round((done / total) * 100), 100);
-            document.getElementById('vocabProgress').innerText = `${done} / ${total} (新${sessionStats.newDone} 复${sessionStats.reviewDone})`;
-            document.getElementById('vocabProgressBar').style.width = `${percent}%`;
             const remain = studyQueue.slice(queueIndex);
             const reviewLeft = remain.filter(it => String(it.kind || '') === 'review').length;
             const newLeft = remain.filter(it => String(it.kind || '') !== 'review').length;
             const current = studyQueue[queueIndex];
+            document.getElementById('vocabProgress').innerText = `已完成 ${done} / ${total} · 待复习 ${reviewLeft} · 待新词 ${newLeft}`;
+            document.getElementById('vocabProgressBar').style.width = `${percent}%`;
             const reviewEl = document.getElementById('studyReviewLeft');
             const newEl = document.getElementById('studyNewLeft');
             const modeEl = document.getElementById('studyModeTop');
@@ -1998,7 +1998,7 @@
             if (reviewEl) reviewEl.innerText = String(reviewLeft);
             if (newEl) newEl.innerText = String(newLeft);
             if (modeEl) modeEl.innerText = current ? studyModeLabel(current.study_mode || 'meaning') : '—';
-            if (phaseEl) phaseEl.innerText = remain.length ? studyPhaseLabel() : '已完成';
+            if (phaseEl) phaseEl.innerText = remain.length ? (reviewLeft > 0 ? `先复习（剩 ${reviewLeft}）` : `开始新词（剩 ${newLeft}）`) : '已完成';
         }
 
         function syncCoverButtons() {
@@ -2134,7 +2134,7 @@
                 kindBadge.className = `text-[10px] px-3 py-1 border-2 border-gray-800 font-bold shadow-[3px_3px_0px_#333] ${retry ? 'bg-red-100' : (item.kind === 'review' ? 'bg-amber-100' : 'bg-emerald-100')}`;
             }
             if (modeBadge) modeBadge.innerText = studyModeLabel(currentStudyMode);
-            if (queueBadge) queueBadge.innerText = `第 ${queueIndex + 1} 题`;
+            if (queueBadge) queueBadge.innerText = `第 ${Math.min(queueIndex + 1, studyQueue.length || 1)} / ${studyQueue.length || 1} 题`;
             if (inputArea) inputArea.classList.toggle('hidden', currentStudyMode !== 'audio');
             if (submitBtn) submitBtn.classList.toggle('hidden', currentStudyMode !== 'audio');
             if (revealBtn) revealBtn.innerText = currentStudyMode === 'audio' ? '不会，显示答案' : '显示答案';
@@ -2298,8 +2298,8 @@
             if (item.kind === 'new') sessionStats.newDone += 1;
             else sessionStats.reviewDone += 1;
 
-            updateSessionProgress();
             queueIndex += 1;
+            updateSessionProgress();
 
             if (queueIndex >= studyQueue.length) {
                 showSessionSummary();
@@ -2810,12 +2810,11 @@ async function startLearning() {
 
         const date = todayStr();
         const cacheKey = `studyQueue:${storageUserKey()}:${currentVocabLevel}:${date}`;
+        let fallbackQueue = [];
         try {
             const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
             if (cached && Array.isArray(cached.queue) && cached.queue.length) {
-                studyQueue = prepareStudyQueue(filterQueueByLocalProgress(cached.queue, date));
-                updateSessionProgress();
-                showCurrent();
+                fallbackQueue = prepareStudyQueue(filterQueueByLocalProgress(cached.queue, date));
             }
         } catch (e) {}
 
@@ -2855,9 +2854,7 @@ async function startLearning() {
             if (window.__prefetchedQueues && window.__prefetchedQueues.has(currentVocabLevel)) {
                 const pre = window.__prefetchedQueues.get(currentVocabLevel);
                 if (pre && Array.isArray(pre.queue) && pre.queue.length) {
-                    studyQueue = prepareStudyQueue(filterQueueByLocalProgress(pre.queue, date));
-                    updateSessionProgress();
-                    showCurrent();
+                    fallbackQueue = prepareStudyQueue(filterQueueByLocalProgress(pre.queue, date));
                 }
             }
             const res = await authFetch(`/api/v3/tasks?level=${encodeURIComponent(currentVocabLevel)}&plan_date=${encodeURIComponent(date)}`);
@@ -2900,7 +2897,13 @@ async function startLearning() {
                 return;
             }
             console.error(e);
-            studyQueue = [];
+            studyQueue = fallbackQueue.slice();
+        }
+
+        if (!studyQueue.length) {
+            if (fallbackQueue.length) {
+                studyQueue = fallbackQueue.slice();
+            }
         }
 
         if (!studyQueue.length) {
