@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query, Body, HTTPException, Depends, status, Header
+from fastapi import FastAPI, Query, Body, HTTPException, Depends, status, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
@@ -55,6 +55,11 @@ _LIBRARY_USER_LISTS_SCHEMA_OK = False
 # 管理员写操作密钥（仅后端校验，不要硬编码到前端代码里）
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "").strip()
 
+# 公开分析接口的轻量限流（进程内）
+_PUBLIC_ANALYZE_WINDOW_SECONDS = 60
+_PUBLIC_ANALYZE_MAX_REQUESTS = 20
+_PUBLIC_ANALYZE_HITS: Dict[str, List[float]] = {}
+
 # 简体→日文常用汉字映射（可按需要持续扩充；避免引入冷门第三方库）
 # 目标：让用户输入简体（如“强/强化”）也能命中日文词条（如“強/強化”）
 S2J_KANJI_MAP: Dict[str, str] = {
@@ -80,6 +85,28 @@ S2J_KANJI_MAP: Dict[str, str] = {
 
 def _map_s2j(text: str) -> str:
     return "".join(S2J_KANJI_MAP.get(ch, ch) for ch in (text or ""))
+
+
+def _client_ip_key(request: Request) -> str:
+    xff = (request.headers.get("x-forwarded-for") or "").strip()
+    if xff:
+        return xff.split(",")[0].strip() or "unknown"
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def _enforce_public_analyze_rate_limit(request: Request) -> None:
+    now_ts = time.time()
+    ip_key = _client_ip_key(request)
+    recent = [
+        ts for ts in _PUBLIC_ANALYZE_HITS.get(ip_key, [])
+        if now_ts - ts <= _PUBLIC_ANALYZE_WINDOW_SECONDS
+    ]
+    if len(recent) >= _PUBLIC_ANALYZE_MAX_REQUESTS:
+        raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试。")
+    recent.append(now_ts)
+    _PUBLIC_ANALYZE_HITS[ip_key] = recent
 
 
 def _is_kana_only(text: str) -> bool:
@@ -884,6 +911,7 @@ def _build_daily_task_queue_pg(user_id: str, level: str, daily_new_count: int) -
     conn = _pg_conn()
     try:
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            review_limit = max(1, int(daily_new_count))
             cur.execute(
                 """
                 SELECT w.id, w.word, w.kana, w.meaning_zh, w.origin, w.social_targets, w.offense_risk, w.usage_frequency,
@@ -898,9 +926,39 @@ def _build_daily_task_queue_pg(user_id: str, level: str, daily_new_count: int) -
                 ORDER BY up.next_review_at ASC
                 LIMIT %s
                 """,
-                (user_id, level, max(1, int(daily_new_count))),
+                (user_id, level, review_limit),
             )
             review_rows = cur.fetchall()
+            due_count = len(review_rows)
+
+            # 如果今天没有到期复习词，仍优先给用户一批“学过的词”做开场复习，
+            # 避免一进入背词就直接开始新词。
+            if len(review_rows) < review_limit:
+                cur.execute(
+                    """
+                    SELECT w.id, w.word, w.kana, w.meaning_zh, w.origin, w.social_targets, w.offense_risk, w.usage_frequency,
+                           w.scene_tags, w.register_social, w.scene_deep_dive, w.example_ja, w.example_zh,
+                           w.usage_frequency_note, w.audio_filename, w.image_prompt
+                    FROM user_progress up
+                    JOIN words w ON w.id = up.word_id
+                    WHERE up.user_id = %s::uuid
+                      AND up.level = %s
+                      AND (up.next_review_at IS NULL OR up.next_review_at > NOW())
+                    ORDER BY COALESCE(up.last_review_at, up.updated_at, up.next_review_at) ASC NULLS FIRST
+                    LIMIT %s
+                    """,
+                    (user_id, level, max(review_limit * 4, 20)),
+                )
+                seen_ids = {str(row.get("id")) for row in review_rows}
+                for row in cur.fetchall():
+                    row_id = str(row.get("id"))
+                    if row_id in seen_ids:
+                        continue
+                    row["kind"] = "review"
+                    review_rows.append(row)
+                    seen_ids.add(row_id)
+                    if len(review_rows) >= review_limit:
+                        break
 
             cur.execute(
                 """
@@ -916,7 +974,7 @@ def _build_daily_task_queue_pg(user_id: str, level: str, daily_new_count: int) -
                 ORDER BY w.order_no ASC
                 LIMIT %s
                 """,
-                (level, user_id, max(1, int(daily_new_count))),
+                (level, user_id, review_limit),
             )
             new_rows = cur.fetchall()
 
@@ -946,7 +1004,7 @@ def _build_daily_task_queue_pg(user_id: str, level: str, daily_new_count: int) -
             return {
                 "queue": queue,
                 "total": len(queue),
-                "due": len(review_rows),
+                "due": due_count,
                 "new": len(new_rows),
                 "remaining_new_words": remaining,
                 "estimated_days_left": days_left,
@@ -962,6 +1020,7 @@ def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count
     conn = _pg_conn()
     try:
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            review_limit = max(1, int(daily_new_count))
             if _is_kaoyan_selector(selector):
                 cur.execute("SELECT COUNT(*) AS c FROM vocab_library WHERE 'kaoyan' = ANY(tags)")
             else:
@@ -985,9 +1044,38 @@ def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count
                 ORDER BY lp.next_review_at ASC
                 LIMIT %s
                 """,
-                (user_id, selector, max(1, int(daily_new_count))),
+                (user_id, selector, review_limit),
             )
             review_rows = cur.fetchall()
+            due_count = len(review_rows)
+
+            # 若没有到期复习，也优先抽取一批已学过词汇做复习开场。
+            if len(review_rows) < review_limit:
+                cur.execute(
+                    """
+                    SELECT v.id, v.level, v.word, v.reading, v.meaning, v.mp3,
+                           v.pos, v.frequency, v.examples,
+                           v.social_context, v.heatmap_data, v.insight_text, v.image_url, v.is_ai_enriched, v.order_no
+                    FROM library_progress lp
+                    JOIN vocab_library v ON v.id = lp.entry_id
+                    WHERE lp.user_id = %s::uuid
+                      AND lp.level = %s
+                      AND (lp.next_review_at IS NULL OR lp.next_review_at > NOW())
+                    ORDER BY COALESCE(lp.last_review_at, lp.updated_at, lp.next_review_at) ASC NULLS FIRST
+                    LIMIT %s
+                    """,
+                    (user_id, selector, max(review_limit * 4, 20)),
+                )
+                seen_ids = {str(row.get("id")) for row in review_rows}
+                for row in cur.fetchall():
+                    row_id = str(row.get("id"))
+                    if row_id in seen_ids:
+                        continue
+                    row["kind"] = "review"
+                    review_rows.append(row)
+                    seen_ids.add(row_id)
+                    if len(review_rows) >= review_limit:
+                        break
 
             if _is_kaoyan_selector(selector):
                 cur.execute(
@@ -1004,7 +1092,7 @@ def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count
                     ORDER BY v.level ASC, v.order_no ASC
                     LIMIT %s
                     """,
-                    (user_id, max(1, int(daily_new_count))),
+                    (user_id, review_limit),
                 )
             else:
                 cur.execute(
@@ -1021,7 +1109,7 @@ def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count
                     ORDER BY v.order_no ASC
                     LIMIT %s
                     """,
-                    (selector, user_id, max(1, int(daily_new_count))),
+                    (selector, user_id, review_limit),
                 )
             new_rows = cur.fetchall()
 
@@ -1059,7 +1147,7 @@ def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count
             return {
                 "queue": queue,
                 "total": len(queue),
-                "due": len(review_rows),
+                "due": due_count,
                 "new": len(new_rows),
                 "remaining_new_words": remaining,
                 "estimated_days_left": days_left,
@@ -2619,7 +2707,8 @@ async def remove_wrongbook_v3(entry_id: str, current_user: Dict[str, Any] = Depe
 
 
 @app.post("/api/v2/system/seed-demo")
-async def seed_demo_data_v2():
+async def seed_demo_data_v2(x_admin_key: str | None = Header(default=None, alias="x-admin-key")):
+    _require_admin_key(x_admin_key)
     conn = _pg_conn()
     demo_rows = [
         ("N5", "お疲れ様です", "おつかれさまです", "辛苦了", None, ["同事", "上司"], 5, 5, ["职场"], 1),
@@ -3049,7 +3138,14 @@ async def get_vocab_meta(word: str = Query(...), kana: str = Query(""), meaning:
     return {"meaning_zh": meaning_zh, "origin": origin}
 
 @app.get("/api/analyze")
-async def analyze(word: str = Query(...)):
+async def analyze(word: str = Query(..., min_length=1, max_length=80), request: Request = None):
+    word = (word or "").strip()
+    if not word:
+        raise HTTPException(status_code=400, detail="word is required")
+    if len(word) > 80:
+        raise HTTPException(status_code=400, detail="word is too long")
+    if request is not None:
+        _enforce_public_analyze_rate_limit(request)
     cached = get_cached_result(word)
     if cached:
         return cached
@@ -3234,7 +3330,8 @@ async def submit_feedback(data: dict = Body(...)):
     return {"status": "success"}
 
 @app.get("/api/feedbacks")
-async def get_feedbacks():
+async def get_feedbacks(x_admin_key: str | None = Header(default=None, alias="x-admin-key")):
+    _require_admin_key(x_admin_key)
     conn = sqlite3.connect('cache.db')
     c = conn.cursor()
     c.execute("SELECT id, user_name, content, created_at FROM feedbacks_local ORDER BY id DESC LIMIT 200")

@@ -250,11 +250,13 @@
                 const examplesContainer = document.getElementById('examplesList');
                 examplesContainer.innerHTML = '';
                 data.examples.forEach(ex => {
+                    const jp = ex.ja || ex.jp || '';
+                    const cn = ex.zh || ex.cn || '';
                     const li = document.createElement('li');
                     li.className = 'flex items-start gap-2';
                     li.innerHTML = `
                         <i class="fa-solid fa-play text-[8px] mt-1 text-gray-300"></i>
-                        <span>${ex.jp}<br><span class="text-gray-400 text-[10px]">${ex.cn}</span></span>
+                        <span>${jp}<br><span class="text-gray-400 text-[10px]">${cn}</span></span>
                     `;
                     examplesContainer.appendChild(li);
                 });
