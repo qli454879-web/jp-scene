@@ -117,6 +117,14 @@
             border: 2px solid rgba(51,51,51,0.25);
         }
         .audio-btn:hover { background: rgba(16,185,129,0.12); }
+        .audio-btn[disabled] {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .audio-btn.is-playing {
+            background: rgba(16,185,129,0.18);
+            border-color: rgba(16,185,129,0.85);
+        }
 
         .heatmap-bar {
             height: 1rem;
@@ -225,14 +233,13 @@
         .vocab-card-container {
             perspective: 1000px;
             width: 100%;
-            max-width: 400px;
-            height: 300px;
-            margin: 0 auto;
+            max-width: 460px;
+            margin: 0 auto 1.5rem;
         }
         .vocab-card {
             position: relative;
             width: 100%;
-            height: 100%;
+            height: 340px;
             transition: transform 0.6s;
             transform-style: preserve-3d;
             cursor: pointer;
@@ -252,11 +259,61 @@
             border: 3px solid #333;
             box-shadow: 6px 6px 0px #333;
             background: white;
-            padding: 20px;
+            padding: 18px 18px 24px;
+            overflow-y: auto;
+            overflow-x: hidden;
         }
         .vocab-card-back {
             transform: rotateY(180deg);
             background: #F0FFF4;
+        }
+        #vocabWord, #vocabWordRuby {
+            width: 100%;
+            max-width: 100%;
+            font-size: clamp(1.45rem, 3.4vw, 2.45rem);
+            line-height: 1.22;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+        #vocabWordRuby ruby {
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+        #vocabKana {
+            width: 100%;
+            max-width: 100%;
+            font-size: clamp(0.92rem, 1.7vw, 1.1rem);
+            line-height: 1.4;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+        #vocabMeaning {
+            width: 100%;
+            max-width: 100%;
+            font-size: clamp(0.9rem, 1.8vw, 1.08rem);
+            line-height: 1.55;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+        #vocabLearningScreen #studyPromptLabel,
+        #vocabLearningScreen #studyFrontHint,
+        #vocabLearningScreen #frontCardActions,
+        #vocabLearningScreen #vocabMetaRow {
+            margin-bottom: 0.5rem;
+            justify-content: center;
+        }
+        #vocabLearningScreen #vocabBackActions {
+            margin-top: auto;
+            justify-content: center;
+        }
+        @media (max-width: 640px) {
+            .vocab-card-container {
+                max-width: 100%;
+            }
+            .vocab-card { height: 320px; }
+            .vocab-card-front, .vocab-card-back {
+                padding: 16px 14px 22px;
+            }
         }
 
         /* Level Button Styles */
@@ -333,6 +390,7 @@
                         <option value="N3">初始等级：N3</option>
                         <option value="N2">初始等级：N2</option>
                         <option value="N1">初始等级：N1</option>
+                        <option value="KAOYAN">初始等级：考研词汇</option>
                     </select>
                 </div>
                 <input type="text" id="regGoal" placeholder="学习目标（例如：三个月过N2）" class="w-full border-2 border-gray-800 p-3 mb-6 outline-none focus:border-green-500">
@@ -362,6 +420,7 @@
                     <option value="N3">JLPT N3</option>
                     <option value="N2">JLPT N2</option>
                     <option value="N1">JLPT N1</option>
+                    <option value="KAOYAN">考研词汇</option>
                 </select>
             </div>
             <button onclick="saveSettings()" class="w-full bg-gray-800 text-white py-3 font-bold hover:bg-green-600 transition-colors">保存</button>
@@ -497,6 +556,7 @@
                     <option value="N3">初始等级：N3</option>
                     <option value="N2">初始等级：N2</option>
                     <option value="N1">初始等级：N1</option>
+                    <option value="KAOYAN">初始等级：考研词汇</option>
                 </select>
             </div>
             <input type="text" id="codeGoal" placeholder="学习目标（例如：90天过N2）" class="w-full border-2 border-gray-800 p-3 mb-6 outline-none focus:border-green-500">
@@ -516,7 +576,18 @@
                 <p class="text-gray-400 text-sm">选择您的日语水平，开启沉浸式单词记忆之旅</p>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-5 gap-4 mb-12">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                <button onclick="selectLevel('N5')" id="selJLPT" class="level-btn active p-6 border-3 border-gray-800 bg-white shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
+                    <div class="text-2xl font-bold mb-1">JLPT</div>
+                    <div class="text-[9px] text-gray-400 uppercase tracking-tighter">N1 - N5</div>
+                </button>
+                <button onclick="selectLevel('KAOYAN')" id="selKAOYAN" class="level-btn p-6 border-3 border-gray-800 bg-white shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
+                    <div class="text-2xl font-bold mb-1">考研词汇</div>
+                    <div class="text-[9px] text-gray-400 uppercase tracking-tighter">KAOYAN</div>
+                </button>
+            </div>
+
+            <div id="jlptSublevels" class="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-12">
                 <button onclick="selectLevel('N5')" id="selN5" class="level-btn active p-6 border-3 border-gray-800 bg-white shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
                     <div class="text-2xl font-bold mb-1">N5</div>
                     <div class="text-[9px] text-gray-400 uppercase tracking-tighter">Beginner</div>
@@ -576,18 +647,43 @@
                 </div>
             </div>
 
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 text-left">
+                <div class="p-3 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
+                    <div class="text-[10px] text-gray-400 font-bold">待复习</div>
+                    <div id="studyReviewLeft" class="text-xl font-bold pixel-font">0</div>
+                </div>
+                <div class="p-3 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
+                    <div class="text-[10px] text-gray-400 font-bold">待新词</div>
+                    <div id="studyNewLeft" class="text-xl font-bold pixel-font">0</div>
+                </div>
+                <div class="p-3 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
+                    <div class="text-[10px] text-gray-400 font-bold">当前题型</div>
+                    <div id="studyModeTop" class="text-sm font-bold">看词想义</div>
+                </div>
+                <div class="p-3 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
+                    <div class="text-[10px] text-gray-400 font-bold">当前阶段</div>
+                    <div id="studyPhaseTop" class="text-sm font-bold">先复习</div>
+                </div>
+            </div>
+
             <!-- Vocab Card -->
+            <div class="flex justify-center gap-2 flex-wrap mb-4">
+                <span id="studyKindBadge" class="text-[10px] px-3 py-1 bg-amber-100 border-2 border-gray-800 font-bold shadow-[3px_3px_0px_#333]">复习</span>
+                <span id="studyModeBadge" class="text-[10px] px-3 py-1 bg-sky-100 border-2 border-gray-800 font-bold shadow-[3px_3px_0px_#333]">看词想义</span>
+                <span id="studyQueueBadge" class="text-[10px] px-3 py-1 bg-white border-2 border-gray-800 font-bold shadow-[3px_3px_0px_#333]">第 1 题</span>
+            </div>
+            <div id="studyPromptHint" class="mb-4 text-[12px] font-bold text-gray-500">看到单词，先自己想意思，再点显示答案</div>
             <div class="vocab-card-container mb-8">
-                <div id="vocabCard" class="vocab-card">
+                <div id="vocabCard" class="vocab-card cursor-pointer">
                     <div class="vocab-card-front">
-                        <span class="text-[10px] text-gray-400 mb-4 tracking-widest uppercase">Word / 単語</span>
+                        <span id="studyPromptLabel" class="text-[10px] text-gray-400 mb-4 tracking-widest uppercase">Word / 単語</span>
                         <h2 id="vocabWord" class="text-6xl font-bold serif">---</h2>
                         <div id="vocabWordRuby" class="hidden text-6xl font-bold serif leading-tight"></div>
-                        <div class="mt-6 flex justify-center gap-4">
-                            <button type="button" onclick="playVocabAudio()" class="audio-btn"><i class="fa-solid fa-volume-up"></i></button>
+                        <div id="frontCardActions" class="mt-6 flex justify-center gap-4">
+                            <button type="button" onclick="playVocabAudio()" id="vocabFrontAudioBtn" class="audio-btn" title="播放读音"><i class="fa-solid fa-volume-up"></i></button>
                             <button type="button" onclick="toggleVocabFavorite()" id="vocabFavBtn" class="w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full hover:bg-red-50 transition-colors"><i class="fa-regular fa-heart text-gray-400"></i></button>
                         </div>
-                        <p class="mt-8 text-[10px] text-gray-300 animate-pulse">点击翻转查看详情</p>
+                        <p id="studyFrontHint" class="mt-8 text-[10px] text-gray-300 animate-pulse">点击卡片或点下方按钮，显示答案</p>
                     </div>
                     <div class="vocab-card-back">
                         <div id="offenseRiskBanner" class="hidden mb-3 p-2 border-2 border-red-500 bg-red-50 text-red-700 text-[10px] font-bold text-left">
@@ -595,13 +691,13 @@
                         </div>
                         <h3 id="vocabKana" class="text-2xl text-green-600 mb-2">---</h3>
                         <p id="vocabMeaning" class="text-xl font-bold mb-4">---</p>
-                        <div class="flex flex-wrap gap-2 mb-3">
+                        <div id="vocabMetaRow" class="flex flex-wrap gap-2 mb-3">
                             <span id="vocabPosBadge" class="text-[10px] px-2 py-1 bg-white border border-gray-200">词性：---</span>
                             <span id="vocabUsageFreq" class="text-[10px] px-2 py-1 bg-orange-50 border border-orange-300">频次：---</span>
                         </div>
 
                         <!-- AI Partner Tip Box -->
-                        <div class="mb-4 p-3 bg-blue-50 border-2 border-blue-100 rounded-xl relative text-left">
+                        <div id="vocabTipBox" class="mb-4 p-3 bg-blue-50 border-2 border-blue-100 rounded-xl relative text-left">
                             <div class="absolute -top-3 left-4 bg-blue-500 text-white text-[8px] px-2 py-0.5 rounded-full font-bold">AI 伙伴</div>
                             <p id="vocabTip" class="text-[11px] text-blue-800 leading-relaxed italic">需要提示时点一下生成（避免卡顿与重复消耗）。</p>
                             <div class="mt-2 flex justify-end">
@@ -609,8 +705,11 @@
                             </div>
                         </div>
 
-                        <div class="flex gap-3">
-                            <button type="button" onclick="toggleVocabFavorite()" class="px-3 py-2 bg-gray-100 text-[10px] font-bold hover:bg-red-50 transition-colors">
+                        <div id="vocabBackActions" class="flex gap-3">
+                            <button type="button" onclick="playVocabAudio()" id="vocabBackAudioBtn" class="px-3 py-2 bg-white border-2 border-gray-800 text-[10px] font-bold hover:bg-green-50 transition-colors" title="播放读音">
+                                <i class="fa-solid fa-volume-up mr-1"></i> 听读音
+                            </button>
+                            <button type="button" onclick="toggleVocabFavorite()" id="vocabBackFavBtn" class="px-3 py-2 bg-gray-100 text-[10px] font-bold hover:bg-red-50 transition-colors">
                                 <i class="fa-regular fa-heart mr-1"></i> 收藏
                             </button>
                             <button type="button" onclick="analyzeVocab()" class="px-4 py-2 bg-gray-800 text-white text-[10px] font-bold hover:bg-green-600 transition-all">
@@ -621,12 +720,28 @@
                 </div>
             </div>
 
-            <div class="flex justify-center gap-3 flex-wrap">
+            <div id="studyInputArea" class="hidden mt-10 mb-6">
+                <div class="p-4 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333] text-left">
+                    <label id="studyInputLabel" class="block text-[11px] text-gray-500 font-bold mb-2">请输入你听到的假名</label>
+                    <input id="studyAnswerInput" type="text" class="w-full border-2 border-gray-800 p-3 text-lg font-bold outline-none focus:border-green-500 bg-white" placeholder="例如：あれ">
+                    <label id="studyMeaningInputLabel" class="block text-[11px] text-gray-500 font-bold mt-4 mb-2 hidden">再输入中文意思</label>
+                    <input id="studyMeaningInput" type="text" class="hidden w-full border-2 border-gray-800 p-3 text-lg font-bold outline-none focus:border-green-500 bg-emerald-50" placeholder="例如：那个">
+                    <div id="studyInputFeedback" class="mt-2 text-[11px] text-gray-500">先播放音频，再输入假名。</div>
+                </div>
+            </div>
+
+            <div class="flex justify-center gap-3 flex-wrap mb-4">
+                <button id="revealAnswerBtn" onclick="revealStudyAnswer()" class="bg-gray-800 text-white border-2 border-gray-800 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#10B981] hover:bg-green-600 transition-all">显示答案</button>
+                <button id="submitAnswerBtn" onclick="submitStudyInput()" class="hidden bg-sky-100 border-2 border-sky-500 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#333] hover:bg-sky-500 hover:text-white transition-all">提交输入</button>
+            </div>
+
+            <div id="ratingArea" class="flex justify-center gap-3 flex-wrap">
                 <button id="rateDontKnowBtn" onclick="rateCurrent('dont_know')" class="bg-red-50 border-2 border-red-500 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#333] hover:bg-red-500 hover:text-white transition-all">不认识</button>
                 <button id="rateFuzzyBtn" onclick="rateCurrent('fuzzy')" class="bg-yellow-50 border-2 border-yellow-500 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#333] hover:bg-yellow-500 hover:text-white transition-all">模糊</button>
                 <button id="rateKnowBtn" onclick="rateCurrent('know')" class="bg-green-100 border-2 border-green-500 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#333] hover:bg-green-500 hover:text-white transition-all">认识</button>
                 <button id="finishSessionBtn" onclick="finishSessionEarly()" class="bg-white border-2 border-gray-800 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">结束学习</button>
             </div>
+            <div id="ratingHint" class="mt-3 text-[11px] text-gray-500 text-center">先点“显示答案”，再进行评分。</div>
 
             <div class="card-pixel !p-5 mt-6 text-left">
                 <div class="flex items-center gap-3 mb-3">
@@ -717,63 +832,59 @@
         </div>
     </div>
 
-    <!-- Study Insight Modal（大单词卡弹窗：与“查词大卡片”一致，不含图像） -->
+    <!-- Study Insight Modal（改成与“搜单词单词卡”同风格） -->
     <div id="studyInsightModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-[650] p-4">
-        <div class="card-pixel w-full max-w-3xl reveal !p-0 bg-white">
+        <div class="w-full max-w-3xl reveal">
+            <div class="card-pixel !p-0 bg-white">
             <div class="p-4 border-b-3 border-[#333] flex items-center justify-between">
-                <div class="pixel-font text-xl">单词卡</div>
+                <div class="pixel-font text-xl">单词卡 / Insight</div>
                 <button onclick="closeStudyInsightModal()" class="text-gray-500 hover:text-gray-800"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="p-6 md:p-8 max-h-[78vh] overflow-y-auto custom-scrollbar">
-                <!-- Header (match “大单词卡”) -->
-                <div class="flex justify-between items-start mb-8">
+                <!-- Header -->
+                <div class="flex items-start justify-between gap-4 mb-8">
                     <div>
-                        <div class="flex items-center gap-4 mb-2">
-                            <h2 id="siWord" class="text-5xl font-bold serif">---</h2>
-                            <button class="audio-btn" onclick="playStudyModalAudio(); event.stopPropagation();"><i class="fa-solid fa-volume-up text-gray-400"></i></button>
-                            <button type="button" onclick="toggleVocabFavorite('modal'); event.stopPropagation();" id="siFavBtn" class="w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full hover:bg-red-50 transition-colors"><i class="fa-regular fa-heart text-gray-400"></i></button>
+                        <div class="flex items-center gap-3">
+                            <h2 id="siWord" class="text-5xl md:text-6xl font-bold serif leading-none">---</h2>
+                            <button class="w-9 h-9 flex items-center justify-center bg-gray-100 rounded-full hover:bg-green-100 transition-colors" onclick="playStudyModalAudio(); event.stopPropagation();" title="播放读音">
+                                <i class="fa-solid fa-volume-up text-gray-500"></i>
+                            </button>
+                            <button type="button" onclick="toggleVocabFavorite('modal'); event.stopPropagation();" id="siFavBtn" class="w-9 h-9 flex items-center justify-center bg-gray-100 rounded-full hover:bg-red-50 transition-colors" title="收藏">
+                                <i class="fa-regular fa-heart text-gray-500"></i>
+                            </button>
                         </div>
-                        <div class="flex items-center gap-3 flex-wrap">
-                            <span id="siReading" class="text-xl text-gray-400 font-light">---</span>
-                            <span id="siPosWrap" class="text-[12px] text-gray-700 hidden">【<span id="siPos">—</span>】</span>
+                        <div class="mt-2 flex items-center gap-2 flex-wrap">
+                            <div id="siReading" class="text-sm text-gray-600 font-mono">---</div>
+                            <div id="siPosWrap" class="text-[12px] text-gray-700 hidden">【<span id="siPos">—</span>】</div>
+                        </div>
+                        <div class="mt-3 text-[12px] text-gray-700 font-bold">
+                            <span class="text-gray-500">释义</span> / <span id="siMeaning">---</span>
                         </div>
                     </div>
-                    <div class="text-[10px] font-bold px-2 py-1 border border-gray-200 bg-gray-50" id="siLevel">JLPT</div>
-                </div>
-
-                <!-- Meaning -->
-                <div class="mb-8">
-                    <h4 class="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-2">释义 / Meaning</h4>
-                    <div id="siMeaning" class="text-2xl font-bold">---</div>
+                    <div id="siLevel" class="badge-pixel px-3 py-1 bg-white text-[10px] font-bold">JLPT</div>
                 </div>
 
                 <!-- Frequency -->
                 <div class="mb-8">
-                    <h4 class="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-2">日常频次 / Frequency</h4>
+                    <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">日常频次 / Frequency</h4>
                     <div id="siFreqText" class="text-orange-400 text-sm">—</div>
                 </div>
 
                 <!-- Social Compatibility -->
                 <div class="mb-8">
-                    <h4 class="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-4">社交适用对象 / Social Compatibility</h4>
+                    <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">社交适用对象 / Social Compatibility</h4>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-3" id="siSocialGrid"></div>
                 </div>
 
                 <!-- Heatmap -->
-                <div class="mb-10">
-                    <h4 class="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-4">高频出现场景 / Scenario Heatmap</h4>
+                <div class="mb-8">
+                    <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">高频出现场景 / Scenario Heatmap</h4>
                     <div id="siHeatmap" class="space-y-3"></div>
-                </div>
-
-                <!-- Examples -->
-                <div class="mb-10">
-                    <h4 class="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-4">例句 / Examples</h4>
-                    <div id="siExamples" class="space-y-3"></div>
                 </div>
 
                 <!-- Insight -->
                 <div class="pt-8 border-t-2 border-dashed border-gray-100">
-                    <h4 class="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-4">场景深度解析 / Insight</h4>
+                    <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">场景深度解析 / Insight</h4>
                     <div class="p-4 bg-emerald-50 border-2 border-emerald-200 rounded">
                         <div id="siInsight" class="text-[13px] md:text-[14px] leading-relaxed text-emerald-900">---</div>
                     </div>
@@ -781,6 +892,7 @@
                         适用对象、高频场景等内容由 AI 生成，仅供参考。
                     </div>
                 </div>
+            </div>
             </div>
         </div>
     </div>
@@ -985,6 +1097,7 @@
         let historyIndex = -1;
         let totalWordsInLevel = 0;
         let currentUser = null;
+        let currentUserKey = localStorage.getItem('currentUserKey') || null;
         let authToken = localStorage.getItem('authToken');
         let supabaseClient = null;
         let supabaseProfile = null;
@@ -997,6 +1110,10 @@
             const lastLv = (localStorage.getItem('lastVocabLevel') || '').trim();
             if (lastLv) currentVocabLevel = lastLv;
         } catch (e) {}
+
+        function storageUserKey() {
+            return currentUserKey || currentUser || 'anon';
+        }
 
         // --- Auth Functions ---
         function toggleAuthModal() {
@@ -1064,11 +1181,15 @@
                     const session = data?.session || null;
                     if (session?.access_token) {
                         authToken = session.access_token;
+                        currentUserKey = session?.user?.id || currentUserKey;
                         localStorage.setItem('authToken', authToken);
+                        if (currentUserKey) localStorage.setItem('currentUserKey', currentUserKey);
                         await loadProfile();
                     } else {
                         authToken = null;
+                        currentUserKey = null;
                         localStorage.removeItem('authToken');
+                        localStorage.removeItem('currentUserKey');
                     }
                 }
                 updateUserUI();
@@ -1078,7 +1199,9 @@
                 supabaseClient.auth.onAuthStateChange(async (_event, session2) => {
                     if (session2?.access_token) {
                         authToken = session2.access_token;
+                        currentUserKey = session2?.user?.id || currentUserKey;
                         localStorage.setItem('authToken', authToken);
+                        if (currentUserKey) localStorage.setItem('currentUserKey', currentUserKey);
                         await loadProfile();
                         if (activeInviteCode && session2?.user?.id) {
                             try {
@@ -1096,9 +1219,11 @@
                         }
                     } else {
                         authToken = null;
+                        currentUserKey = null;
                         supabaseProfile = null;
                         localStorage.removeItem('authToken');
                         localStorage.removeItem('currentUser');
+                        localStorage.removeItem('currentUserKey');
                     }
                     updateUserUI();
                     refreshForecast();
@@ -1113,12 +1238,15 @@
                 const res = await authFetch('/api/v2/profile/me');
                 const data = await res.json();
                 supabaseProfile = data || null;
+                currentUserKey = (supabaseProfile && (supabaseProfile.user_id || supabaseProfile.id)) ? (supabaseProfile.user_id || supabaseProfile.id) : currentUserKey;
                 if (supabaseProfile && supabaseProfile.nickname) {
                     currentUser = supabaseProfile.nickname;
                 } else {
                     currentUser = '已登录';
                 }
                 localStorage.setItem('currentUser', currentUser);
+                if (currentUserKey) localStorage.setItem('currentUserKey', currentUserKey);
+                loadPendingRates();
                 const lv = (supabaseProfile && (supabaseProfile.current_level || supabaseProfile.initial_level)) ? (supabaseProfile.current_level || supabaseProfile.initial_level) : null;
                 // 若用户已经手动选择过词书（lastVocabLevel 存在），不要用 profile 覆盖，避免跳回 N5
                 const hasManual = !!((localStorage.getItem('lastVocabLevel') || '').trim());
@@ -1126,6 +1254,7 @@
             } catch (e) {
                 currentUser = '已登录';
                 localStorage.setItem('currentUser', currentUser);
+                loadPendingRates();
             }
         }
 
@@ -1297,18 +1426,22 @@
 
                 if (data.status === 'returning_user') {
                     if (loadingStatus) loadingStatus.innerText = '正在恢复账号会话...';
-                    // 统一走后端 refresh，避免某些 supabase-js 版本出现 "Auth session missing!" 等状态异常
-                    const rr = await fetch('/api/v2/supabase/refresh', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ refresh_token: data.refresh_token })
-                    });
-                    const dd = await rr.json().catch(() => ({}));
-                    if (!rr.ok) {
-                        alert(dd?.detail || '邀请码登录失败');
-                        return;
+                    // 新逻辑：后端会优先直接 refresh；若发现 refresh_token 已轮换/失效，
+                    // 会直接返回一个可用的恢复会话，避免用户看到 “Already Used”。
+                    let session = data.session || null;
+                    if (!session?.access_token) {
+                        const rr = await fetch('/api/v2/supabase/refresh', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ refresh_token: data.refresh_token })
+                        });
+                        const dd = await rr.json().catch(() => ({}));
+                        if (!rr.ok) {
+                            alert(dd?.detail || '邀请码登录失败：会话恢复失败，请联系管理员处理邀请码绑定');
+                            return;
+                        }
+                        session = dd?.session || null;
                     }
-                    const session = dd?.session || null;
                     if (!session?.access_token) {
                         alert('邀请码登录失败：会话无效，请稍后重试');
                         return;
@@ -1324,20 +1457,22 @@
                     // 重要：Supabase 会轮换 refresh_token；必须把最新 refresh_token 写回 invitation_codes，
                     // 否则“退出后再次用邀请码登录”会遇到 refresh_token_not_found。
                     try {
-                        await fetch('/api/v2/code-auth/refresh-token', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                code,
-                                user_id: data.associated_uid || (session?.user?.id || ''),
-                                refresh_token: session.refresh_token || '',
-                                access_token: session.access_token || ''
-                            })
-                        });
+                        if (session.refresh_token) {
+                            await fetch('/api/v2/code-auth/refresh-token', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    code,
+                                    user_id: data.associated_uid || (session?.user?.id || ''),
+                                    refresh_token: session.refresh_token || '',
+                                    access_token: session.access_token || ''
+                                })
+                            });
+                        }
                     } catch (e) {}
 
                     // 若 supabase-js 可用，同步写入本地 session（失败不致命，站内接口仍用 Bearer token）
-                    if (supabaseClient) {
+                    if (supabaseClient && session.refresh_token) {
                         try {
                             await supabaseClient.auth.setSession({
                                 access_token: session.access_token,
@@ -1524,6 +1659,9 @@
         const vocabTipCache = new Map(); // AI 伙伴提示缓存（避免重复消耗）
         let favoritesSet = new Set();
         let wrongbookSet = new Set();
+        let currentStudyMode = 'meaning';
+        let studyAnswerShown = false;
+        let manualCardFlipEnabled = false;
 
         function hasChinese(text) {
             return /[\u4e00-\u9fff]/.test(text || '');
@@ -1536,75 +1674,6 @@
         // 判断是否“日语句子/日语问题”：至少包含假名（平假名/片假名）
         function looksJapanese(text) {
             return /[\u3040-\u30FF]/.test((text || '').trim());
-        }
-
-        // iOS Safari 上 speechSynthesis 有时需要提前初始化 voice 列表，否则可能“完全不出声”
-        let __jaVoice = null;
-        function initSpeechVoices() {
-            try {
-                const pick = () => {
-                    const vs = window.speechSynthesis?.getVoices?.() || [];
-                    __jaVoice = vs.find(v => (v.lang || '').toLowerCase().startsWith('ja')) || null;
-                };
-                pick();
-                if (window.speechSynthesis) {
-                    window.speechSynthesis.onvoiceschanged = () => pick();
-                }
-            } catch (e) {}
-        }
-        function speakJa(text) {
-            const t = (text || '').trim();
-            if (!t) return;
-            try {
-                window.speechSynthesis?.cancel?.();
-                const u = new SpeechSynthesisUtterance(t);
-                u.lang = 'ja-JP';
-                u.rate = 1;
-                u.pitch = 1;
-                u.volume = 1;
-                if (__jaVoice) u.voice = __jaVoice;
-                window.speechSynthesis?.speak?.(u);
-            } catch (e) {}
-        }
-        initSpeechVoices();
-
-        // iOS 音频兜底：如果播放失败/无声，给用户一个“再点一次播放”的按钮（第二次点击属于明确手势，成功率更高）
-        let __audioPromptEl = null;
-        function showAudioPrompt(url) {
-            try {
-                if (!url) return;
-                if (__audioPromptEl) __audioPromptEl.remove();
-                const wrap = document.createElement('div');
-                wrap.className = 'fixed z-[9999] left-3 right-3';
-                wrap.style.bottom = 'calc(env(safe-area-inset-bottom) + 12px)';
-                wrap.innerHTML = `
-                  <div class="bg-white border-3 border-[#333] shadow-[6px_6px_0px_#333] p-3 flex items-center gap-3">
-                    <div class="text-[12px] text-gray-700 flex-1">
-                      iPhone 可能阻止了自动播放。点右侧按钮再触发一次即可播放。
-                    </div>
-                    <button id="audioPromptBtn" class="px-3 py-2 bg-gray-800 text-white border-2 border-gray-800 text-[12px] font-bold">
-                      播放声音
-                    </button>
-                  </div>`;
-                document.body.appendChild(wrap);
-                __audioPromptEl = wrap;
-                const btn = wrap.querySelector('#audioPromptBtn');
-                if (btn) btn.onclick = () => {
-                    try {
-                        const w = window.open(url, '_blank');
-                        if (!w) window.location.href = url;
-                    } catch (e) {
-                        window.location.href = url;
-                    }
-                    try { wrap.remove(); } catch (e) {}
-                    __audioPromptEl = null;
-                };
-                // 自动消失
-                setTimeout(() => {
-                    try { wrap.remove(); } catch (e) {}
-                    if (__audioPromptEl === wrap) __audioPromptEl = null;
-                }, 8000);
-            } catch (e) {}
         }
 
         async function ensureVocabMeta(entry) {
@@ -1643,6 +1712,13 @@
 
         function getReading(entry) {
             return (entry?.reading || entry?.kana || '').trim();
+        }
+
+        function getCanonicalStudyReading(entry) {
+            const word = String(entry?.word || '').trim();
+            const reading = getReading(entry);
+            if (word && isKatakana(word)) return word;
+            return reading;
         }
 
         function getMeaning(entry) {
@@ -1695,7 +1771,10 @@
             }
             if (!arr.length) return null;
             const it = arr[0] || {};
-            return { jp: (it.jp || '').trim(), cn: (it.cn || '').trim() };
+            return {
+                jp: String(it.ja || it.jp || '').trim(),
+                cn: String(it.zh || it.cn || '').trim()
+            };
         }
 
         function todayStr() {
@@ -1728,10 +1807,7 @@
         }
 
         function playVocabAudio() {
-            const word = currentVocabData?.word;
-            if (!word) return;
             const fn = (currentVocabData?.mp3 || currentVocabData?.audio_filename || '').trim();
-            // iOS/Safari 兼容：复用一个 audio 实例 + playsInline，减少“点喇叭没声音”
             const sharedAudio = document.getElementById('globalAudio') || window.__jpAudio || new Audio();
             try {
                 sharedAudio.preload = 'auto';
@@ -1742,32 +1818,64 @@
                 sharedAudio.volume = 1;
             } catch (e) {}
             window.__jpAudio = sharedAudio;
-            if (fn) {
-                const url = `/api/vocab/audio/${encodeURIComponent(fn)}`;
-                try { sharedAudio.pause(); } catch (e) {}
-                sharedAudio.src = url;
-                try { sharedAudio.load(); } catch (e) {}
-                try { sharedAudio.currentTime = 0; } catch (e) {}
-                sharedAudio.play().catch(() => {
-                    // 有些 iOS 机型需要等 canplay 再试一次
-                    try {
-                        sharedAudio.addEventListener('canplay', () => {
-                            try { sharedAudio.currentTime = 0; } catch (e) {}
-                            try { sharedAudio.play(); } catch (e) {}
-                        }, { once: true });
-                    } catch (e) {}
-                    speakJa(word);
-                    showAudioPrompt(url);
-                });
-                // 某些机型 promise 不 reject 但仍无声：延迟检查一次
-                setTimeout(() => {
-                    try {
-                        if (sharedAudio.paused || (sharedAudio.currentTime || 0) <= 0) showAudioPrompt(url);
-                    } catch (e) {}
-                }, 900);
+            if (!fn) {
+                syncStudyAudioButtons(false);
+                const inputFeedback = document.getElementById('studyInputFeedback');
+                if (currentStudyMode === 'audio' && inputFeedback) inputFeedback.innerText = '当前词条暂无音频，请直接看答案并评分。';
                 return;
             }
-            speakJa(word);
+            const url = `/api/vocab/audio/${encodeURIComponent(fn)}`;
+            const sameSrc = (sharedAudio.getAttribute('data-src') || '') === url;
+            try { sharedAudio.pause(); } catch (e) {}
+            if (!sameSrc) {
+                sharedAudio.src = url;
+                sharedAudio.setAttribute('data-src', url);
+                try { sharedAudio.load(); } catch (e) {}
+            }
+            try { sharedAudio.currentTime = 0; } catch (e) {}
+            setAudioButtonsPlaying(true);
+            sharedAudio.onended = () => setAudioButtonsPlaying(false);
+            sharedAudio.onpause = () => setAudioButtonsPlaying(false);
+            sharedAudio.onerror = () => setAudioButtonsPlaying(false);
+            sharedAudio.play().catch((err) => {
+                console.warn('audio play failed', err);
+                setAudioButtonsPlaying(false);
+            });
+        }
+
+        function primeVocabAudio(data) {
+            const fn = String(data?.mp3 || data?.audio_filename || '').trim();
+            if (!fn) return;
+            const sharedAudio = document.getElementById('globalAudio') || window.__jpAudio || new Audio();
+            try {
+                sharedAudio.preload = 'auto';
+                sharedAudio.playsInline = true;
+                sharedAudio.setAttribute('playsinline', '');
+                sharedAudio.setAttribute('webkit-playsinline', '');
+            } catch (e) {}
+            window.__jpAudio = sharedAudio;
+            const url = `/api/vocab/audio/${encodeURIComponent(fn)}`;
+            if ((sharedAudio.getAttribute('data-src') || '') === url) return;
+            sharedAudio.src = url;
+            sharedAudio.setAttribute('data-src', url);
+            try { sharedAudio.load(); } catch (e) {}
+        }
+
+        function setAudioButtonsPlaying(playing) {
+            ['vocabFrontAudioBtn', 'vocabBackAudioBtn'].forEach((id) => {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                btn.classList.toggle('is-playing', !!playing);
+            });
+        }
+
+        function syncStudyAudioButtons(hasAudio) {
+            ['vocabFrontAudioBtn', 'vocabBackAudioBtn'].forEach((id) => {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                btn.disabled = !hasAudio;
+                btn.title = hasAudio ? '播放读音' : '当前词条暂无音频';
+            });
         }
 
         function toggleVocabFavorite(scope) {
@@ -1802,22 +1910,95 @@
                 const isFav = id ? favoritesSet.has(String(id)) : false;
                 if (isFav) {
                     btn.classList.add('favorited');
-                    btn.innerHTML = '<i class="fa-solid fa-heart text-red-500"></i>';
+                    btn.innerHTML = btnId === 'vocabBackFavBtn'
+                        ? '<i class="fa-solid fa-heart text-red-500 mr-1"></i> 已收藏'
+                        : '<i class="fa-solid fa-heart text-red-500"></i>';
                 } else {
                     btn.classList.remove('favorited');
-                    btn.innerHTML = '<i class="fa-regular fa-heart text-gray-400"></i>';
+                    btn.innerHTML = btnId === 'vocabBackFavBtn'
+                        ? '<i class="fa-regular fa-heart text-gray-400 mr-1"></i> 收藏'
+                        : '<i class="fa-regular fa-heart text-gray-400"></i>';
                 }
             };
             update('vocabFavBtn', currentVocabData);
+            update('vocabBackFavBtn', currentVocabData);
             update('siFavBtn', currentStudyModalData);
+        }
+
+        function setStudyRatingEnabled(enabled) {
+            ['rateDontKnowBtn', 'rateFuzzyBtn', 'rateKnowBtn'].forEach((id) => {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                const allow = enabled || id === 'rateKnowBtn';
+                btn.disabled = !allow;
+                btn.classList.toggle('opacity-40', !allow);
+                btn.classList.toggle('cursor-not-allowed', !allow);
+            });
+            const hint = document.getElementById('ratingHint');
+            if (hint) {
+                hint.innerText = enabled ? '现在可以评分了。' : '如果你已经确定认识，可以直接点“认识”；否则先点“显示答案”。';
+            }
+        }
+
+        function normalizeStudyText(v) {
+            return String(v || '').trim().replace(/[，、；;。.!！?？\s]+/g, '');
+        }
+
+        function studyMeaningCandidates(text) {
+            return String(text || '')
+                .split(/[；;、，,/]/)
+                .map(s => normalizeStudyText(s))
+                .filter(Boolean);
+        }
+
+        function studyModeLabel(mode) {
+            if (mode === 'audio') return '听音输入假名';
+            if (mode === 'reverse') return '看义回忆词';
+            return '看词想义';
+        }
+
+        function studyPhaseLabel() {
+            const remaining = studyQueue.slice(queueIndex);
+            return remaining.some(it => String(it.kind || '') === 'review') ? '先复习' : '开始新词';
+        }
+
+        function pickStudyMode(item, idx) {
+            if (item && item.study_mode) return item.study_mode;
+            const reviewModes = ['meaning', 'audio', 'reverse'];
+            const newModes = ['meaning', 'reverse', 'audio'];
+            return (item && item.kind === 'review' ? reviewModes : newModes)[idx % 3];
+        }
+
+        function prepareStudyQueue(queue) {
+            const list = Array.isArray(queue) ? queue.filter(Boolean).map(it => ({ ...it })) : [];
+            const reviews = list.filter(it => String(it.kind || '') === 'review');
+            const fresh = list.filter(it => String(it.kind || '') !== 'review');
+            const assign = (arr) => arr.map((it, idx) => ({
+                ...it,
+                kind: String(it.kind || '') === 'review' ? 'review' : 'new',
+                study_mode: pickStudyMode(it, idx),
+            }));
+            return [...assign(reviews), ...assign(fresh)];
         }
 
         function updateSessionProgress() {
             const done = sessionStats.newDone + sessionStats.reviewDone;
-            const total = sessionTarget || 50;
+            const total = studyQueue.length || sessionTarget || 50;
             const percent = Math.min(Math.round((done / total) * 100), 100);
             document.getElementById('vocabProgress').innerText = `${done} / ${total} (新${sessionStats.newDone} 复${sessionStats.reviewDone})`;
             document.getElementById('vocabProgressBar').style.width = `${percent}%`;
+            const remain = studyQueue.slice(queueIndex);
+            const reviewLeft = remain.filter(it => String(it.kind || '') === 'review').length;
+            const newLeft = remain.filter(it => String(it.kind || '') !== 'review').length;
+            const current = studyQueue[queueIndex];
+            const reviewEl = document.getElementById('studyReviewLeft');
+            const newEl = document.getElementById('studyNewLeft');
+            const modeEl = document.getElementById('studyModeTop');
+            const phaseEl = document.getElementById('studyPhaseTop');
+            if (reviewEl) reviewEl.innerText = String(reviewLeft);
+            if (newEl) newEl.innerText = String(newLeft);
+            if (modeEl) modeEl.innerText = current ? studyModeLabel(current.study_mode || 'meaning') : '—';
+            if (phaseEl) phaseEl.innerText = remain.length ? studyPhaseLabel() : '已完成';
         }
 
         function syncCoverButtons() {
@@ -1894,12 +2075,16 @@
             const item = studyQueue[queueIndex];
             if (!item) return;
             currentVocabData = item;
+            currentStudyMode = item.study_mode || 'meaning';
+            studyAnswerShown = false;
             const card = document.getElementById('vocabCard');
             if (card) card.classList.remove('is-flipped');
-            document.getElementById('vocabTip').innerText = item.kind === 'review' ? '复习：先回想，再揭示，然后自评。' : '新词：先看一遍，再试着回想。';
+            document.getElementById('vocabTip').innerText = (String(item.insight_text || '').trim()) || (item.kind === 'review' ? '复习时先抓住这个词最常出现的搭配，再回忆意思和读音。' : '新词先记一个最顺手的使用场景，再把读音和意思一起连起来记。');
 
-            const reading = getReading(currentVocabData);
-            renderWordRuby(currentVocabData.word, reading);
+            const reading = getCanonicalStudyReading(currentVocabData);
+            const hasAudio = !!String(currentVocabData?.mp3 || currentVocabData?.audio_filename || '').trim();
+            const plain = document.getElementById('vocabWord');
+            const ruby = document.getElementById('vocabWordRuby');
             document.getElementById('vocabKana').innerText = reading || '—';
 
             const baseMeaning = getMeaning(currentVocabData);
@@ -1920,11 +2105,114 @@
 
             // 收藏按钮状态同步
             syncFavButton();
+            syncStudyAudioButtons(hasAudio);
+            setAudioButtonsPlaying(false);
+            if (hasAudio) primeVocabAudio(currentVocabData);
             // AI 伙伴：不再自动请求（避免卡顿+消耗 tokens）。用户点击“AI 伙伴”按钮时再生成。
             const id = getEntryId(currentVocabData);
             if (id && vocabTipCache.has(String(id))) {
                 document.getElementById('vocabTip').innerText = vocabTipCache.get(String(id));
             }
+
+            const kindBadge = document.getElementById('studyKindBadge');
+            const modeBadge = document.getElementById('studyModeBadge');
+            const queueBadge = document.getElementById('studyQueueBadge');
+            const promptLabel = document.getElementById('studyPromptLabel');
+            const promptHint = document.getElementById('studyPromptHint');
+            const frontHint = document.getElementById('studyFrontHint');
+            const revealBtn = document.getElementById('revealAnswerBtn');
+            const submitBtn = document.getElementById('submitAnswerBtn');
+            const inputArea = document.getElementById('studyInputArea');
+            const inputLabel = document.getElementById('studyInputLabel');
+            const inputBox = document.getElementById('studyAnswerInput');
+            const meaningLabel = document.getElementById('studyMeaningInputLabel');
+            const meaningBox = document.getElementById('studyMeaningInput');
+            const inputFeedback = document.getElementById('studyInputFeedback');
+            if (kindBadge) {
+                const retry = !!item.retry_round;
+                kindBadge.innerText = retry ? '本轮重练' : (item.kind === 'review' ? '复习' : '新词');
+                kindBadge.className = `text-[10px] px-3 py-1 border-2 border-gray-800 font-bold shadow-[3px_3px_0px_#333] ${retry ? 'bg-red-100' : (item.kind === 'review' ? 'bg-amber-100' : 'bg-emerald-100')}`;
+            }
+            if (modeBadge) modeBadge.innerText = studyModeLabel(currentStudyMode);
+            if (queueBadge) queueBadge.innerText = `第 ${queueIndex + 1} 题`;
+            if (inputArea) inputArea.classList.toggle('hidden', currentStudyMode !== 'audio');
+            if (submitBtn) submitBtn.classList.toggle('hidden', currentStudyMode !== 'audio');
+            if (revealBtn) revealBtn.innerText = currentStudyMode === 'audio' ? '不会，显示答案' : '显示答案';
+            if (inputBox) inputBox.value = '';
+            if (inputBox) inputBox.placeholder = '例如：あした';
+            if (meaningBox) meaningBox.value = '';
+            if (meaningBox) meaningBox.placeholder = '例如：明天';
+            if (meaningLabel) meaningLabel.classList.toggle('hidden', currentStudyMode !== 'audio');
+            if (meaningBox) meaningBox.classList.toggle('hidden', currentStudyMode !== 'audio');
+            if (inputFeedback) inputFeedback.innerText = currentStudyMode === 'audio'
+                ? (hasAudio ? '已自动播放音频。请填写假名和中文意思，两个都正确会自动进入下一题。' : '当前词条暂无音频，请直接看答案并评分。')
+                : '';
+            setStudyRatingEnabled(false);
+
+            if (currentStudyMode === 'audio') {
+                if (plain && ruby) {
+                    plain.classList.remove('hidden');
+                    ruby.classList.add('hidden');
+                    plain.innerText = '♪';
+                }
+                if (promptLabel) promptLabel.innerText = 'Listen / 听音输入';
+                if (promptHint) promptHint.innerText = hasAudio ? '已自动播放音频。先输入假名和中文意思；都对就直接下一题，不对再看答案。' : '这题暂时没有音频，请直接看答案并评分。';
+                if (frontHint) frontHint.innerText = '这题不看单词，只靠听音';
+                if (inputLabel) inputLabel.innerText = '请输入你听到的假名';
+                setTimeout(() => {
+                    if (currentVocabData === item && currentStudyMode === 'audio') playVocabAudio();
+                }, 80);
+            } else if (currentStudyMode === 'reverse') {
+                if (plain && ruby) {
+                    plain.classList.remove('hidden');
+                    ruby.classList.add('hidden');
+                    plain.innerText = baseMeaning || '—';
+                }
+                if (promptLabel) promptLabel.innerText = 'Meaning / 释义';
+                if (promptHint) promptHint.innerText = '看到中文意思，先主动回忆日文，再点显示答案。';
+                if (frontHint) frontHint.innerText = '不要急着翻，先自己想';
+            } else {
+                renderWordRuby(currentVocabData.word, reading);
+                if (promptLabel) promptLabel.innerText = 'Word / 単語';
+                if (promptHint) promptHint.innerText = '看到单词，先自己想意思。卡片正面只保留单词，点卡片或点按钮看答案。';
+                if (frontHint) frontHint.innerText = '先回忆，再显示答案';
+            }
+            updateSessionProgress();
+        }
+
+        function revealStudyAnswer() {
+            const item = studyQueue[queueIndex];
+            if (!item) return;
+            studyAnswerShown = true;
+            const card = document.getElementById('vocabCard');
+            if (card) card.classList.add('is-flipped');
+            setStudyRatingEnabled(true);
+        }
+
+        function submitStudyInput() {
+            const item = studyQueue[queueIndex];
+            if (!item) return;
+            const input = document.getElementById('studyAnswerInput');
+            const meaningInput = document.getElementById('studyMeaningInput');
+            const feedback = document.getElementById('studyInputFeedback');
+            const rawExpected = String(getCanonicalStudyReading(item) || '').trim();
+            const got = normalizeStudyText(input?.value || '');
+            const expected = normalizeStudyText(rawExpected);
+            const meaningGot = normalizeStudyText(meaningInput?.value || '');
+            const meaningOk = studyMeaningCandidates(getMeaning(item)).some(x => x && (meaningGot.includes(x) || x.includes(meaningGot)));
+            const readingOk = !!got && !!expected && got === expected;
+            if (readingOk && meaningOk) {
+                if (feedback) feedback.innerText = '假名和意思都正确，自动进入下一题。';
+                studyAnswerShown = true;
+                rateCurrent('know');
+                return;
+            }
+            if (feedback) {
+                const readingMsg = readingOk ? '读音写法正确' : `读音必须按词库写法填写：${rawExpected || '—'}`;
+                const meaningMsg = meaningOk ? '意思正确' : `意思可写作「${getMeaning(item) || '—'}」`;
+                feedback.innerText = `${readingMsg}；${meaningMsg}。未全部正确，请看答案后手动评分。`;
+            }
+            revealStudyAnswer();
         }
 
         // 背单词卡：点击卡片翻转；点击按钮不触发翻转（解决你说的“点深度解析却翻回去”）
@@ -1933,6 +2221,10 @@
             if (!card) return;
             card.addEventListener('click', (e) => {
                 if (e.target && e.target.closest && e.target.closest('button')) return;
+                if (!studyAnswerShown) {
+                    revealStudyAnswer();
+                    return;
+                }
                 card.classList.toggle('is-flipped');
             });
         })();
@@ -1965,6 +2257,7 @@
             if (ratingBusy) return;
             const item = studyQueue[queueIndex];
             if (!item) return;
+            if (!studyAnswerShown) revealStudyAnswer();
 
             ratingBusy = true;
             setRatingButtonsEnabled(false);
@@ -1980,9 +2273,17 @@
             if (rating === 'dont_know' && wordId) {
                 wrongbookSet.add(String(wordId));
             }
+            if (rating === 'dont_know' && !item.retry_round) {
+                studyQueue.push({
+                    ...item,
+                    kind: 'review',
+                    retry_round: true,
+                    study_mode: item.study_mode === 'meaning' ? 'reverse' : 'meaning'
+                });
+            }
             // 记录“今天已背过”（用于过滤缓存队列，避免重复出现）
             try {
-                const ratedKey = `ratedToday:${currentUser || 'anon'}:${date}`;
+                const ratedKey = `ratedToday:${storageUserKey()}:${date}`;
                 const arr = JSON.parse(localStorage.getItem(ratedKey) || '[]');
                 const s = new Set(Array.isArray(arr) ? arr.map(String) : []);
                 if (wordId) s.add(String(wordId));
@@ -2023,14 +2324,58 @@
         }
 
         // --- 后台同步评分（不阻塞背词体验） ---
-        const pendingRateKey = () => `pendingRates:${currentUser || 'anon'}`;
+        const pendingRateKey = () => `pendingRates:${storageUserKey()}`;
         let pendingRates = [];
         let flushingRates = false;
-        try {
-            const raw = localStorage.getItem(pendingRateKey());
-            const arr = JSON.parse(raw || '[]');
-            if (Array.isArray(arr)) pendingRates = arr;
-        } catch (e) {}
+
+        function loadPendingRates() {
+            const merged = [];
+            const seen = new Set();
+            const keys = Array.from(new Set([
+                `pendingRates:${storageUserKey()}`,
+                currentUser ? `pendingRates:${currentUser}` : '',
+                'pendingRates:anon'
+            ].filter(Boolean)));
+            keys.forEach((k) => {
+                try {
+                    const raw = localStorage.getItem(k);
+                    const arr = JSON.parse(raw || '[]');
+                    if (!Array.isArray(arr)) return;
+                    arr.forEach((it) => {
+                        const sig = JSON.stringify([it?.entry_id || '', it?.level || '', it?.rating || '']);
+                        if (seen.has(sig)) return;
+                        seen.add(sig);
+                        merged.push(it);
+                    });
+                } catch (e) {}
+            });
+            pendingRates = merged;
+            try { localStorage.setItem(pendingRateKey(), JSON.stringify(pendingRates.slice(0, 200))); } catch (e) {}
+            updateSyncPill();
+        }
+
+        function ratedTodayKey(date) {
+            return `ratedToday:${storageUserKey()}:${date}`;
+        }
+
+        function getRatedTodaySet(date) {
+            let ratedSet = new Set();
+            try {
+                const arr = JSON.parse(localStorage.getItem(ratedTodayKey(date)) || '[]');
+                if (Array.isArray(arr)) ratedSet = new Set(arr.map(String));
+            } catch (e) {}
+            return ratedSet;
+        }
+
+        function filterQueueByLocalProgress(queue, date) {
+            const ratedSet = getRatedTodaySet(date);
+            const pendingSet = new Set((pendingRates || []).map(x => String(x?.entry_id || '')));
+            return (Array.isArray(queue) ? queue : []).filter(it => {
+                const id = String(getEntryId(it) || '');
+                if (!id) return true;
+                return !ratedSet.has(id) && !pendingSet.has(id);
+            });
+        }
 
         function savePendingRates() {
             try { localStorage.setItem(pendingRateKey(), JSON.stringify(pendingRates.slice(0, 200))); } catch (e) {}
@@ -2120,6 +2465,7 @@
             if (lastSyncToastTimer) clearTimeout(lastSyncToastTimer);
             lastSyncToastTimer = setTimeout(() => pill.classList.add('hidden'), 1200);
         }
+        loadPendingRates();
 
         // 页面切后台/关闭前，尽量把待同步队列发出去（不打断体验）
         window.addEventListener('visibilitychange', () => {
@@ -2130,6 +2476,7 @@
         });
 
         function finishSessionEarly() {
+            try { flushPendingRates(); } catch (e) {}
             showSessionSummary();
         }
 
@@ -2305,7 +2652,7 @@
             document.getElementById('vocabLearningScreen').classList.add('hidden');
             document.getElementById('vocabSummaryScreen').classList.add('hidden');
             document.getElementById('batchSummaryModal').classList.add('hidden');
-            refreshForecast();
+            selectLevel(currentVocabLevel);
         }
 
         // 学习目标（每日新词）修改：即时更新学习计划 + 预测（防卡顿：debounce + 轻量 forecast）
@@ -2340,13 +2687,36 @@
         })();
 
         function selectLevel(level) {
-    currentVocabLevel = level;
+    currentVocabLevel = String(level || '').trim().toUpperCase();
     try { localStorage.setItem('lastVocabLevel', level); } catch (e) {}
     // Update UI buttons
     const levels = ['N5', 'N4', 'N3', 'N2', 'N1'];
+    const jlptBtn = document.getElementById('selJLPT');
+    const kaoyanBtn = document.getElementById('selKAOYAN');
+    const jlptSublevels = document.getElementById('jlptSublevels');
+    const isKaoyan = currentVocabLevel === 'KAOYAN';
+    if (jlptSublevels) jlptSublevels.classList.toggle('hidden', isKaoyan);
+    if (jlptBtn) {
+        if (!isKaoyan) {
+            jlptBtn.classList.add('active', 'bg-green-500', 'text-white');
+            jlptBtn.classList.remove('bg-white');
+        } else {
+            jlptBtn.classList.remove('active', 'bg-green-500', 'text-white');
+            jlptBtn.classList.add('bg-white');
+        }
+    }
+    if (kaoyanBtn) {
+        if (isKaoyan) {
+            kaoyanBtn.classList.add('active', 'bg-green-500', 'text-white');
+            kaoyanBtn.classList.remove('bg-white');
+        } else {
+            kaoyanBtn.classList.remove('active', 'bg-green-500', 'text-white');
+            kaoyanBtn.classList.add('bg-white');
+        }
+    }
     levels.forEach(l => {
         const btn = document.getElementById(`sel${l}`);
-        if (l === level) {
+        if (!isKaoyan && l === currentVocabLevel) {
             btn.classList.add('active', 'bg-green-500', 'text-white');
             btn.classList.remove('bg-white');
         } else {
@@ -2361,11 +2731,11 @@
     const m = document.getElementById('vocabMeaning');
     if (w) w.innerText = '...';
     if (k) k.innerText = '已切换词书';
-    if (m) m.innerText = `正在准备 JLPT ${level} 的学习内容...`;
+    if (m) m.innerText = isKaoyan ? '正在准备考研词汇的学习内容...' : `正在准备 JLPT ${currentVocabLevel} 的学习内容...`;
 
     refreshForecast();
     // 预取新等级队列（不阻塞 UI）
-    prefetchStudyQueue(level);
+    prefetchStudyQueue(currentVocabLevel);
 }
 
 // 预取队列（用于“切换词书后马上能出来”）
@@ -2390,11 +2760,11 @@ async function prefetchStudyQueue(level) {
             });
             const res = await authFetch(`/api/v3/tasks?level=${encodeURIComponent(level)}&plan_date=${encodeURIComponent(date)}`);
             const data = await res.json();
-            const q = Array.isArray(data.queue) ? data.queue : [];
+            const q = prepareStudyQueue(filterQueueByLocalProgress(Array.isArray(data.queue) ? data.queue : [], date));
             window.__prefetchedQueues.set(level, { queue: q, saved_at: Date.now(), key });
             // 也写入本地缓存，防止刷新/返回后再慢
             try {
-                const cacheKey = `studyQueue:${currentUser || 'anon'}:${level}:${date}`;
+                const cacheKey = `studyQueue:${storageUserKey()}:${level}:${date}`;
                 localStorage.setItem(cacheKey, JSON.stringify({ queue: q, saved_at: Date.now() }));
             } catch (e) {}
         } catch (e) {
@@ -2404,157 +2774,153 @@ async function prefetchStudyQueue(level) {
 }
 
 async function startLearning() {
-    if (!authToken) {
-        toggleAuthModal();
-        return;
-    }
-    isLearningSession = true;
-
-    const input = document.getElementById('dailyTargetInput');
-    const parsed = parseInt(input.value, 10);
-    sessionTarget = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 10), 200) : 50;
-    input.value = String(sessionTarget);
-
-    sessionStats = { know: 0, fuzzy: 0, dont_know: 0, newDone: 0, reviewDone: 0 };
-    queueIndex = 0;
-    studyQueue = [];
-    sessionStartTs = Date.now();
-    coverConfig = { word: false, kana: false, meaning: false };
-    isRevealed = true;
-
-    document.getElementById('vocabLevelSelector').classList.add('hidden');
-    document.getElementById('vocabSummaryScreen').classList.add('hidden');
-    document.getElementById('vocabLearningScreen').classList.remove('hidden');
-    document.getElementById('batchSummaryModal').classList.add('hidden');
-    document.getElementById('currentLevelBadge').innerText = `JLPT ${currentVocabLevel}`;
-
-    // 先给用户一个“立刻可见”的反馈，避免空白卡顿感
-    currentVocabData = null;
-    document.getElementById('vocabWord').innerText = '...';
-    document.getElementById('vocabKana').innerText = '正在加载';
-    document.getElementById('vocabMeaning').innerText = '正在生成学习队列（首次可能较慢）';
-    const card = document.getElementById('vocabCard');
-    if (card) card.classList.remove('is-flipped');
-
-    const date = todayStr();
-    const cacheKey = `studyQueue:${currentUser || 'anon'}:${currentVocabLevel}:${date}`;
     try {
-        const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
-        if (cached && Array.isArray(cached.queue) && cached.queue.length) {
-            // 过滤掉今天已背过/待同步的词，避免“已认识又重复出现”
-            const ratedKey = `ratedToday:${currentUser || 'anon'}:${date}`;
-            let ratedSet = new Set();
-            try {
-                const arr = JSON.parse(localStorage.getItem(ratedKey) || '[]');
-                if (Array.isArray(arr)) ratedSet = new Set(arr.map(String));
-            } catch (e) {}
-            const pendingSet = new Set((pendingRates || []).map(x => String(x?.entry_id || '')));
-            studyQueue = cached.queue.filter(it => {
-                const id = String(getEntryId(it) || '');
-                if (!id) return true;
-                return !ratedSet.has(id) && !pendingSet.has(id);
-            });
-            updateSessionProgress();
-            showCurrent();
-        }
-    } catch (e) {}
-    try {
-        await authFetch('/api/v3/plan', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                level: currentVocabLevel,
-                plan_date: date,
-                daily_new_count: sessionTarget
-            })
-        });
-    } catch (e) {
-        if (String(e && e.message) === 'unauthorized') {
-            alert('登录已失效，请重新登录后开始学习。');
+        if (!authToken) {
+            toggleAuthModal();
             return;
         }
-        console.error(e);
-    }
+        loadPendingRates();
+        isLearningSession = true;
 
-    try {
-        // 如果已预取该等级队列，则直接使用，减少“切换词书后还显示旧词”的时间窗口
-        if (window.__prefetchedQueues && window.__prefetchedQueues.has(currentVocabLevel)) {
-            const pre = window.__prefetchedQueues.get(currentVocabLevel);
-            if (pre && Array.isArray(pre.queue) && pre.queue.length) {
-                studyQueue = pre.queue;
+        const input = document.getElementById('dailyTargetInput');
+        const parsed = parseInt(input?.value || '50', 10);
+        sessionTarget = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 10), 200) : 50;
+        if (input) input.value = String(sessionTarget);
+
+        sessionStats = { know: 0, fuzzy: 0, dont_know: 0, newDone: 0, reviewDone: 0 };
+        queueIndex = 0;
+        studyQueue = [];
+        sessionStartTs = Date.now();
+        coverConfig = { word: false, kana: false, meaning: false };
+        isRevealed = true;
+
+        document.getElementById('vocabLevelSelector').classList.add('hidden');
+        document.getElementById('vocabSummaryScreen').classList.add('hidden');
+        document.getElementById('vocabLearningScreen').classList.remove('hidden');
+        document.getElementById('batchSummaryModal').classList.add('hidden');
+        document.getElementById('currentLevelBadge').innerText = formatLevelLabel(currentVocabLevel);
+
+        // 先给用户一个“立刻可见”的反馈，避免空白卡顿感
+        currentVocabData = null;
+        document.getElementById('vocabWord').innerText = '...';
+        document.getElementById('vocabKana').innerText = '正在加载';
+        document.getElementById('vocabMeaning').innerText = '正在生成学习队列（首次可能较慢）';
+        const card = document.getElementById('vocabCard');
+        if (card) card.classList.remove('is-flipped');
+
+        const date = todayStr();
+        const cacheKey = `studyQueue:${storageUserKey()}:${currentVocabLevel}:${date}`;
+        try {
+            const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+            if (cached && Array.isArray(cached.queue) && cached.queue.length) {
+                studyQueue = prepareStudyQueue(filterQueueByLocalProgress(cached.queue, date));
                 updateSessionProgress();
                 showCurrent();
             }
+        } catch (e) {}
+
+        // 不阻塞 UI：先进入学习界面，再尽快把待同步评分冲到服务器
+        try {
+            if (pendingRates.length) {
+                await Promise.race([
+                    flushPendingRates(),
+                    new Promise(resolve => setTimeout(resolve, 1200))
+                ]);
+            }
+        } catch (e) {}
+
+        try {
+            await authFetch('/api/v3/plan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    level: currentVocabLevel,
+                    plan_date: date,
+                    daily_new_count: sessionTarget
+                })
+            });
+        } catch (e) {
+            if (String(e && e.message) === 'unauthorized') {
+                alert('登录已失效，请重新登录后开始学习。');
+                backToLevels();
+                return;
+            }
+            console.error(e);
         }
-        const res = await authFetch(`/api/v3/tasks?level=${encodeURIComponent(currentVocabLevel)}&plan_date=${encodeURIComponent(date)}`);
-        
-        if (!res.ok) {
-            let msg = `学习队列生成失败（${res.status}）`;
+
+        try {
+            // 如果已预取该等级队列，则直接使用，减少“切换词书后还显示旧词”的时间窗口
+            if (window.__prefetchedQueues && window.__prefetchedQueues.has(currentVocabLevel)) {
+                const pre = window.__prefetchedQueues.get(currentVocabLevel);
+                if (pre && Array.isArray(pre.queue) && pre.queue.length) {
+                    studyQueue = prepareStudyQueue(filterQueueByLocalProgress(pre.queue, date));
+                    updateSessionProgress();
+                    showCurrent();
+                }
+            }
+            const res = await authFetch(`/api/v3/tasks?level=${encodeURIComponent(currentVocabLevel)}&plan_date=${encodeURIComponent(date)}`);
+            
+            if (!res.ok) {
+                let msg = `学习队列生成失败（${res.status}）`;
+                try {
+                    const err = await res.json();
+                    if (err && err.detail) msg = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
+                } catch (e) {}
+                alert(msg);
+                backToLevels();
+                return;
+            }
+            const data = await res.json();
+            studyQueue = prepareStudyQueue(filterQueueByLocalProgress(Array.isArray(data.queue) ? data.queue : [], date));
             try {
-                const err = await res.json();
-                if (err && err.detail) msg = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
+                localStorage.setItem(cacheKey, JSON.stringify({ queue: studyQueue, saved_at: Date.now() }));
             } catch (e) {}
-            alert(msg);
+
+            // 同步错词本/收藏夹（不阻塞主流程，失败也不影响背词）
+            try {
+                const favRes = await authFetch(`/api/v3/favorites?level=${encodeURIComponent(currentVocabLevel)}`);
+                const favArr = await favRes.json();
+                favoritesSet = new Set(Array.isArray(favArr) ? favArr.map(String) : []);
+            } catch (e) {
+                favoritesSet = new Set();
+            }
+            try {
+                const wRes = await authFetch(`/api/v3/wrongbook?level=${encodeURIComponent(currentVocabLevel)}`);
+                const wArr = await wRes.json();
+                wrongbookSet = new Set(Array.isArray(wArr) ? wArr.map(String) : []);
+            } catch (e) {
+                wrongbookSet = new Set();
+            }
+        } catch (e) {
+            if (String(e && e.message) === 'unauthorized') {
+                alert('登录已失效，请重新登录后开始学习。');
+                backToLevels();
+                return;
+            }
+            console.error(e);
+            studyQueue = [];
+        }
+
+        if (!studyQueue.length) {
+            alert(`词书 ${currentVocabLevel} 暂无可学习单词。若你只导入了 N1 词库，请先切换到 N1；或先把该等级词库导入 Supabase。`);
             backToLevels();
             return;
         }
-        const data = await res.json();
-        // 过滤掉今天已背过/待同步的词，避免重复出现
-        const ratedKey = `ratedToday:${currentUser || 'anon'}:${date}`;
-        let ratedSet = new Set();
-        try {
-            const arr = JSON.parse(localStorage.getItem(ratedKey) || '[]');
-            if (Array.isArray(arr)) ratedSet = new Set(arr.map(String));
-        } catch (e) {}
-        const pendingSet = new Set((pendingRates || []).map(x => String(x?.entry_id || '')));
-        const rawQueue = Array.isArray(data.queue) ? data.queue : [];
-        studyQueue = rawQueue.filter(it => {
-            const id = String(getEntryId(it) || '');
-            if (!id) return true;
-            return !ratedSet.has(id) && !pendingSet.has(id);
-        });
-        try {
-            localStorage.setItem(cacheKey, JSON.stringify({ queue: studyQueue, saved_at: Date.now() }));
-        } catch (e) {}
 
-        // 同步错词本/收藏夹（不阻塞主流程，失败也不影响背词）
-        try {
-            const favRes = await authFetch(`/api/v3/favorites?level=${encodeURIComponent(currentVocabLevel)}`);
-            const favArr = await favRes.json();
-            favoritesSet = new Set(Array.isArray(favArr) ? favArr.map(String) : []);
-        } catch (e) {
-            favoritesSet = new Set();
-        }
-        try {
-            const wRes = await authFetch(`/api/v3/wrongbook?level=${encodeURIComponent(currentVocabLevel)}`);
-            const wArr = await wRes.json();
-            wrongbookSet = new Set(Array.isArray(wArr) ? wArr.map(String) : []);
-        } catch (e) {
-            wrongbookSet = new Set();
-        }
+        updateSessionProgress();
+        showCurrent();
+        refreshForecast();
     } catch (e) {
-        if (String(e && e.message) === 'unauthorized') {
-            alert('登录已失效，请重新登录后开始学习。');
-            return;
-        }
-        console.error(e);
-        studyQueue = [];
+        console.error('startLearning failed:', e);
+        alert(`开始学习失败：${e && e.message ? e.message : '前端异常'}`);
+        try { backToLevels(); } catch (_) {}
     }
-
-    if (!studyQueue.length) {
-        alert(`词书 ${currentVocabLevel} 暂无可学习单词。若你只导入了 N1 词库，请先切换到 N1；或先把该等级词库导入 Supabase。`);
-        backToLevels();
-        return;
-    }
-
-    updateSessionProgress();
-    showCurrent();
-    refreshForecast();
 }
         function backToLevels() {
             isLearningSession = false;
+            try { flushPendingRates(); } catch (e) {}
             document.getElementById('vocabLevelSelector').classList.remove('hidden');
             document.getElementById('vocabLearningScreen').classList.add('hidden');
             document.getElementById('vocabSummaryScreen').classList.add('hidden');
@@ -2585,7 +2951,7 @@ async function startLearning() {
 
             document.getElementById('siWord').innerText = data.word || '—';
             document.getElementById('siReading').innerText = reading;
-            document.getElementById('siLevel').innerText = `JLPT ${data.level || currentVocabLevel || ''}`;
+            document.getElementById('siLevel').innerText = formatLevelLabel(data.level || currentVocabLevel || '');
             document.getElementById('siMeaning').innerText = meaning;
             const posWrap = document.getElementById('siPosWrap');
             const posEl = document.getElementById('siPos');
@@ -2615,25 +2981,13 @@ async function startLearning() {
                 const row = document.createElement('div');
                 row.innerHTML = `
                     <div class="flex justify-between text-[10px] font-bold mb-1"><span>${k}</span><span>${pct}%</span></div>
-                    <div class="w-full h-2 bg-gray-100 border-2 border-[#333] rounded overflow-hidden">
+                    <div class="w-full h-3 bg-gray-100 border-2 border-[#333] shadow-[3px_3px_0px_#333] rounded overflow-hidden">
                         <div class="h-full bg-green-500" style="width:${pct}%"></div>
                     </div>
                 `;
                 heatBox.appendChild(row);
             });
             if (!entries.length) heatBox.innerHTML = `<div class="text-[11px] text-gray-400">—</div>`;
-
-            const exBox = document.getElementById('siExamples');
-            exBox.innerHTML = '';
-            exArr.slice(0, 3).forEach((it) => {
-                const jp = (it.jp || '').trim();
-                const cn = (it.cn || '').trim();
-                const div = document.createElement('div');
-                div.className = 'p-3 bg-white border-2 border-[#333] rounded';
-                div.innerHTML = `<div class="text-[12px] font-bold text-gray-900">${jp || '—'}</div><div class="mt-1 text-[11px] text-gray-600">${cn || ''}</div>`;
-                exBox.appendChild(div);
-            });
-            if (!exArr.length) exBox.innerHTML = `<div class="text-[11px] text-gray-400">—</div>`;
 
             document.getElementById('siInsight').innerText = (data.insight_text || '').trim() || '—';
             syncFavButton();
@@ -2652,10 +3006,10 @@ async function startLearning() {
                     const obj = (sc && typeof sc === 'object') ? (sc[c.key] || null) : null;
                     const allowed = obj ? (obj.allowed === true) : false;
                     const el = document.createElement('div');
-                    el.className = `p-4 border-2 border-[#333] ${allowed ? 'bg-green-50' : 'bg-gray-50'} shadow-[3px_3px_0px_#333]`;
+                    el.className = `p-4 border-2 ${allowed ? 'border-green-500 bg-green-50 shadow-[4px_4px_0px_#4CAF50]' : 'border-gray-400 bg-gray-50 shadow-[4px_4px_0px_#9CA3AF]'}`;
                     el.innerHTML = `
                         <div class="flex items-center gap-2 text-[11px] font-bold mb-2">
-                            <span class="inline-block w-2 h-2 ${allowed ? 'bg-green-500' : 'bg-gray-300'}"></span>
+                            <span class="inline-block w-2.5 h-2.5 ${allowed ? 'bg-green-500' : 'bg-gray-300'}"></span>
                             <span>${obj?.label_ja || c.title}</span>
                         </div>
                         <div class="text-[10px] text-gray-600">${obj?.label_zh || c.sub}</div>
@@ -2689,18 +3043,11 @@ async function startLearning() {
                 sharedAudio.src = url;
                 try { sharedAudio.load(); } catch (e) {}
                 try { sharedAudio.currentTime = 0; } catch (e) {}
-                sharedAudio.play().catch(() => {
-                    try {
-                        sharedAudio.addEventListener('canplay', () => {
-                            try { sharedAudio.currentTime = 0; } catch (e) {}
-                            try { sharedAudio.play(); } catch (e) {}
-                        }, { once: true });
-                    } catch (e) {}
-                    speakJa(word);
+                sharedAudio.play().catch((err) => {
+                    console.warn('audio play failed', err);
                 });
                 return;
             }
-            speakJa(word);
         }
 
         function closeStudyInsightModal() {
@@ -2870,43 +3217,26 @@ async function startLearning() {
         ];
 
         function playAudio() {
-            const word = document.getElementById('resTitle').innerText;
-            if (!word || word === '---') return;
             const fn = (currentSearchAudioFn || '').trim();
-            if (fn) {
-                const sharedAudio = document.getElementById('globalAudio') || window.__jpAudio || new Audio();
-                try {
-                    sharedAudio.preload = 'auto';
-                    sharedAudio.playsInline = true;
-                    sharedAudio.setAttribute('playsinline', '');
-                    sharedAudio.setAttribute('webkit-playsinline', '');
-                    sharedAudio.muted = false;
-                    sharedAudio.volume = 1;
-                } catch (e) {}
-                window.__jpAudio = sharedAudio;
-                const url = `/api/vocab/audio/${encodeURIComponent(fn)}`;
-                try { sharedAudio.pause(); } catch (e) {}
-                sharedAudio.src = url;
-                try { sharedAudio.load(); } catch (e) {}
-                try { sharedAudio.currentTime = 0; } catch (e) {}
-                sharedAudio.play().catch(() => {
-                    try {
-                        sharedAudio.addEventListener('canplay', () => {
-                            try { sharedAudio.currentTime = 0; } catch (e) {}
-                            try { sharedAudio.play(); } catch (e) {}
-                        }, { once: true });
-                    } catch (e) {}
-                    speakJa(word);
-                    showAudioPrompt(url);
-                });
-                setTimeout(() => {
-                    try {
-                        if (sharedAudio.paused || (sharedAudio.currentTime || 0) <= 0) showAudioPrompt(url);
-                    } catch (e) {}
-                }, 900);
-            } else {
-                speakJa(word);
-            }
+            if (!fn) return;
+            const sharedAudio = document.getElementById('globalAudio') || window.__jpAudio || new Audio();
+            try {
+                sharedAudio.preload = 'auto';
+                sharedAudio.playsInline = true;
+                sharedAudio.setAttribute('playsinline', '');
+                sharedAudio.setAttribute('webkit-playsinline', '');
+                sharedAudio.muted = false;
+                sharedAudio.volume = 1;
+            } catch (e) {}
+            window.__jpAudio = sharedAudio;
+            const url = `/api/vocab/audio/${encodeURIComponent(fn)}`;
+            try { sharedAudio.pause(); } catch (e) {}
+            sharedAudio.src = url;
+            try { sharedAudio.load(); } catch (e) {}
+            try { sharedAudio.currentTime = 0; } catch (e) {}
+            sharedAudio.play().catch((err) => {
+                console.warn('audio play failed', err);
+            });
             
             // Animation feedback
             const btn = document.querySelector('.audio-btn i');
@@ -3089,10 +3419,12 @@ async function startLearning() {
 
             const exList = document.getElementById('resExamples');
             exList.innerHTML = '';
-            data.examples.forEach(ex => {
+            (data.examples || []).forEach(ex => {
+                const ja = ex?.ja || ex?.jp || '';
+                const zh = ex?.zh || ex?.cn || '';
                 const div = document.createElement('div');
                 div.className = 'border-b border-gray-100 last:border-none pb-6 last:pb-0';
-                div.innerHTML = `<p class="text-xl font-bold mb-2">${ex.jp}</p><p class="text-gray-400 text-sm">${ex.cn}</p>`;
+                div.innerHTML = `<p class="text-xl font-bold mb-2">${ja}</p><p class="text-gray-400 text-sm">${zh}</p>`;
                 exList.appendChild(div);
             });
         }
@@ -3122,6 +3454,13 @@ async function startLearning() {
         function stars(n) {
             const v = Math.max(1, Math.min(5, Number(n || 1)));
             return '★★★★★'.slice(0, v) + '★★★★★'.slice(v).replace(/./g, '☆');
+        }
+
+        function formatLevelLabel(level) {
+            const lv = String(level || '').trim().toUpperCase();
+            if (!lv) return '—';
+            if (lv === 'KAOYAN') return '考研词汇';
+            return /^N[1-5]$/i.test(lv) ? `JLPT ${lv.toUpperCase()}` : lv;
         }
 
         function showSuggest(query, results) {
@@ -3155,7 +3494,7 @@ async function startLearning() {
                             ${reading ? `<div class="text-[12px] text-gray-600 font-mono">| ${reading}</div>` : ``}
                             ${pos ? `<div class="text-[12px] text-gray-700">【${pos}】</div>` : ``}
                             ${Number.isFinite(freq) && freq >= 1 ? `<div class="text-[12px] text-orange-400">${stars(freq)}</div>` : ``}
-                            <div class="ml-auto text-[10px] font-bold text-gray-500 border border-gray-200 px-2 py-0.5 bg-gray-50">JLPT ${r.level || ''}</div>
+                            <div class="ml-auto text-[10px] font-bold text-gray-500 border border-gray-200 px-2 py-0.5 bg-gray-50">${formatLevelLabel(r.level || '')}</div>
                         </div>
                         <div class="mt-1 text-[12px] text-gray-700 clamp-2">${meaning}</div>
                     </div>

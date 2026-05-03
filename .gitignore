@@ -1,0 +1,10 @@
+.DS_Store
+__pycache__/
+*.pyc
+.trae/
+cache.db
+*.sqlite
+*.db
+.env
+.env.*
+!.env.example
