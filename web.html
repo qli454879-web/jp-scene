@@ -385,6 +385,7 @@
                         <option value="N3">初始等级：N3</option>
                         <option value="N2">初始等级：N2</option>
                         <option value="N1">初始等级：N1</option>
+                        <option value="KAOYAN">初始等级：考研词汇</option>
                     </select>
                 </div>
                 <input type="text" id="regGoal" placeholder="学习目标（例如：三个月过N2）" class="w-full border-2 border-gray-800 p-3 mb-6 outline-none focus:border-green-500">
@@ -414,6 +415,7 @@
                     <option value="N3">JLPT N3</option>
                     <option value="N2">JLPT N2</option>
                     <option value="N1">JLPT N1</option>
+                    <option value="KAOYAN">考研词汇</option>
                 </select>
             </div>
             <button onclick="saveSettings()" class="w-full bg-gray-800 text-white py-3 font-bold hover:bg-green-600 transition-colors">保存</button>
@@ -549,6 +551,7 @@
                     <option value="N3">初始等级：N3</option>
                     <option value="N2">初始等级：N2</option>
                     <option value="N1">初始等级：N1</option>
+                    <option value="KAOYAN">初始等级：考研词汇</option>
                 </select>
             </div>
             <input type="text" id="codeGoal" placeholder="学习目标（例如：90天过N2）" class="w-full border-2 border-gray-800 p-3 mb-6 outline-none focus:border-green-500">
@@ -568,7 +571,18 @@
                 <p class="text-gray-400 text-sm">选择您的日语水平，开启沉浸式单词记忆之旅</p>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-5 gap-4 mb-12">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                <button onclick="selectLevel('N5')" id="selJLPT" class="level-btn active p-6 border-3 border-gray-800 bg-white shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
+                    <div class="text-2xl font-bold mb-1">JLPT</div>
+                    <div class="text-[9px] text-gray-400 uppercase tracking-tighter">N1 - N5</div>
+                </button>
+                <button onclick="selectLevel('KAOYAN')" id="selKAOYAN" class="level-btn p-6 border-3 border-gray-800 bg-white shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
+                    <div class="text-2xl font-bold mb-1">考研词汇</div>
+                    <div class="text-[9px] text-gray-400 uppercase tracking-tighter">KAOYAN</div>
+                </button>
+            </div>
+
+            <div id="jlptSublevels" class="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-12">
                 <button onclick="selectLevel('N5')" id="selN5" class="level-btn active p-6 border-3 border-gray-800 bg-white shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
                     <div class="text-2xl font-bold mb-1">N5</div>
                     <div class="text-[9px] text-gray-400 uppercase tracking-tighter">Beginner</div>
@@ -2568,7 +2582,7 @@
             document.getElementById('vocabLearningScreen').classList.add('hidden');
             document.getElementById('vocabSummaryScreen').classList.add('hidden');
             document.getElementById('batchSummaryModal').classList.add('hidden');
-            refreshForecast();
+            selectLevel(currentVocabLevel);
         }
 
         // 学习目标（每日新词）修改：即时更新学习计划 + 预测（防卡顿：debounce + 轻量 forecast）
@@ -2603,13 +2617,36 @@
         })();
 
         function selectLevel(level) {
-    currentVocabLevel = level;
+    currentVocabLevel = String(level || '').trim().toUpperCase();
     try { localStorage.setItem('lastVocabLevel', level); } catch (e) {}
     // Update UI buttons
     const levels = ['N5', 'N4', 'N3', 'N2', 'N1'];
+    const jlptBtn = document.getElementById('selJLPT');
+    const kaoyanBtn = document.getElementById('selKAOYAN');
+    const jlptSublevels = document.getElementById('jlptSublevels');
+    const isKaoyan = currentVocabLevel === 'KAOYAN';
+    if (jlptSublevels) jlptSublevels.classList.toggle('hidden', isKaoyan);
+    if (jlptBtn) {
+        if (!isKaoyan) {
+            jlptBtn.classList.add('active', 'bg-green-500', 'text-white');
+            jlptBtn.classList.remove('bg-white');
+        } else {
+            jlptBtn.classList.remove('active', 'bg-green-500', 'text-white');
+            jlptBtn.classList.add('bg-white');
+        }
+    }
+    if (kaoyanBtn) {
+        if (isKaoyan) {
+            kaoyanBtn.classList.add('active', 'bg-green-500', 'text-white');
+            kaoyanBtn.classList.remove('bg-white');
+        } else {
+            kaoyanBtn.classList.remove('active', 'bg-green-500', 'text-white');
+            kaoyanBtn.classList.add('bg-white');
+        }
+    }
     levels.forEach(l => {
         const btn = document.getElementById(`sel${l}`);
-        if (l === level) {
+        if (!isKaoyan && l === currentVocabLevel) {
             btn.classList.add('active', 'bg-green-500', 'text-white');
             btn.classList.remove('bg-white');
         } else {
@@ -2624,11 +2661,11 @@
     const m = document.getElementById('vocabMeaning');
     if (w) w.innerText = '...';
     if (k) k.innerText = '已切换词书';
-    if (m) m.innerText = `正在准备 JLPT ${level} 的学习内容...`;
+    if (m) m.innerText = isKaoyan ? '正在准备考研词汇的学习内容...' : `正在准备 JLPT ${currentVocabLevel} 的学习内容...`;
 
     refreshForecast();
     // 预取新等级队列（不阻塞 UI）
-    prefetchStudyQueue(level);
+    prefetchStudyQueue(currentVocabLevel);
 }
 
 // 预取队列（用于“切换词书后马上能出来”）
@@ -3348,8 +3385,9 @@ async function startLearning() {
         }
 
         function formatLevelLabel(level) {
-            const lv = String(level || '').trim();
+            const lv = String(level || '').trim().toUpperCase();
             if (!lv) return '—';
+            if (lv === 'KAOYAN') return '考研词汇';
             return /^N[1-5]$/i.test(lv) ? `JLPT ${lv.toUpperCase()}` : lv;
         }
 
