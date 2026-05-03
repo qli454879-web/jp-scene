@@ -1,6 +1,8 @@
 .DS_Store
 __pycache__/
 *.pyc
+.venv/
+venv/
 .trae/
 cache.db
 *.sqlite
@@ -8,3 +10,7 @@ cache.db
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
