@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query, Body, HTTPException, Depends, status, Header
+from fastapi import FastAPI, Query, Body, HTTPException, Depends, status, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
@@ -55,6 +55,11 @@ _LIBRARY_USER_LISTS_SCHEMA_OK = False
 # 管理员写操作密钥（仅后端校验，不要硬编码到前端代码里）
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "").strip()
 
+# 公开分析接口的轻量限流（进程内）
+_PUBLIC_ANALYZE_WINDOW_SECONDS = 60
+_PUBLIC_ANALYZE_MAX_REQUESTS = 20
+_PUBLIC_ANALYZE_HITS: Dict[str, List[float]] = {}
+
 # 简体→日文常用汉字映射（可按需要持续扩充；避免引入冷门第三方库）
 # 目标：让用户输入简体（如“强/强化”）也能命中日文词条（如“強/強化”）
 S2J_KANJI_MAP: Dict[str, str] = {
@@ -80,6 +85,28 @@ S2J_KANJI_MAP: Dict[str, str] = {
 
 def _map_s2j(text: str) -> str:
     return "".join(S2J_KANJI_MAP.get(ch, ch) for ch in (text or ""))
+
+
+def _client_ip_key(request: Request) -> str:
+    xff = (request.headers.get("x-forwarded-for") or "").strip()
+    if xff:
+        return xff.split(",")[0].strip() or "unknown"
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def _enforce_public_analyze_rate_limit(request: Request) -> None:
+    now_ts = time.time()
+    ip_key = _client_ip_key(request)
+    recent = [
+        ts for ts in _PUBLIC_ANALYZE_HITS.get(ip_key, [])
+        if now_ts - ts <= _PUBLIC_ANALYZE_WINDOW_SECONDS
+    ]
+    if len(recent) >= _PUBLIC_ANALYZE_MAX_REQUESTS:
+        raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试。")
+    recent.append(now_ts)
+    _PUBLIC_ANALYZE_HITS[ip_key] = recent
 
 
 def _is_kana_only(text: str) -> bool:
@@ -2680,7 +2707,8 @@ async def remove_wrongbook_v3(entry_id: str, current_user: Dict[str, Any] = Depe
 
 
 @app.post("/api/v2/system/seed-demo")
-async def seed_demo_data_v2():
+async def seed_demo_data_v2(x_admin_key: str | None = Header(default=None, alias="x-admin-key")):
+    _require_admin_key(x_admin_key)
     conn = _pg_conn()
     demo_rows = [
         ("N5", "お疲れ様です", "おつかれさまです", "辛苦了", None, ["同事", "上司"], 5, 5, ["职场"], 1),
@@ -3110,7 +3138,14 @@ async def get_vocab_meta(word: str = Query(...), kana: str = Query(""), meaning:
     return {"meaning_zh": meaning_zh, "origin": origin}
 
 @app.get("/api/analyze")
-async def analyze(word: str = Query(...)):
+async def analyze(word: str = Query(..., min_length=1, max_length=80), request: Request = None):
+    word = (word or "").strip()
+    if not word:
+        raise HTTPException(status_code=400, detail="word is required")
+    if len(word) > 80:
+        raise HTTPException(status_code=400, detail="word is too long")
+    if request is not None:
+        _enforce_public_analyze_rate_limit(request)
     cached = get_cached_result(word)
     if cached:
         return cached
@@ -3295,7 +3330,8 @@ async def submit_feedback(data: dict = Body(...)):
     return {"status": "success"}
 
 @app.get("/api/feedbacks")
-async def get_feedbacks():
+async def get_feedbacks(x_admin_key: str | None = Header(default=None, alias="x-admin-key")):
+    _require_admin_key(x_admin_key)
     conn = sqlite3.connect('cache.db')
     c = conn.cursor()
     c.execute("SELECT id, user_name, content, created_at FROM feedbacks_local ORDER BY id DESC LIMIT 200")

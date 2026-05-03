@@ -2199,7 +2199,7 @@
             const got = normalizeStudyText(input?.value || '');
             const expected = normalizeStudyText(rawExpected);
             const meaningGot = normalizeStudyText(meaningInput?.value || '');
-            const meaningOk = studyMeaningCandidates(getMeaning(item)).some(x => x && (meaningGot.includes(x) || x.includes(meaningGot)));
+            const meaningOk = !!meaningGot && studyMeaningCandidates(getMeaning(item)).some(x => x && (meaningGot.includes(x) || x.includes(meaningGot)));
             const readingOk = !!got && !!expected && got === expected;
             if (readingOk && meaningOk) {
                 if (feedback) feedback.innerText = '假名和意思都正确，自动进入下一题。';
@@ -2264,6 +2264,8 @@
 
             const date = todayStr();
             if (!authToken) {
+                ratingBusy = false;
+                setRatingButtonsEnabled(true);
                 toggleAuthModal();
                 return;
             }

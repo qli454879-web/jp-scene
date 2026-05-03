@@ -107,8 +107,7 @@
     <script>
         async function loadFeedbacks() {
             try {
-                let res = await fetch('/api/v2/admin/feedbacks');
-                if (!res.ok) res = await fetch('/api/feedbacks');
+                const res = await fetch('/api/v2/admin/feedbacks');
                 const data = await res.json();
                 const list = document.getElementById('feedbackList');
                 document.getElementById('feedbackCount').innerText = data.length;
