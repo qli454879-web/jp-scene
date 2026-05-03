@@ -443,8 +443,14 @@ _cors_origins_raw = (os.getenv("CORS_ALLOW_ORIGINS") or "").strip()
 if _cors_origins_raw:
     _cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
 else:
-    # 兼容旧行为；生产环境建议设置 CORS_ALLOW_ORIGINS 为你的域名列表（逗号分隔）
-    _cors_origins = ["*"]
+    # 安全默认值：仅允许生产域名与常见本地开发地址。
+    _cors_origins = [
+        "https://jp-scene-lab.onrender.com",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -1215,7 +1221,8 @@ async def get_public_config():
 
 
 @app.get("/api/v2/system/check")
-async def system_check_v2():
+async def system_check_v2(x_admin_key: str | None = Header(default=None, alias="x-admin-key")):
+    _require_admin_key(x_admin_key)
     return {
         "supabase_enabled": SUPABASE_ENABLED,
         "supabase_db_enabled": SUPABASE_DB_ENABLED,
