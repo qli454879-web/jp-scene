@@ -2118,8 +2118,9 @@
             if (submitBtn) submitBtn.classList.toggle('hidden', currentStudyMode !== 'audio');
             if (revealBtn) revealBtn.innerText = currentStudyMode === 'audio' ? '不会，显示答案' : '显示答案';
             if (inputBox) inputBox.value = '';
-            if (inputBox) inputBox.placeholder = `例如：${reading || '按词库读音填写'}`;
+            if (inputBox) inputBox.placeholder = '例如：あした';
             if (meaningBox) meaningBox.value = '';
+            if (meaningBox) meaningBox.placeholder = '例如：明天';
             if (meaningLabel) meaningLabel.classList.toggle('hidden', currentStudyMode !== 'audio');
             if (meaningBox) meaningBox.classList.toggle('hidden', currentStudyMode !== 'audio');
             if (inputFeedback) inputFeedback.innerText = currentStudyMode === 'audio'
