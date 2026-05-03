@@ -696,10 +696,10 @@
                             <span id="vocabUsageFreq" class="text-[10px] px-2 py-1 bg-orange-50 border border-orange-300">频次：---</span>
                         </div>
 
-                        <!-- AI Partner Tip Box -->
+                        <!-- 小雪梨提示 -->
                         <div id="vocabTipBox" class="mb-4 p-3 bg-blue-50 border-2 border-blue-100 rounded-xl relative text-left">
-                            <div class="absolute -top-3 left-4 bg-blue-500 text-white text-[8px] px-2 py-0.5 rounded-full font-bold">AI 伙伴</div>
-                            <p id="vocabTip" class="text-[11px] text-blue-800 leading-relaxed italic">需要提示时点一下生成（避免卡顿与重复消耗）。</p>
+                            <div class="absolute -top-3 left-4 bg-blue-500 text-white text-[8px] px-2 py-0.5 rounded-full font-bold">小雪梨提示</div>
+                            <p id="vocabTip" class="text-[11px] text-blue-800 leading-relaxed italic">点一下生成，小雪梨会给你一个便于记忆的小技巧。</p>
                             <div class="mt-2 flex justify-end">
                                 <button onclick="generateVocabTip(); event.stopPropagation();" class="text-[10px] font-bold underline underline-offset-4 text-blue-700 hover:text-blue-900">生成提示</button>
                             </div>
@@ -1656,7 +1656,7 @@
         let ratingBusy = false;
         const batchSize = 10;
         const vocabMetaCache = new Map();
-        const vocabTipCache = new Map(); // AI 伙伴提示缓存（避免重复消耗）
+        const vocabTipCache = new Map(); // 小雪梨提示缓存（避免重复消耗）
         let favoritesSet = new Set();
         let wrongbookSet = new Set();
         let currentStudyMode = 'meaning';
@@ -2079,7 +2079,7 @@
             studyAnswerShown = false;
             const card = document.getElementById('vocabCard');
             if (card) card.classList.remove('is-flipped');
-            document.getElementById('vocabTip').innerText = (String(item.insight_text || '').trim()) || (item.kind === 'review' ? '复习时先抓住这个词最常出现的搭配，再回忆意思和读音。' : '新词先记一个最顺手的使用场景，再把读音和意思一起连起来记。');
+            document.getElementById('vocabTip').innerText = '点一下生成，小雪梨会给你一个便于记忆的小技巧。';
 
             const reading = getCanonicalStudyReading(currentVocabData);
             const hasAudio = !!String(currentVocabData?.mp3 || currentVocabData?.audio_filename || '').trim();
@@ -2108,7 +2108,7 @@
             syncStudyAudioButtons(hasAudio);
             setAudioButtonsPlaying(false);
             if (hasAudio) primeVocabAudio(currentVocabData);
-            // AI 伙伴：不再自动请求（避免卡顿+消耗 tokens）。用户点击“AI 伙伴”按钮时再生成。
+            // 小雪梨提示：不再自动请求。只有用户点击“生成提示”时才生成，避免卡顿和额外消耗。
             const id = getEntryId(currentVocabData);
             if (id && vocabTipCache.has(String(id))) {
                 document.getElementById('vocabTip').innerText = vocabTipCache.get(String(id));
@@ -2497,7 +2497,7 @@
                 document.getElementById('vocabTip').innerText = '小雪梨今天回答累了，请明天再来问我吧。';
                 return;
             }
-            document.getElementById('vocabTip').innerText = 'AI 伙伴思考中...';
+            document.getElementById('vocabTip').innerText = '小雪梨正在帮你想记忆技巧...';
             try {
                 if (!authToken) { toggleAuthModal(); return; }
                 const res = await authFetch(`/api/vocab/tip?word=${encodeURIComponent(currentVocabData.word)}`);
@@ -2513,7 +2513,7 @@
                     vocabTipCache.set(String(id), tip);
                     document.getElementById('vocabTip').innerText = tip;
                 } else {
-                    document.getElementById('vocabTip').innerText = '暂时没有生成到合适的提示。';
+                    document.getElementById('vocabTip').innerText = '暂时还没想到合适的记忆技巧。';
                 }
             } catch (e) {
                 document.getElementById('vocabTip').innerText = '生成失败，请稍后再试。';
