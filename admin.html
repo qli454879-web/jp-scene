@@ -12,222 +12,371 @@
         body { background-color: #F0F0F0; color: #333; }
         .pixel-font { font-family: 'VT323', monospace; }
         .admin-card { background: white; border: 3px solid #333; box-shadow: 4px 4px 0px #333; padding: 24px; }
+        .dot-green { display: inline-block; width: 8px; height: 8px; background: #22c55e; border-radius: 50%; margin-right: 4px; }
+        .dot-yellow { display: inline-block; width: 8px; height: 8px; background: #eab308; border-radius: 50%; margin-right: 4px; }
+        .dot-red { display: inline-block; width: 8px; height: 8px; background: #ef4444; border-radius: 50%; margin-right: 4px; }
+        .dot-gray { display: inline-block; width: 8px; height: 8px; background: #9ca3af; border-radius: 50%; margin-right: 4px; }
     </style>
 </head>
 <body class="p-8">
-    <header class="flex justify-between items-center mb-12">
+    <header class="flex justify-between items-center mb-8">
         <div>
             <h1 class="pixel-font text-4xl font-bold uppercase tracking-tighter">Admin Dashboard</h1>
-            <p class="text-xs text-gray-400">站长管理中心 v1.0</p>
+            <p class="text-xs text-gray-400 mt-1">站长管理中心 · 用户活跃监控 · <span id="headerTime" class="text-gray-500"></span></p>
         </div>
         <a href="/" class="pixel-font bg-white border-2 border-gray-800 px-4 py-2 hover:bg-gray-100 transition-colors">BACK TO SITE</a>
     </header>
 
-    <div class="grid grid-cols-12 gap-8">
-        <!-- Stats -->
-        <div class="col-span-12 lg:col-span-3 admin-card bg-green-50">
-            <h4 class="pixel-font text-xl mb-2">TOTAL SEARCH</h4>
-            <p id="statSearch" class="text-4xl font-bold">0</p>
-            <div class="mt-4 text-xs text-green-600 font-bold">总搜索次数</div>
-        </div>
-        <div class="col-span-12 lg:col-span-3 admin-card bg-blue-50">
-            <h4 class="pixel-font text-xl mb-2">ACTIVE USERS</h4>
-            <p id="statUsers" class="text-4xl font-bold">0</p>
-            <div class="mt-4 text-xs text-blue-600 font-bold">注册用户数</div>
-        </div>
-        <div class="col-span-12 lg:col-span-3 admin-card bg-yellow-50">
-            <h4 class="pixel-font text-xl mb-2">FORUM POSTS</h4>
-            <p id="statForum" class="text-4xl font-bold">0</p>
-            <div class="mt-4 text-xs text-yellow-600 font-bold">主题帖数量</div>
-        </div>
-        <div class="col-span-12 lg:col-span-3 admin-card bg-purple-50">
-            <h4 class="pixel-font text-xl mb-2">NEW FEEDBACK</h4>
-            <p id="feedbackCount" class="text-4xl font-bold">0</p>
-            <div class="mt-4 text-xs text-purple-600 font-bold">Awaiting review</div>
-        </div>
+    <div class="grid grid-cols-12 gap-6">
 
-        <!-- Feedback List -->
-        <div class="col-span-12 lg:col-span-8 admin-card">
-            <h3 class="pixel-font text-2xl mb-6 border-b-2 border-gray-100 pb-4">USER FEEDBACK / 用户反馈</h3>
-            <div id="feedbackList" class="space-y-4">
-                <p class="text-gray-400 italic">正在加载反馈数据...</p>
+        <!-- ===== 活跃度卡片行 ===== -->
+        <div class="col-span-12 grid grid-cols-5 gap-4">
+            <div class="admin-card bg-gray-50 text-center">
+                <h4 class="pixel-font text-lg mb-1">USERS</h4>
+                <p id="statUsers" class="text-4xl font-bold">0</p>
+                <div class="mt-2 text-[11px] text-gray-500">总用户数</div>
+            </div>
+            <div class="admin-card bg-green-50 text-center">
+                <h4 class="pixel-font text-lg mb-1">TODAY</h4>
+                <p id="statToday" class="text-4xl font-bold text-green-700">0</p>
+                <div class="mt-2 text-[11px] text-green-600">今日活跃</div>
+            </div>
+            <div class="admin-card bg-blue-50 text-center">
+                <h4 class="pixel-font text-lg mb-1">7 DAYS</h4>
+                <p id="stat7d" class="text-4xl font-bold text-blue-700">0</p>
+                <div class="mt-2 text-[11px] text-blue-600">7日内活跃</div>
+            </div>
+            <div class="admin-card bg-purple-50 text-center">
+                <h4 class="pixel-font text-lg mb-1">30 DAYS</h4>
+                <p id="stat30d" class="text-4xl font-bold text-purple-700">0</p>
+                <div class="mt-2 text-[11px] text-purple-600">30日内活跃</div>
+            </div>
+            <div class="admin-card bg-red-50 text-center">
+                <h4 class="pixel-font text-lg mb-1">CHURNED</h4>
+                <p id="statChurned" class="text-4xl font-bold text-red-600">0</p>
+                <div class="mt-2 text-[11px] text-red-500">&gt;30天未活跃</div>
             </div>
         </div>
 
-        <!-- User List -->
+        <!-- ===== 邀请码统计 + 留存率 ===== -->
         <div class="col-span-12 lg:col-span-4 admin-card">
-            <h3 class="pixel-font text-2xl mb-6 border-b-2 border-gray-100 pb-4">USERS / 用户列表</h3>
-            <div id="userList" class="space-y-2 text-sm text-gray-600">正在加载...</div>
-            <div id="adminStatus" class="text-xs text-gray-400 mt-4">正在加载...</div>
-        </div>
-
-        <!-- Vocab Reports -->
-        <div class="col-span-12 admin-card">
-            <h3 class="pixel-font text-2xl mb-6 border-b-2 border-gray-100 pb-4">VOCAB REPORTS / 单词卡报错</h3>
-            <div id="vocabReportList" class="space-y-4">
-                <p class="text-gray-400 italic">正在加载报错数据...</p>
+            <h3 class="pixel-font text-xl mb-4 border-b-2 border-gray-100 pb-3">INVITES / 邀请码使用</h3>
+            <div id="inviteStats" class="space-y-3 text-sm">
+                <div class="flex justify-between items-center">
+                    <span>已使用 / 总数</span>
+                    <span class="font-bold" id="inviteUsed">—</span>
+                </div>
+                <div class="w-full bg-gray-200 h-3">
+                    <div id="inviteBar" class="bg-green-600 h-3" style="width:0%"></div>
+                </div>
+            </div>
+            <div class="mt-4 pt-4 border-t border-gray-100">
+                <h4 class="pixel-font text-sm mb-2">RETENTION / 留存率</h4>
+                <div id="retentionStats" class="space-y-2 text-[13px] text-gray-600">加载中...</div>
             </div>
         </div>
 
-        <!-- Announcements -->
+        <!-- ===== 平台统计 ===== -->
+        <div class="col-span-12 lg:col-span-4 admin-card">
+            <h3 class="pixel-font text-xl mb-4 border-b-2 border-gray-100 pb-3">PLATFORM / 平台数据</h3>
+            <div class="space-y-3 text-sm">
+                <div class="flex justify-between"><span>词库总量</span><span id="statSearch" class="font-bold">0</span></div>
+                <div class="flex justify-between"><span>主题帖</span><span id="statForum" class="font-bold">0</span></div>
+                <div class="flex justify-between"><span>待处理反馈</span><span id="feedbackCount" class="font-bold">0</span></div>
+                <div id="adminStatus" class="text-[11px] text-gray-400 pt-2 border-t border-gray-100"></div>
+            </div>
+        </div>
+
+        <!-- ===== 活跃度分布 ===== -->
+        <div class="col-span-12 lg:col-span-4 admin-card">
+            <h3 class="pixel-font text-xl mb-4 border-b-2 border-gray-100 pb-3">ACTIVITY / 活跃分布</h3>
+            <div id="activityBreakdown" class="space-y-3 text-sm">加载中...</div>
+        </div>
+
+        <!-- ===== 最近活跃用户 ===== -->
+        <div class="col-span-12 lg:col-span-6 admin-card">
+            <h3 class="pixel-font text-xl mb-4 border-b-2 border-gray-100 pb-4">
+                <span class="dot-green"></span> RECENTLY ACTIVE / 最近活跃
+            </h3>
+            <div id="recentUsers" class="space-y-2 text-sm">加载中...</div>
+        </div>
+
+        <!-- ===== 流失用户 ===== -->
+        <div class="col-span-12 lg:col-span-6 admin-card">
+            <h3 class="pixel-font text-xl mb-4 border-b-2 border-gray-100 pb-4">
+                <span class="dot-red"></span> CHURNED / 已流失
+            </h3>
+            <div id="churnedUsers" class="space-y-2 text-sm">加载中...</div>
+        </div>
+
+        <!-- ===== 全部用户列表 ===== -->
         <div class="col-span-12 admin-card">
-            <h3 class="pixel-font text-2xl mb-6 border-b-2 border-gray-100 pb-4">ANNOUNCEMENTS / 站内公告</h3>
+            <h3 class="pixel-font text-2xl mb-4 border-b-2 border-gray-100 pb-4">ALL USERS / 全部用户</h3>
+            <div id="userList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 text-sm">加载中...</div>
+        </div>
+
+        <!-- ===== 反馈 ===== -->
+        <div class="col-span-12 lg:col-span-6 admin-card">
+            <h3 class="pixel-font text-2xl mb-4 border-b-2 border-gray-100 pb-4">FEEDBACK / 用户反馈</h3>
+            <div id="feedbackList" class="space-y-3 max-h-[500px] overflow-y-auto">加载中...</div>
+        </div>
+
+        <!-- ===== 报错 ===== -->
+        <div class="col-span-12 lg:col-span-6 admin-card">
+            <h3 class="pixel-font text-2xl mb-4 border-b-2 border-gray-100 pb-4">REPORTS / 单词报错</h3>
+            <div id="vocabReportList" class="space-y-3 max-h-[500px] overflow-y-auto">加载中...</div>
+        </div>
+
+        <!-- ===== 公告 ===== -->
+        <div class="col-span-12 admin-card">
+            <h3 class="pixel-font text-2xl mb-4 border-b-2 border-gray-100 pb-4">ANNOUNCEMENTS / 站内公告</h3>
             <div class="grid grid-cols-12 gap-6">
                 <div class="col-span-12 lg:col-span-5">
-                    <div class="text-[11px] text-gray-500 mb-2">管理员密钥（仅本地保存，用于发布/下架公告）</div>
-                    <input id="adminKeyInput" class="w-full border-2 border-gray-800 p-2 text-sm mb-4" placeholder="粘贴 ADMIN_API_KEY（不会上传到 GitHub）" />
-                    <div class="text-[11px] text-gray-500 mb-2">公告标题</div>
-                    <input id="annTitle" class="w-full border-2 border-gray-800 p-2 text-sm mb-4" placeholder="例如：N1/N5 词库已更新" />
-                    <div class="text-[11px] text-gray-500 mb-2">公告内容</div>
-                    <textarea id="annContent" rows="5" class="w-full border-2 border-gray-800 p-2 text-sm mb-4" placeholder="写给用户看的公告内容（支持换行）"></textarea>
-                    <label class="inline-flex items-center gap-2 text-sm mb-4">
-                        <input id="annPinned" type="checkbox" />
-                        <span class="text-[12px] font-bold">置顶</span>
+                    <input id="adminKeyInput" class="w-full border-2 border-gray-800 p-2 text-sm mb-3" placeholder="ADMIN_API_KEY" />
+                    <input id="annTitle" class="w-full border-2 border-gray-800 p-2 text-sm mb-3" placeholder="公告标题" />
+                    <textarea id="annContent" rows="4" class="w-full border-2 border-gray-800 p-2 text-sm mb-3" placeholder="公告内容"></textarea>
+                    <label class="inline-flex items-center gap-2 text-sm mb-3">
+                        <input id="annPinned" type="checkbox" /> 置顶
                     </label>
                     <div class="flex items-center gap-2">
-                        <button id="annPublishBtn" class="pixel-font bg-white border-2 border-gray-800 px-4 py-2 hover:bg-gray-100 transition-colors">发布公告</button>
-                        <div id="annStatus" class="text-xs text-gray-400"></div>
+                        <button id="annPublishBtn" class="pixel-font bg-white border-2 border-gray-800 px-4 py-2 hover:bg-gray-100">发布</button>
+                        <span id="annStatus" class="text-xs text-gray-400"></span>
                     </div>
                 </div>
                 <div class="col-span-12 lg:col-span-7">
-                    <div id="annList" class="space-y-3">
-                        <p class="text-gray-400 italic">正在加载公告...</p>
-                    </div>
+                    <div id="annList" class="space-y-3 max-h-[400px] overflow-y-auto">加载中...</div>
                 </div>
             </div>
         </div>
 
-        <!-- Invitation Codes -->
+        <!-- ===== 邀请码列表 ===== -->
         <div class="col-span-12 admin-card">
-            <h3 class="pixel-font text-2xl mb-6 border-b-2 border-gray-100 pb-4">INVITATION CODES / 邀请码</h3>
-            <div id="codeList" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-[11px]">正在加载...</div>
+            <h3 class="pixel-font text-2xl mb-4 border-b-2 border-gray-100 pb-4">INVITATION CODES / 邀请码</h3>
+            <div id="codeList" class="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-10 gap-2 text-[11px]">加载中...</div>
         </div>
+
     </div>
 
     <script>
+        // ==================== HELPERS ====================
+        function timeAgo(ts) {
+            if (!ts) return '从未活跃';
+            const diff = (Date.now() - new Date(ts).getTime()) / 1000;
+            if (diff < 60) return '刚刚';
+            if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
+            if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
+            if (diff < 2592000) return Math.floor(diff / 86400) + ' 天前';
+            return Math.floor(diff / 2592000) + ' 个月前';
+        }
+
+        function activityDot(ts) {
+            if (!ts) return '<span class="dot-gray"></span>';
+            const diff = (Date.now() - new Date(ts).getTime()) / 1000;
+            if (diff < 86400) return '<span class="dot-green"></span>';
+            if (diff < 604800) return '<span class="dot-yellow"></span>';
+            if (diff < 2592000) return '<span class="dot-yellow"></span>';
+            return '<span class="dot-red"></span>';
+        }
+
+        function activityLabel(ts) {
+            if (!ts) return '从未活跃';
+            const diff = (Date.now() - new Date(ts).getTime()) / 1000;
+            if (diff < 86400) return '今日活跃';
+            if (diff < 604800) return '本周活跃';
+            if (diff < 2592000) return '本月活跃';
+            return '已流失';
+        }
+
+        // ==================== ACTIVITY DASHBOARD ====================
+        async function loadActivity() {
+            try {
+                const res = await fetch('/api/v2/admin/activity');
+                if (!res.ok) return;
+                const data = await res.json();
+
+                // 活跃卡片
+                document.getElementById('statUsers').innerText = data.total || 0;
+                document.getElementById('statToday').innerText = data.active_1d || 0;
+                document.getElementById('stat7d').innerText = (data.active_1d + data.active_2_7d) || 0;
+                document.getElementById('stat30d').innerText = (data.active_1d + data.active_2_7d + data.active_8_30d) || 0;
+                document.getElementById('statChurned').innerText = data.churned || 0;
+
+                // 邀请码统计
+                const usedPct = data.codes_total > 0 ? Math.round(data.codes_used / data.codes_total * 100) : 0;
+                document.getElementById('inviteUsed').innerText = data.codes_used + ' / ' + data.codes_total;
+                document.getElementById('inviteBar').style.width = usedPct + '%';
+
+                // 留存率
+                document.getElementById('retentionStats').innerHTML = data.total > 0 ? [
+                    '<div class="flex justify-between"><span>次日留存（估算）</span><span class="font-bold">' + (data.active_1d > 0 ? Math.round(data.active_1d / data.total * 100) : 0) + '%</span></div>',
+                    '<div class="flex justify-between"><span>7日留存</span><span class="font-bold">' + Math.round((data.active_1d + data.active_2_7d) / data.total * 100) + '%</span></div>',
+                    '<div class="flex justify-between"><span>30日留存</span><span class="font-bold">' + Math.round((data.active_1d + data.active_2_7d + data.active_8_30d) / data.total * 100) + '%</span></div>',
+                    '<div class="flex justify-between text-red-600"><span>流失率</span><span class="font-bold">' + Math.round(data.churned / data.total * 100) + '%</span></div>',
+                ].join('') : '<p>暂无数据</p>';
+
+                // 活跃分布
+                document.getElementById('activityBreakdown').innerHTML = [
+                    { label: '今日活跃', count: data.active_1d, color: '#22c55e' },
+                    { label: '2-7天前', count: data.active_2_7d, color: '#3b82f6' },
+                    { label: '8-30天前', count: data.active_8_30d, color: '#a855f7' },
+                    { label: '已流失', count: data.churned, color: '#ef4444' },
+                ].map(d => {
+                    const max = Math.max(data.total, 1);
+                    const w = Math.round(d.count / max * 100);
+                    return `<div class="flex items-center gap-2">
+                        <span class="w-16 text-[12px]">${d.label}</span>
+                        <div class="flex-1 bg-gray-200 h-5">
+                            <div class="h-5 flex items-center pl-1 text-[10px] text-white font-bold" style="width:${w}%;background:${d.color}">${d.count}</div>
+                        </div>
+                    </div>`;
+                }).join('');
+
+                // 最近活跃用户
+                const recentDiv = document.getElementById('recentUsers');
+                if (!data.recent_users || data.recent_users.length === 0) {
+                    recentDiv.innerHTML = '<p class="text-gray-400 italic">暂无活跃用户</p>';
+                } else {
+                    recentDiv.innerHTML = data.recent_users.map(u => `
+                        <div class="p-2 border border-gray-200 bg-gray-50 flex justify-between items-center gap-2">
+                            <div>
+                                <span class="font-bold text-[13px]">${u.nickname || '未命名'}</span>
+                                <span class="text-[10px] text-gray-400 ml-2">${u.current_level || '-'}</span>
+                            </div>
+                            <div class="flex items-center gap-1 text-[11px]">
+                                ${activityDot(u.last_active_at)}
+                                <span class="text-gray-500">${timeAgo(u.last_active_at)}</span>
+                                <span class="text-[10px] text-gray-300 ml-1">${u.study_count || 0}次学习</span>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+
+                // 流失用户
+                const churnedDiv = document.getElementById('churnedUsers');
+                if (!data.churned_users || data.churned_users.length === 0) {
+                    churnedDiv.innerHTML = '<p class="text-gray-400 italic">暂无流失用户</p>';
+                } else {
+                    churnedDiv.innerHTML = data.churned_users.map(u => `
+                        <div class="p-2 border border-red-200 bg-red-50 flex justify-between items-center gap-2">
+                            <div>
+                                <span class="font-bold text-[13px]">${u.nickname || '未命名'}</span>
+                                <span class="text-[10px] text-gray-400 ml-2">${u.current_level || '-'}</span>
+                            </div>
+                            <div class="flex items-center gap-1 text-[11px]">
+                                ${activityDot(u.last_active_at)}
+                                <span class="text-red-500">${timeAgo(u.last_active_at)}</span>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (e) {
+                console.error('Activity load failed:', e);
+            }
+        }
+
+        // ==================== STATS ====================
+        async function loadStats() {
+            try {
+                const res = await fetch('/api/v2/admin/stats');
+                const s = await res.json();
+                document.getElementById('statSearch').innerText = s.words_count || 0;
+                document.getElementById('statForum').innerText = s.forum_posts_count || 0;
+                document.getElementById('feedbackCount').innerText = s.feedback_count || 0;
+                document.getElementById('adminStatus').innerHTML =
+                    `今日 ${s.active_1d || 0} / 7日 ${s.active_7d || 0} / 30日 ${s.active_30d || 0} 人活跃 · 词库 ${s.words_count || 0} 词`;
+            } catch (e) {
+                document.getElementById('adminStatus').innerText = '统计读取失败';
+            }
+        }
+
+        // ==================== USERS ====================
+        async function loadUsers() {
+            const box = document.getElementById('userList');
+            try {
+                const res = await fetch('/api/v2/admin/users');
+                if (!res.ok) { box.innerHTML = '<p class="text-gray-400">用户列表未启用</p>'; return; }
+                const users = await res.json();
+                if (!Array.isArray(users) || users.length === 0) { box.innerHTML = '<p class="text-gray-400">暂无用户</p>'; return; }
+                box.innerHTML = users.map(u => `
+                    <div class="p-2 border-2 border-gray-300 bg-white">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-[13px]">${u.nickname || '未命名'} ${u.current_level ? `<span class="text-[10px] text-green-700">[${u.current_level}]</span>` : ''}</span>
+                            <span>${activityDot(u.last_active_at)}</span>
+                        </div>
+                        <div class="text-[10px] text-gray-400 mt-1">${u.learning_goal || '无目标'}</div>
+                        <div class="text-[10px] mt-1 text-gray-500 flex justify-between">
+                            <span>${timeAgo(u.last_active_at)}</span>
+                            <span>${activityLabel(u.last_active_at)}</span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                box.innerHTML = '<p class="text-red-500">读取失败</p>';
+            }
+        }
+
+        // ==================== FEEDBACKS ====================
         async function loadFeedbacks() {
             try {
                 const res = await fetch('/api/v2/admin/feedbacks');
                 const data = await res.json();
                 const list = document.getElementById('feedbackList');
                 document.getElementById('feedbackCount').innerText = data.length;
-                
-                if (data.length === 0) {
-                    list.innerHTML = '<p class="text-gray-400 italic">暂无反馈数据</p>';
-                    return;
-                }
-
+                if (data.length === 0) { list.innerHTML = '<p class="text-gray-400 italic">暂无反馈</p>'; return; }
                 list.innerHTML = data.map((f, i) => `
-                    <div class="p-4 bg-gray-50 border-l-4 border-gray-800">
-                        <div class="flex justify-between text-[10px] text-gray-400 mb-2">
-                            <span>USER: ${f.nickname || f.user_name || ('anonymous_' + (i+1))}</span>
-                            <span>TIME: ${new Date((f.timestamp ? f.timestamp * 1000 : f.created_at)).toLocaleString()}</span>
+                    <div class="p-3 bg-gray-50 border-l-4 border-gray-800">
+                        <div class="flex justify-between text-[10px] text-gray-400 mb-1">
+                            <span>${f.nickname || f.user_name || ('匿名_' + (i+1))}</span>
+                            <span>${new Date((f.timestamp ? f.timestamp * 1000 : f.created_at)).toLocaleString()}</span>
                         </div>
                         <p class="text-sm">${f.content || ''}</p>
                     </div>
                 `).join('');
-            } catch (err) {
-                console.error(err);
-            }
+            } catch (e) { console.error(e); }
         }
 
-        async function loadUsers() {
-            const box = document.getElementById('userList');
-            try {
-                const res = await fetch('/api/v2/admin/users');
-                if (!res.ok) {
-                    box.innerHTML = '<p class="text-gray-400">v2 用户列表未启用</p>';
-                    return;
-                }
-                const users = await res.json();
-                if (!Array.isArray(users) || users.length === 0) {
-                    box.innerHTML = '<p class="text-gray-400">暂无用户</p>';
-                    return;
-                }
-                box.innerHTML = users.slice(0, 20).map(u => `
-                    <div class="p-2 border border-gray-200 bg-gray-50">
-                        <div class="font-bold">${u.nickname || '未命名用户'} ${u.current_level ? `<span class="text-[10px] text-green-700">[${u.current_level}]</span>` : ''}</div>
-                        <div class="text-[11px] text-gray-500">目标：${u.learning_goal || '-'}</div>
-                    </div>
-                `).join('');
-            } catch (e) {
-                box.innerHTML = '<p class="text-red-500">用户读取失败</p>';
-            }
-        }
-
-        async function loadStats() {
-            try {
-                const res = await fetch('/api/v2/admin/stats');
-                const s = await res.json();
-                document.getElementById('statSearch').innerText = s.words_count || 0;
-                document.getElementById('statUsers').innerText = s.profiles_count || 0;
-                document.getElementById('statForum').innerText = s.forum_posts_count || 0;
-                document.getElementById('adminStatus').innerText = `反馈 ${s.feedback_count || 0} 条，论坛主题 ${s.forum_posts_count || 0} 条，词库与背词系统运行中。`;
-            } catch (e) {
-                document.getElementById('adminStatus').innerText = '统计读取失败，请稍后刷新。';
-            }
-        }
-
+        // ==================== CODES ====================
         async function loadCodes() {
             const box = document.getElementById('codeList');
             try {
                 const res = await fetch('/api/v2/admin/invitation-codes');
-                if (!res.ok) {
-                    box.innerHTML = '<div class="text-gray-400">邀请码接口未启用</div>';
-                    return;
-                }
+                if (!res.ok) { box.innerHTML = '<div class="text-gray-400">未启用</div>'; return; }
                 const codes = await res.json();
-                if (!Array.isArray(codes) || codes.length === 0) {
-                    box.innerHTML = '<div class="text-gray-400">暂无邀请码</div>';
-                    return;
-                }
+                if (!Array.isArray(codes) || codes.length === 0) { box.innerHTML = '<div class="text-gray-400">暂无</div>'; return; }
                 box.innerHTML = codes.map(c => `
-                    <div class="p-2 border-2 border-gray-800 ${c.is_used ? 'bg-red-50' : 'bg-green-50'}">
-                        <div class="font-bold">${c.code}</div>
-                        <div class="text-[10px] ${c.is_used ? 'text-red-600' : 'text-green-700'}">${c.is_used ? 'USED' : 'NEW'}</div>
+                    <div class="p-1.5 border-2 border-gray-800 ${c.is_used ? 'bg-red-50' : 'bg-green-50'}">
+                        <div class="font-bold text-[10px] break-all">${c.code}</div>
+                        <div class="text-[9px] ${c.is_used ? 'text-red-600' : 'text-green-700'}">${c.is_used ? 'USED' : 'NEW'}</div>
                     </div>
                 `).join('');
-            } catch (e) {
-                box.innerHTML = '<div class="text-red-500">邀请码读取失败</div>';
-            }
+            } catch (e) { box.innerHTML = '<div class="text-red-500">读取失败</div>'; }
         }
 
+        // ==================== VOCAB REPORTS ====================
         async function loadVocabReports() {
             const box = document.getElementById('vocabReportList');
             try {
-                const res = await fetch('/api/library/reports?limit=100&status=open');
-                if (!res.ok) {
-                    box.innerHTML = '<p class="text-gray-400 italic">报错接口未启用或读取失败</p>';
-                    return;
-                }
+                const res = await fetch('/api/library/reports?limit=50&status=open');
+                if (!res.ok) { box.innerHTML = '<p class="text-gray-400 italic">未启用</p>'; return; }
                 const data = await res.json();
-                if (!Array.isArray(data) || data.length === 0) {
-                    box.innerHTML = '<p class="text-gray-400 italic">暂无报错</p>';
-                    return;
-                }
+                if (!Array.isArray(data) || data.length === 0) { box.innerHTML = '<p class="text-gray-400 italic">暂无报错</p>'; return; }
                 box.innerHTML = data.map(r => `
-                    <div class="p-4 bg-gray-50 border-l-4 border-amber-500">
-                        <div class="flex justify-between text-[10px] text-gray-400 mb-2">
-                            <span>${(r.word || '—')} ${r.level ? `[${r.level}]` : ''} ${r.issue_type ? `· ${r.issue_type}` : ''}</span>
+                    <div class="p-3 bg-gray-50 border-l-4 border-amber-500">
+                        <div class="flex justify-between text-[10px] text-gray-400 mb-1">
+                            <span>${(r.word || '—')} ${r.level ? `[${r.level}]` : ''} · ${r.issue_type || ''}</span>
                             <span>${new Date(r.created_at).toLocaleString()}</span>
                         </div>
-                        <div class="text-[12px] text-gray-800 whitespace-pre-wrap">${(r.message || '').replace(/</g,'&lt;')}</div>
-                        <div class="mt-2 text-[10px] text-gray-400">
-                            来源：${r.page || '-'} ${r.page_url ? `· <a class="underline" href="${r.page_url}" target="_blank">打开页面</a>` : ''}
-                        </div>
+                        <div class="text-[12px] whitespace-pre-wrap">${(r.message || '').replace(/</g,'&lt;')}</div>
                     </div>
                 `).join('');
-            } catch (e) {
-                box.innerHTML = '<p class="text-red-500">报错读取失败</p>';
-            }
+            } catch (e) { box.innerHTML = '<p class="text-red-500">读取失败</p>'; }
         }
 
+        // ==================== ANNOUNCEMENTS ====================
         function getAdminKey() {
             const input = document.getElementById('adminKeyInput');
             const key = (input?.value || localStorage.getItem('ADMIN_API_KEY') || '').trim();
-            if (input && input.value.trim()) {
-                localStorage.setItem('ADMIN_API_KEY', input.value.trim());
-            }
+            if (input && input.value.trim()) localStorage.setItem('ADMIN_API_KEY', input.value.trim());
             return key;
         }
 
@@ -235,33 +384,27 @@
             const box = document.getElementById('annList');
             try {
                 const key = getAdminKey();
-                if (!key) {
-                    box.innerHTML = '<p class="text-gray-400 italic">请先在左侧输入 ADMIN_API_KEY（用于读取/下架全部公告）。</p>';
-                    return;
-                }
-                const res = await fetch('/api/admin/announcements?limit=100', { headers: { 'x-admin-key': key } });
+                if (!key) { box.innerHTML = '<p class="text-gray-400 italic">请输入 ADMIN_API_KEY</p>'; return; }
+                const res = await fetch('/api/admin/announcements?limit=50', { headers: { 'x-admin-key': key } });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data?.detail || '读取失败');
-                if (!Array.isArray(data) || data.length === 0) {
-                    box.innerHTML = '<p class="text-gray-400 italic">暂无公告</p>';
-                    return;
-                }
+                if (!Array.isArray(data) || data.length === 0) { box.innerHTML = '<p class="text-gray-400 italic">暂无公告</p>'; return; }
                 box.innerHTML = data.map(a => `
-                    <div class="p-4 bg-gray-50 border-l-4 ${a.is_active ? 'border-green-600' : 'border-gray-300'}">
+                    <div class="p-3 bg-gray-50 border-l-4 ${a.is_active ? 'border-green-600' : 'border-gray-300'}">
                         <div class="flex justify-between items-center gap-2">
-                            <div class="font-bold text-sm">${a.title || '-'}</div>
-                            <div class="flex items-center gap-2">
-                                ${a.pinned ? '<span class="text-[10px] font-bold px-2 py-0.5 border border-gray-300 bg-yellow-50">PIN</span>' : ''}
-                                <span class="text-[10px] font-bold px-2 py-0.5 border border-gray-300 bg-white">${a.is_active ? 'ACTIVE' : 'OFF'}</span>
-                                <button class="text-[10px] underline" onclick="toggleAnn('${a.id}', ${a.is_active ? 'false' : 'true'})">${a.is_active ? '下架' : '上架'}</button>
+                            <span class="font-bold text-sm">${a.title || '-'}</span>
+                            <div class="flex items-center gap-1">
+                                ${a.pinned ? '<span class="text-[9px] font-bold px-1.5 py-0.5 border border-gray-300 bg-yellow-50">PIN</span>' : ''}
+                                <span class="text-[9px] px-1.5 py-0.5 border border-gray-300 ${a.is_active ? 'bg-green-50' : 'bg-gray-100'}">${a.is_active ? 'ON' : 'OFF'}</span>
+                                <button class="text-[9px] underline" onclick="toggleAnn('${a.id}', ${a.is_active ? 'false' : 'true'})">${a.is_active ? '下架' : '上架'}</button>
                             </div>
                         </div>
-                        <div class="mt-2 text-[12px] text-gray-700 whitespace-pre-wrap">${(a.content || '').replace(/</g,'&lt;')}</div>
-                        <div class="mt-2 text-[10px] text-gray-400">创建：${new Date(a.created_at).toLocaleString()}</div>
+                        <div class="mt-1 text-[12px] text-gray-700 whitespace-pre-wrap">${(a.content || '').replace(/</g,'&lt;')}</div>
+                        <div class="mt-1 text-[10px] text-gray-400">${new Date(a.created_at).toLocaleString()}</div>
                     </div>
                 `).join('');
             } catch (e) {
-                box.innerHTML = '<p class="text-red-500">公告读取失败：' + (e?.message || '') + '</p>';
+                box.innerHTML = '<p class="text-red-500">读取失败：' + (e?.message || '') + '</p>';
             }
         }
 
@@ -287,9 +430,7 @@
                 document.getElementById('annContent').value = '';
                 document.getElementById('annPinned').checked = false;
                 await loadAnnouncements();
-            } catch (e) {
-                status.innerText = '发布失败：' + (e?.message || '');
-            }
+            } catch (e) { status.innerText = '失败：' + (e?.message || ''); }
         }
 
         async function toggleAnn(id, active) {
@@ -307,24 +448,23 @@
                 if (!res.ok) throw new Error(data?.detail || '更新失败');
                 status.innerText = '已更新';
                 await loadAnnouncements();
-            } catch (e) {
-                status.innerText = '更新失败：' + (e?.message || '');
-            }
+            } catch (e) { status.innerText = '失败：' + (e?.message || ''); }
         }
 
-        loadStats();
-        loadUsers();
-        loadFeedbacks();
-        loadCodes();
-        loadVocabReports();
-        loadAnnouncements();
-        setInterval(loadStats, 10000);
-        setInterval(loadUsers, 10000);
-        setInterval(loadFeedbacks, 10000);
-        setInterval(loadCodes, 10000);
-        setInterval(loadVocabReports, 10000);
-        setInterval(loadAnnouncements, 15000);
+        // ==================== INIT ====================
+        function refreshAll() {
+            loadActivity();
+            loadStats();
+            loadUsers();
+            loadFeedbacks();
+            loadCodes();
+            loadVocabReports();
+            loadAnnouncements();
+            document.getElementById('headerTime').innerText = new Date().toLocaleString();
+        }
 
+        refreshAll();
+        setInterval(refreshAll, 15000);
         document.getElementById('annPublishBtn')?.addEventListener('click', publishAnnouncement);
     </script>
 </body>

@@ -287,6 +287,7 @@ def _pg_conn():
     if not _VOCAB_LIBRARY_SCHEMA_OK:
         try:
             with conn.cursor() as cur:
+                cur.execute("ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_active_at timestamptz;")
                 cur.execute("ALTER TABLE public.vocab_library ADD COLUMN IF NOT EXISTS pos text;")
                 cur.execute("ALTER TABLE public.vocab_library ADD COLUMN IF NOT EXISTS frequency smallint;")
                 cur.execute("ALTER TABLE public.vocab_library ADD COLUMN IF NOT EXISTS examples jsonb;")
@@ -314,6 +315,7 @@ def init_supabase_schema():
       learning_goal TEXT,
       current_level TEXT,
       is_level_public BOOLEAN NOT NULL DEFAULT TRUE,
+      last_active_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
@@ -1022,6 +1024,26 @@ async def system_bootstrap_v2(x_admin_key: Optional[str] = Header(default=None, 
     return {"status": "success", "stats": stats}
 
 # --- Supabase Auth ---
+
+def _touch_user_activity(user_id: str) -> None:
+    """轻量更新用户最后活跃时间（静默失败不影响主流程）"""
+    if not SUPABASE_DB_ENABLED or not user_id:
+        return
+    try:
+        conn = _pg_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE public.profiles SET last_active_at=NOW(), updated_at=NOW() WHERE user_id=%s::uuid",
+                    (user_id,),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
 async def get_current_supabase_user(token: str = Depends(oauth2_scheme)):
     async def _fetch_user():
         if not (SUPABASE_URL and SUPABASE_ANON_KEY):
@@ -1035,6 +1057,7 @@ async def get_current_supabase_user(token: str = Depends(oauth2_scheme)):
 
     user = await _fetch_user()
     if user and user.get("id"):
+        _touch_user_activity(user["id"])
         return {"id": user["id"], "email": user.get("email")}
 
     payload = _decode_supabase_token(token)
@@ -1042,6 +1065,7 @@ async def get_current_supabase_user(token: str = Depends(oauth2_scheme)):
     email = payload.get("email")
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid Supabase session")
+    _touch_user_activity(user_id)
     return {"id": user_id, "email": email}
 
 
@@ -1672,11 +1696,75 @@ async def admin_stats_v2(current_user: Dict[str, Any] = Depends(require_admin_us
             feedback_count = int((cur.fetchone() or {}).get("c") or 0)
             cur.execute("SELECT COUNT(*) AS c FROM forum_posts WHERE parent_id IS NULL")
             forum_posts_count = int((cur.fetchone() or {}).get("c") or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM profiles WHERE last_active_at >= NOW() - INTERVAL '1 day'")
+            dau = int((cur.fetchone() or {}).get("c") or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM profiles WHERE last_active_at >= NOW() - INTERVAL '7 days'")
+            wau = int((cur.fetchone() or {}).get("c") or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM profiles WHERE last_active_at >= NOW() - INTERVAL '30 days'")
+            mau = int((cur.fetchone() or {}).get("c") or 0)
         return {
             "words_count": words_count,
             "profiles_count": users_count,
             "feedback_count": feedback_count,
             "forum_posts_count": forum_posts_count,
+            "active_1d": dau,
+            "active_7d": wau,
+            "active_30d": mau,
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/api/v2/admin/activity")
+async def admin_activity_v2(current_user: Dict[str, Any] = Depends(require_admin_user)):
+    """用户活跃度详情：分层统计 + 最近活跃用户 + 流失用户"""
+    conn = _pg_conn()
+    try:
+        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute("SELECT COUNT(*) AS c FROM profiles")
+            total = int((cur.fetchone() or {}).get("c") or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM profiles WHERE last_active_at >= NOW() - INTERVAL '1 day'")
+            active_1d = int((cur.fetchone() or {}).get("c") or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM profiles WHERE last_active_at >= NOW() - INTERVAL '7 days' AND last_active_at < NOW() - INTERVAL '1 day'")
+            active_2_7d = int((cur.fetchone() or {}).get("c") or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM profiles WHERE last_active_at >= NOW() - INTERVAL '30 days' AND last_active_at < NOW() - INTERVAL '7 days'")
+            active_8_30d = int((cur.fetchone() or {}).get("c") or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM profiles WHERE last_active_at IS NULL OR last_active_at < NOW() - INTERVAL '30 days'")
+            churned = int((cur.fetchone() or {}).get("c") or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM public.invitation_codes WHERE is_used=TRUE AND COALESCE(is_admin, FALSE)=FALSE")
+            codes_used = int((cur.fetchone() or {}).get("c") or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM public.invitation_codes WHERE COALESCE(is_admin, FALSE)=FALSE")
+            codes_total = int((cur.fetchone() or {}).get("c") or 0)
+            cur.execute(
+                """
+                SELECT p.user_id, p.nickname, p.current_level, p.last_active_at, p.created_at,
+                       (SELECT COUNT(*) FROM library_progress lp WHERE lp.user_id=p.user_id) AS study_count
+                FROM profiles p
+                ORDER BY p.last_active_at DESC NULLS LAST
+                LIMIT 30
+                """
+            )
+            recent_users = cur.fetchall()
+            cur.execute(
+                """
+                SELECT p.user_id, p.nickname, p.current_level, p.last_active_at, p.created_at
+                FROM profiles p
+                WHERE p.last_active_at IS NULL OR p.last_active_at < NOW() - INTERVAL '30 days'
+                ORDER BY p.last_active_at ASC NULLS FIRST
+                LIMIT 20
+                """
+            )
+            churned_users = cur.fetchall()
+        return {
+            "total": total,
+            "active_1d": active_1d,
+            "active_2_7d": active_2_7d,
+            "active_8_30d": active_8_30d,
+            "churned": churned,
+            "codes_used": codes_used,
+            "codes_total": codes_total,
+            "recent_users": recent_users,
+            "churned_users": churned_users,
         }
     finally:
         conn.close()
@@ -1689,9 +1777,10 @@ async def admin_users_v2(current_user: Dict[str, Any] = Depends(require_admin_us
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(
                 """
-                SELECT p.user_id, p.nickname, p.age, p.initial_level, p.current_level, p.learning_goal, p.is_level_public, p.created_at
+                SELECT p.user_id, p.nickname, p.age, p.initial_level, p.current_level,
+                       p.learning_goal, p.is_level_public, p.created_at, p.last_active_at
                 FROM profiles p
-                ORDER BY p.created_at DESC
+                ORDER BY p.last_active_at DESC NULLS LAST
                 LIMIT 300
                 """
             )
