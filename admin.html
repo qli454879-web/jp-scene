@@ -158,6 +158,22 @@
     </div>
 
     <script>
+        // ==================== AUTH ====================
+        const authToken = localStorage.getItem('authToken');
+        if (!authToken) {
+            // 没登录就先跳回主页登录
+            location.href = '/';
+            throw new Error('请先登录');
+        }
+        const AUTH_HEADERS = { 'Authorization': 'Bearer ' + authToken };
+
+        // 包装 fetch，自动附加 auth header
+        const _rawFetch = window.fetch;
+        window.fetch = function(url, opts = {}) {
+            opts.headers = { ...(opts.headers || {}), ...AUTH_HEADERS };
+            return _rawFetch(url, opts);
+        };
+
         // ==================== HELPERS ====================
         function timeAgo(ts) {
             if (!ts) return '从未活跃';
