@@ -157,11 +157,10 @@
 
         async function loadStats() {
             try {
-                let res = await fetch('/api/v2/admin/stats');
-                if (!res.ok) res = await fetch('/api/admin/stats');
+                const res = await fetch('/api/v2/admin/stats');
                 const s = await res.json();
-                document.getElementById('statSearch').innerText = s.total_search || s.words_count || 0;
-                document.getElementById('statUsers').innerText = s.active_users || s.profiles_count || 0;
+                document.getElementById('statSearch').innerText = s.words_count || 0;
+                document.getElementById('statUsers').innerText = s.profiles_count || 0;
                 document.getElementById('statForum').innerText = s.forum_posts_count || 0;
                 document.getElementById('adminStatus').innerText = `反馈 ${s.feedback_count || 0} 条，论坛主题 ${s.forum_posts_count || 0} 条，词库与背词系统运行中。`;
             } catch (e) {

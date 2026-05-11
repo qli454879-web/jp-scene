@@ -924,7 +924,7 @@ async def _startup_init_pg_schema() -> None:
         logging.exception("Postgres init/ensure failed (non-fatal).")
 
 
-def _get_user_ai_limit(user_id: str) -> int | None:
+def _get_user_ai_limit(user_id: str) -> Optional[int]:
     """Return daily limit. None means unlimited."""
     if not SUPABASE_DB_ENABLED:
         return None
@@ -999,7 +999,7 @@ async def get_public_config():
 
 
 @app.get("/api/v2/system/check")
-async def system_check_v2(x_admin_key: str | None = Header(default=None, alias="x-admin-key")):
+async def system_check_v2(x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key")):
     _require_admin_key(x_admin_key)
     return {
         "supabase_enabled": SUPABASE_ENABLED,
@@ -1013,7 +1013,7 @@ async def system_check_v2(x_admin_key: str | None = Header(default=None, alias="
 
 
 @app.post("/api/v2/system/bootstrap")
-async def system_bootstrap_v2(x_admin_key: str | None = Header(default=None, alias="x-admin-key")):
+async def system_bootstrap_v2(x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key")):
     # 初始化数据库属于危险操作：用管理员密钥保护（避免依赖定义顺序问题）
     _require_admin_key(x_admin_key)
     if not SUPABASE_DB_ENABLED:
@@ -2493,6 +2493,43 @@ async def get_vocab_meta(word: str = Query(...), kana: str = Query(""), meaning:
     return {"meaning_zh": meaning_zh, "origin": origin}
 
 
+def _extract_meaning_keywords(meaning: str, *, full: bool = False) -> List[str]:
+    """
+    从中文释义中提取关键词。
+    full=False: 优先主释义，若主释义无有效短关键词则兜底用全释义。
+    full=True: 取全部释义。
+    """
+    if not meaning:
+        return []
+    meaning = re.sub(r"[（(][^)）]*[)）]", " ", meaning)
+    meaning = re.sub(r"[぀-ゟ゠-ヿ]+", " ", meaning)
+
+    def _tokenize(text: str) -> List[str]:
+        text = re.sub(r"[。；;]", "，", text)
+        parts = re.split(r"[，,、/／\s]+", text)
+        kws = []
+        for p in parts:
+            p = p.strip()
+            if p and re.search(r"[一-鿿]", p):
+                kws.append(p)
+        seen = set()
+        result = []
+        for kw in sorted(kws, key=len, reverse=True):
+            if kw not in seen:
+                seen.add(kw)
+                result.append(kw)
+        return result
+
+    if full:
+        return _tokenize(meaning)[:8]
+
+    main_part = re.split(r"[。；;]", meaning)[0].strip()
+    main_kws = _tokenize(main_part)
+    if not main_kws or all(len(k) > 2 for k in main_kws):
+        return _tokenize(meaning)[:5]
+    return main_kws[:5]
+
+
 def _guess_origin_from_meaning(meaning: str) -> Optional[str]:
     """从释义中粗略提取外来语来源；仅用于前端展示，不做强依赖。"""
     parts = meaning.replace("；", ";").split(";")
@@ -2677,117 +2714,6 @@ async def analyze_sentence(q: str = Query(...), current_user: Dict[str, Any] = D
     _increment_ai_usage(current_user["id"])
     return {"answer": answer}
 
-@app.post("/api/feedback")
-async def submit_feedback(data: dict = Body(...)):
-    content = (data.get("content") or "").strip()
-    user_name = (data.get("user_name") or "anonymous").strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="content is required")
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO feedbacks_local (user_name, content, created_at) VALUES (?, ?, ?)",
-        (user_name, content, time.time()),
-    )
-    conn.commit()
-    conn.close()
-    return {"status": "success"}
-
-@app.get("/api/feedbacks")
-async def get_feedbacks(x_admin_key: str | None = Header(default=None, alias="x-admin-key")):
-    _require_admin_key(x_admin_key)
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute("SELECT id, user_name, content, created_at FROM feedbacks_local ORDER BY id DESC LIMIT 200")
-    rows = c.fetchall()
-    conn.close()
-    return [{"id": r[0], "user_name": r[1], "content": r[2], "timestamp": r[3]} for r in rows]
-
-
-@app.get("/api/forum/posts")
-async def get_forum_posts(current_user: Dict[str, Any] = Depends(get_current_supabase_user)):
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute(
-        """
-        SELECT p.id, p.user_name, p.title, p.content, p.parent_id, p.created_at,
-               (SELECT COUNT(*) FROM forum_posts_local r WHERE r.parent_id = p.id) AS reply_count
-        FROM forum_posts_local p
-        WHERE p.parent_id IS NULL
-        ORDER BY p.id DESC
-        LIMIT 200
-        """
-    )
-    posts = c.fetchall()
-    data = []
-    for p in posts:
-        c.execute(
-            "SELECT id, user_name, content, created_at FROM forum_posts_local WHERE parent_id=? ORDER BY id ASC",
-            (p[0],),
-        )
-        replies = c.fetchall()
-        data.append(
-            {
-                "id": p[0],
-                "user_name": p[1],
-                "title": p[2],
-                "content": p[3],
-                "parent_id": p[4],
-                "created_at": p[5],
-                "reply_count": p[6],
-                "replies": [{"id": r[0], "user_name": r[1], "content": r[2], "created_at": r[3]} for r in replies],
-            }
-        )
-    conn.close()
-    return data
-
-
-@app.post("/api/forum/posts")
-async def create_forum_post(data: dict = Body(...), current_user: Dict[str, Any] = Depends(get_current_supabase_user)):
-    title = (data.get("title") or "").strip()
-    content = (data.get("content") or "").strip()
-    user_name = (data.get("user_name") or "").strip() or (current_user.get("email") or "已登录")
-    parent_id = data.get("parent_id")
-    if not content:
-        raise HTTPException(status_code=400, detail="content is required")
-    if parent_id is None and not title:
-        raise HTTPException(status_code=400, detail="title is required for top-level post")
-    _moderate_forum_text(title, content)
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO forum_posts_local (user_name, title, content, parent_id, created_at) VALUES (?, ?, ?, ?, ?)",
-        (user_name, title if parent_id is None else None, content, parent_id, time.time()),
-    )
-    new_id = c.lastrowid
-    conn.commit()
-    conn.close()
-    return {"status": "success", "id": new_id}
-
-
-@app.get("/api/admin/stats")
-async def get_admin_stats(x_admin_key: str | None = Header(default=None, alias="x-admin-key")):
-    # 旧版管理员接口：保持兼容，但必须使用管理员密钥
-    _require_admin_key(x_admin_key)
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM ai_cache")
-    total_search = int(c.fetchone()[0] or 0)
-    c.execute("SELECT COUNT(*) FROM users")
-    users_count = int(c.fetchone()[0] or 0)
-    c.execute("SELECT COUNT(*) FROM feedbacks_local")
-    feedback_count = int(c.fetchone()[0] or 0)
-    c.execute("SELECT COUNT(*) FROM forum_posts_local WHERE parent_id IS NULL")
-    forum_posts_count = int(c.fetchone()[0] or 0)
-    conn.close()
-    return {
-        "total_search": total_search,
-        "active_users": users_count,
-        "feedback_count": feedback_count,
-        "forum_posts_count": forum_posts_count,
-    }
-
-
 def _is_uuid(s: str) -> bool:
     try:
         uuid.UUID(str(s))
@@ -2917,7 +2843,7 @@ def _ensure_announcements_table(conn) -> None:
     conn.commit()
 
 
-def _require_admin_key(x_admin_key: str | None) -> None:
+def _require_admin_key(x_admin_key: Optional[str]) -> None:
     """简单、可控的管理员鉴权：用环境变量 ADMIN_API_KEY。"""
     if not ADMIN_API_KEY:
         raise HTTPException(status_code=500, detail="ADMIN_API_KEY 未配置，无法进行管理员写操作")
@@ -2960,7 +2886,7 @@ async def list_announcements(limit: int = Query(5, ge=1, le=20)):
 @app.get("/api/admin/announcements")
 async def admin_list_announcements(
     limit: int = Query(50, ge=1, le=200),
-    x_admin_key: str | None = Header(default=None, alias="x-admin-key"),
+    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
 ):
     """站长查看公告列表（包含已下架）。"""
     if not SUPABASE_DB_ENABLED:
@@ -2993,7 +2919,7 @@ async def admin_list_announcements(
 @app.post("/api/admin/announcements")
 async def create_announcement(
     payload: Dict[str, Any] = Body(...),
-    x_admin_key: str | None = Header(default=None, alias="x-admin-key"),
+    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
 ):
     """站长创建公告（管理员密钥保护）。"""
     if not SUPABASE_DB_ENABLED:
@@ -3032,7 +2958,7 @@ async def create_announcement(
 async def toggle_announcement(
     ann_id: str,
     payload: Dict[str, Any] = Body(...),
-    x_admin_key: str | None = Header(default=None, alias="x-admin-key"),
+    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
 ):
     """上架/下架公告（管理员密钥保护）。"""
     if not SUPABASE_DB_ENABLED:
@@ -3547,6 +3473,254 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
             d.pop("insight_text", None)
             d.pop("is_ai_enriched", None)
         return out
+    finally:
+        conn.close()
+
+
+@app.get("/api/library/replacements")
+async def get_replacements(word: str = Query(...), level: str = Query(""), limit: int = Query(5, ge=1, le=10)):
+    """
+    替换建议：找出当前词不适合的社交场景，推荐意思相近、但适合在该场景使用的替代表达（零 AI 消耗）。
+    例如：当前词不适合对上司说 → 找意思相近且适合对上司说的词。
+    """
+    if not SUPABASE_DB_ENABLED:
+        raise HTTPException(status_code=500, detail="SUPABASE_DB_URL is not configured")
+    w = (word or "").strip()
+    if not w:
+        return []
+
+    # 社交语境定义
+    CTX_MAP = {
+        "casual": {"key": "casual", "label_zh": "朋友/同僚", "label": "随意场合"},
+        "business": {"key": "business", "label_zh": "上司/客户", "label": "商务场合"},
+        "formal": {"key": "formal", "label_zh": "店员/陌生人", "label": "正式场合"},
+    }
+
+    conn = _pg_conn()
+    try:
+        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            # 1) 获取当前词的 social_context / heatmap_data / meaning
+            cur.execute(
+                "SELECT social_context, heatmap_data, level, meaning FROM vocab_library WHERE word = %s AND is_ai_enriched = true ORDER BY frequency DESC NULLS LAST LIMIT 1",
+                (w,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return {"items": [], "denied": []}
+
+            sc = row.get("social_context") or {}
+            hm = row.get("heatmap_data") or {}
+            lv = (level or row.get("level") or "").strip()
+            meaning = (row.get("meaning") or "").strip()
+
+            if isinstance(hm, dict):
+                scenes = [k for k in hm.keys() if k and str(k).strip()]
+            else:
+                scenes = []
+
+            # 找出当前词不适合的社交场景（先算，后面需要返回）
+            denied_contexts = []
+            if isinstance(sc, dict):
+                for ctx_key in ("casual", "business", "formal"):
+                    ctx = sc.get(ctx_key)
+                    if isinstance(ctx, dict) and not ctx.get("allowed"):
+                        info = CTX_MAP.get(ctx_key, {})
+                        denied_contexts.append({
+                            "key": ctx_key,
+                            "label": info.get("label", ctx_key),
+                            "label_zh": info.get("label_zh", ""),
+                        })
+
+            if not isinstance(sc, dict) or not scenes:
+                return {"items": [], "denied": [d["label_zh"] for d in denied_contexts]}
+
+            # 2) 提取意思关键词
+            meaning_keywords = _extract_meaning_keywords(meaning)
+            if not meaning_keywords:
+                return {"items": [], "denied": [d["label_zh"] for d in denied_contexts]}
+
+            if not denied_contexts:
+                return {"items": [], "denied": []}
+
+            # 3) 对每个不适合的场景，找意思相近 + 同场景 + 适合的词
+            all_results = []
+            for dctx in denied_contexts[:2]:
+                # 意思筛选：至少匹配一个关键词
+                # 单字用前缀匹配（"吃%" 避免匹配到"吃惊""吃不消"），多字用包含匹配
+                params = {
+                    "word": w,
+                    "scenes": scenes,
+                    "ctx_key": dctx["key"],
+                    "lv": lv,
+                    "limit": int(limit),
+                }
+                clauses = []
+                for i, kw in enumerate(meaning_keywords):
+                    key = f"mkw{i}"
+                    if len(kw) == 1:
+                        clauses.append(f"meaning ILIKE %({key})s")
+                        params[key] = f"{kw}%"
+                    elif len(kw) >= 2:
+                        clauses.append(f"meaning ILIKE %({key})s")
+                        params[key] = f"%{kw}%"
+                meaning_clauses = " OR ".join(clauses)
+
+                # 优先：意思相近 + 同场景 + 社交允许 + 同级
+                cur.execute(
+                    f"""SELECT word, reading, meaning, level, frequency, heatmap_data, social_context
+                     FROM vocab_library
+                     WHERE word != %(word)s
+                       AND is_ai_enriched = true
+                       AND heatmap_data IS NOT NULL
+                       AND social_context IS NOT NULL
+                       AND heatmap_data ?| %(scenes)s
+                       AND social_context -> %(ctx_key)s ->> 'allowed' = 'true'
+                       AND ({meaning_clauses})
+                       AND (%(lv)s = '' OR level = %(lv)s)
+                     ORDER BY frequency DESC NULLS LAST, word ASC
+                     LIMIT %(limit)s""",
+                    params,
+                )
+                for r in (cur.fetchall() or []):
+                    hm2 = r.get("heatmap_data") or {}
+                    if isinstance(hm2, dict):
+                        shared = [s for s in scenes if s in hm2]
+                    else:
+                        shared = []
+                    all_results.append({
+                        "word": r.get("word"),
+                        "reading": r.get("reading"),
+                        "meaning": r.get("meaning"),
+                        "level": r.get("level"),
+                        "frequency": r.get("frequency"),
+                        "shared_scenes": shared[:3],
+                        "replace_for": dctx["label_zh"] or dctx["label"],
+                    })
+
+            # 去重并按频次排序
+            seen = set()
+            unique = []
+            for item in all_results:
+                if item["word"] not in seen:
+                    seen.add(item["word"])
+                    unique.append(item)
+            unique.sort(key=lambda x: (-(x.get("frequency") or 0), -len(x.get("shared_scenes") or [])))
+            return {
+                "items": unique[:int(limit)],
+                "denied": [d["label_zh"] for d in denied_contexts],
+            }
+    finally:
+        conn.close()
+
+
+@app.get("/api/library/synonyms")
+async def get_synonyms(word: str = Query(...), level: str = Query(""), limit: int = Query(8, ge=1, le=15)):
+    """
+    同义词推荐：找意思相近的词（不看社交场合，纯语义相似）。
+    用于拓宽词汇量，了解同一含义的不同表达方式。
+    """
+    if not SUPABASE_DB_ENABLED:
+        raise HTTPException(status_code=500, detail="SUPABASE_DB_URL is not configured")
+    w = (word or "").strip()
+    if not w:
+        return []
+
+    conn = _pg_conn()
+    try:
+        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(
+                "SELECT meaning, level FROM vocab_library WHERE word = %s AND is_ai_enriched = true ORDER BY frequency DESC NULLS LAST LIMIT 1",
+                (w,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return []
+
+            meaning = (row.get("meaning") or "").strip()
+            lv = (level or row.get("level") or "").strip()
+
+            keywords = _extract_meaning_keywords(meaning)
+            if not keywords:
+                return []
+
+            has_single_char = any(len(k) == 1 for k in keywords)
+
+            def _do_synonym_query(strict: bool):
+                """strict=True: 单字用正则前缀（排除假匹配）；strict=False: 全用包含匹配（宽召回）"""
+                params = {"word": w, "lv": lv, "limit": int(limit)}
+                clauses = []
+                score_parts = []
+                for i, kw in enumerate(keywords):
+                    key = f"mkw{i}"
+                    if len(kw) == 1 and strict:
+                        pattern = f"^{kw}([，,、。.；;（(（]|$)"
+                        clauses.append(f"meaning ~ %({key})s")
+                        params[key] = pattern
+                    else:
+                        clauses.append(f"meaning ILIKE %({key})s")
+                        params[key] = f"%{kw}%"
+                    score_parts.append(f"CASE WHEN meaning ILIKE %({key}_score)s THEN 1 ELSE 0 END")
+                    params[f"{key}_score"] = f"%{kw}%"
+                meaning_clauses = " OR ".join(clauses)
+                score_expr = " + ".join(score_parts)
+
+                cur.execute(
+                    f"""SELECT word, reading, meaning, level, frequency,
+                            ({score_expr}) AS kw_score
+                     FROM vocab_library
+                     WHERE word != %(word)s
+                       AND is_ai_enriched = true
+                       AND ({meaning_clauses})
+                       AND level IN ('N1','N2','N3','N4','N5')
+                       AND char_length(word) <= 6
+                     ORDER BY kw_score DESC, CASE WHEN level = %(lv)s THEN 0 ELSE 1 END, frequency DESC NULLS LAST
+                     LIMIT %(limit)s""",
+                    params,
+                )
+                results = []
+                seen_words = set()
+                for r in (cur.fetchall() or []):
+                    wrd = r.get("word")
+                    if wrd in seen_words:
+                        continue
+                    seen_words.add(wrd)
+                    results.append({
+                        "word": wrd,
+                        "reading": r.get("reading"),
+                        "meaning": r.get("meaning"),
+                        "level": r.get("level"),
+                        "frequency": r.get("frequency"),
+                    })
+                return results
+
+            # 第一遍：严格匹配（单字正则）
+            results = _do_synonym_query(strict=True)
+            # 如果严格模式结果太少，用宽松模式兜底
+            if len(results) < 2 and has_single_char:
+                results = _do_synonym_query(strict=False)
+
+            # 第三遍：如果仍无结果，将长关键词拆为 2 字片段重试
+            if len(results) < 2:
+                decomposed = []
+                seen_d = set()
+                for kw in keywords:
+                    if len(kw) <= 2:
+                        if kw not in seen_d:
+                            decomposed.append(kw)
+                            seen_d.add(kw)
+                    else:
+                        for i in range(0, len(kw) - 1, 2):
+                            seg = kw[i:i+2]
+                            if seg not in seen_d and re.search(r"[一-鿿]", seg):
+                                decomposed.append(seg)
+                                seen_d.add(seg)
+                if decomposed and decomposed != keywords:
+                    keywords_backup = keywords
+                    keywords = decomposed[:6]
+                    has_single_char = any(len(k) == 1 for k in keywords)
+                    results = _do_synonym_query(strict=False)
+
+            return results
     finally:
         conn.close()
 

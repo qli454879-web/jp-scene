@@ -55,7 +55,7 @@
 
     <div class="card-pixel">
       <!-- Pixel cat container (16:9) -->
-      <div class="w-full aspect-[16/9] bg-white border-b-3 border-[#333] relative">
+      <div class="w-full aspect-[16/9] bg-white border-b-3 border-[#333] relative hidden" id="pixelCatContainer">
         <img id="pixelCatImg" class="w-full h-full pixel-img hidden" alt="Pixel Cat" />
         <div id="pixelCatPlaceholder" class="absolute inset-0 dash-placeholder flex items-center justify-center">
           <div class="text-center">
@@ -96,13 +96,13 @@
 
         <!-- Frequency -->
         <div class="mt-4" id="freqSection">
-          <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">日常频次 / Frequency</div>
+          <div class="text-[12px] font-bold text-gray-900 uppercase tracking-widest mb-2">日常频次 / Frequency</div>
           <div id="freqStars" class="text-orange-400 text-sm">—</div>
         </div>
 
         <!-- Social compatibility (ON/OFF) -->
         <div class="mt-5">
-          <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">社交适用对象 / Social Compatibility</div>
+          <div class="text-[12px] font-bold text-gray-900 uppercase tracking-widest mb-2">社交适用对象 / Social Compatibility</div>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div id="cardCasual" class="toggle-card p-3 rounded toggle-off">
               <div class="text-[11px] font-bold"><i class="fa-solid fa-circle text-gray-400 mr-1"></i><span id="casualJa">カジュアル</span></div>
@@ -133,25 +133,39 @@
 
         <!-- Scenario heatmap -->
         <div class="mt-6">
-          <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">高频出现场景 / Scenario Heatmap</div>
+          <div class="text-[12px] font-bold text-gray-900 uppercase tracking-widest mb-2">高频出现场景 / Scenario Heatmap</div>
           <div id="heatmapList" class="space-y-3"></div>
         </div>
 
-        <!-- Examples：放在“高频出现场景”下方，“场景深度解析”上方 -->
+        <!-- Replacements：替代表达建议 -->
+        <div class="mt-6 hidden" id="replaceSection">
+          <div class="text-[12px] font-bold text-gray-900 uppercase tracking-widest mb-2">替代表达 / Replacements</div>
+          <div class="text-[11px] text-gray-600 mb-3">以下词更适合在不允许使用当前词的场合中替换使用</div>
+          <div id="replaceList" class="flex flex-wrap gap-3"></div>
+        </div>
+
+        <!-- Examples：放在"高频出现场景"下方，"场景深度解析"上方 -->
         <div class="mt-6 hidden" id="examplesSection">
-          <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">例句 / Examples</div>
+          <div class="text-[12px] font-bold text-gray-900 uppercase tracking-widest mb-2">例句 / Examples</div>
           <div id="examplesList" class="space-y-3"></div>
         </div>
 
         <!-- Insight -->
         <div class="mt-6">
-          <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">场景深度解析 / Insight</div>
+          <div class="text-[12px] font-bold text-gray-900 uppercase tracking-widest mb-2">场景深度解析 / Insight</div>
           <div class="p-4 bg-emerald-50 border-2 border-emerald-200 rounded">
             <div id="insightText" class="text-[13px] md:text-[14px] leading-relaxed text-emerald-900">---</div>
           </div>
           <div class="mt-3 text-[11px] text-gray-500">
             适用对象、高频场景等内容由 AI 生成，仅供参考。
           </div>
+        </div>
+
+        <!-- Synonyms：同义词 -->
+        <div class="mt-6 hidden" id="synonymSection">
+          <div class="text-[12px] font-bold text-gray-900 uppercase tracking-widest mb-2">同义词 / Synonyms</div>
+          <div class="text-[11px] text-gray-600 mb-3">意思相近的表达，帮你拓宽词汇量</div>
+          <div id="synonymList" class="flex flex-wrap gap-3"></div>
         </div>
       </div>
     </div>
@@ -247,11 +261,11 @@
     function xueTodayKey() { return `xueAiExhausted:${todayStr()}`; }
     function xueIsExhausted() { try { return localStorage.getItem(xueTodayKey()) === '1'; } catch(e){ return false; } }
     function xueSetExhausted() { try { localStorage.setItem(xueTodayKey(), '1'); } catch(e){} }
-    // 若今日已耗尽，按钮也显示“趴桌子”
+    // 若今日已耗尽，按钮也显示"趴桌子"
     if (xueIsExhausted()) {
       try { document.getElementById('xueFabIcon')?.setAttribute('src', '/xuexueli_tired_64.png'); } catch(e) {}
     }
-    // 用于排查“Render 已更新但页面仍旧”的缓存问题
+    // 用于排查"Render 已更新但页面仍旧"的缓存问题
     window.__BUILD_VERSION__ = 'pos-freq-examples-2026-04-24-1';
     let currentWordData = null;
     function getSlug() {
@@ -426,7 +440,7 @@
           document.getElementById('freqStars').classList.remove('text-gray-400');
           document.getElementById('freqStars').classList.add('text-orange-400');
         } else {
-          // 没数据就留空占位，不再“猜测”
+          // 没数据就留空占位，不再"猜测"
           document.getElementById('freqStars').innerText = '—';
           document.getElementById('freqStars').classList.remove('text-orange-400');
           document.getElementById('freqStars').classList.add('text-gray-400');
@@ -451,6 +465,84 @@
       renderHeatmap(hm);
       renderExamples(data.examples || null);
       document.getElementById('insightText').innerText = data.insight_text || '—';
+
+      // 加载替代表达 & 同义词
+      const lv = data.level || '';
+      fetchReplacements(data.word, lv);
+      fetchSynonyms(data.word, lv);
+    }
+
+    async function fetchSynonyms(word, level) {
+      const sec = document.getElementById('synonymSection');
+      const list = document.getElementById('synonymList');
+      if (!sec || !list) return;
+      sec.classList.remove('hidden');
+      list.innerHTML = '<div class="text-[12px] text-gray-400 italic">加载中…</div>';
+      try {
+        const params = new URLSearchParams({ word: word, limit: '8' });
+        if (level) params.set('level', level);
+        const res = await fetch('/api/library/synonyms?' + params.toString());
+        if (!res.ok) { list.innerHTML = '<div class="text-[12px] text-gray-400">暂时无法获取同义词</div>'; return; }
+        const items = await res.json();
+        if (!items || !items.length) {
+          sec.classList.remove('hidden');
+          list.innerHTML = '<div class="text-[12px] text-gray-500">暂无同义词推荐</div>';
+          return;
+        }
+        list.innerHTML = '';
+        items.forEach((it, idx) => {
+          try {
+            const a = document.createElement('a');
+            a.href = '/word/' + encodeURIComponent(it.word || '');
+            a.className = 'inline-block px-3 py-2 bg-white border-2 border-gray-800 hover:border-green-500 hover:bg-green-50 hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all no-underline';
+            a.style.boxShadow = '3px 3px 0px #333';
+            a.innerHTML =
+              '<span class="text-sm font-bold text-gray-800">' + (it.word || '') + '</span>' +
+              (it.reading ? '<span class="text-[10px] text-gray-400">' + it.reading + '</span>' : '') +
+              '<span class="text-[10px] text-gray-500 mt-0.5">' + ((it.meaning || '').slice(0, 25)) + '</span>';
+            list.appendChild(a);
+          } catch(e) { console.error('synonym card error idx=' + idx, e, it); }
+        });
+      } catch (e) { list.innerHTML = '<div class="text-[12px] text-gray-400">暂时无法获取同义词</div>'; }
+    }
+
+    async function fetchReplacements(word, level) {
+      const sec = document.getElementById('replaceSection');
+      const list = document.getElementById('replaceList');
+      if (!sec || !list) return;
+      sec.classList.remove('hidden');
+      list.innerHTML = '<div class="text-[12px] text-gray-400 italic">加载中…</div>';
+      try {
+        const params = new URLSearchParams({ word: word, limit: '5' });
+        if (level) params.set('level', level);
+        const res = await fetch('/api/library/replacements?' + params.toString());
+        if (!res.ok) { list.innerHTML = '<div class="text-[12px] text-gray-400">暂时无法获取替代表达</div>'; return; }
+        const data = await res.json();
+        const items = data.items || [];
+        const denied = data.denied || [];
+        if (!items.length) {
+          sec.classList.remove('hidden');
+          if (denied.length > 0) {
+            list.innerHTML = '<div class="text-[12px] text-gray-500">暂未找到适合对 ' + denied.join('、') + ' 使用的替代表达</div>';
+          } else {
+            list.innerHTML = '<div class="text-[12px] text-gray-500">该词在所有社交场合均适用，无需替换</div>';
+          }
+          return;
+        }
+        list.innerHTML = '';
+        items.forEach(it => {
+          const a = document.createElement('a');
+          a.href = '/word/' + encodeURIComponent(it.word);
+          a.className = 'inline-flex flex-col px-3 py-2 bg-white border-2 border-gray-800 hover:border-green-500 hover:bg-green-50 hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all no-underline';
+          a.style.boxShadow = '3px 3px 0px #333';
+          const label = it.replace_for ? '<span class="text-[9px] font-bold text-white bg-gray-800 px-1.5 py-0.5 border border-gray-800">适合' + it.replace_for + '</span>' : '';
+          a.innerHTML = label +
+            '<span class="text-sm font-bold text-gray-800 mt-1">' + it.word + '</span>' +
+            (it.reading ? '<span class="text-[10px] text-gray-400">' + it.reading + '</span>' : '') +
+            '<span class="text-[10px] text-gray-500 mt-0.5">' + (it.meaning || '').slice(0, 20) + '</span>';
+          list.appendChild(a);
+        });
+      } catch (e) { list.innerHTML = '<div class="text-[12px] text-gray-400">暂时无法获取替代表达</div>'; }
     }
 
     function setupAudio(data) {
@@ -570,12 +662,12 @@
       setupAudio(data);
       setupFavorite(data);
 
-      // 如果是用“中文释义关键词”等方式命中，则尽量把 URL 归一到 id，避免重复搜索
+      // 如果是用"中文释义关键词"等方式命中，则尽量把 URL 归一到 id，避免重复搜索
       if (data && data.id && slug !== data.id) {
         history.replaceState({}, '', '/word/' + encodeURIComponent(data.id));
       }
 
-      // 自动补全：失败时不影响“基础词条显示”（避免被误判为未找到）
+      // 自动补全：失败时不影响"基础词条显示"（避免被误判为未找到）
       if (!data.is_ai_enriched) {
         document.getElementById('insightText').innerText = '正在生成场景解析，请稍候...';
         try {
