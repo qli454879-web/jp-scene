@@ -922,6 +922,34 @@ async def _startup_init_pg_schema() -> None:
                 conn.close()
         except Exception:
             logging.exception("Ensure library user list tables failed (non-fatal).")
+        # 一次性回填老用户的 last_active_at（优先取最近学习/发帖/资料更新时间）
+        try:
+            conn = _pg_conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE public.profiles p SET last_active_at = sub.new_ts
+                        FROM (
+                            SELECT
+                                p2.user_id,
+                                COALESCE(
+                                    (SELECT MAX(lp.last_review_at) FROM public.library_progress lp WHERE lp.user_id = p2.user_id),
+                                    (SELECT MAX(fp.created_at) FROM public.forum_posts fp WHERE fp.user_id = p2.user_id),
+                                    p2.updated_at,
+                                    p2.created_at
+                                ) AS new_ts
+                            FROM public.profiles p2
+                            WHERE p2.last_active_at IS NULL
+                        ) sub
+                        WHERE p.user_id = sub.user_id
+                        """
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception:
+            logging.exception("Backfill last_active_at failed (non-fatal).")
     except Exception:
         logging.exception("Postgres init/ensure failed (non-fatal).")
 
@@ -1730,8 +1758,10 @@ async def admin_activity_v2(current_user: Dict[str, Any] = Depends(require_admin
             active_2_7d = int((cur.fetchone() or {}).get("c") or 0)
             cur.execute("SELECT COUNT(*) AS c FROM profiles WHERE last_active_at >= NOW() - INTERVAL '30 days' AND last_active_at < NOW() - INTERVAL '7 days'")
             active_8_30d = int((cur.fetchone() or {}).get("c") or 0)
-            cur.execute("SELECT COUNT(*) AS c FROM profiles WHERE last_active_at IS NULL OR last_active_at < NOW() - INTERVAL '30 days'")
+            cur.execute("SELECT COUNT(*) AS c FROM profiles WHERE last_active_at < NOW() - INTERVAL '30 days'")
             churned = int((cur.fetchone() or {}).get("c") or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM profiles WHERE last_active_at IS NULL")
+            unknown = int((cur.fetchone() or {}).get("c") or 0)
             cur.execute("SELECT COUNT(*) AS c FROM public.invitation_codes WHERE is_used=TRUE AND COALESCE(is_admin, FALSE)=FALSE")
             codes_used = int((cur.fetchone() or {}).get("c") or 0)
             cur.execute("SELECT COUNT(*) AS c FROM public.invitation_codes WHERE COALESCE(is_admin, FALSE)=FALSE")
@@ -1750,8 +1780,8 @@ async def admin_activity_v2(current_user: Dict[str, Any] = Depends(require_admin
                 """
                 SELECT p.user_id, p.nickname, p.current_level, p.last_active_at, p.created_at
                 FROM profiles p
-                WHERE p.last_active_at IS NULL OR p.last_active_at < NOW() - INTERVAL '30 days'
-                ORDER BY p.last_active_at ASC NULLS FIRST
+                WHERE p.last_active_at < NOW() - INTERVAL '30 days'
+                ORDER BY p.last_active_at ASC
                 LIMIT 20
                 """
             )
@@ -1762,6 +1792,7 @@ async def admin_activity_v2(current_user: Dict[str, Any] = Depends(require_admin
             "active_2_7d": active_2_7d,
             "active_8_30d": active_8_30d,
             "churned": churned,
+            "unknown": unknown,
             "codes_used": codes_used,
             "codes_total": codes_total,
             "recent_users": recent_users,
