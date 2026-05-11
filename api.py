@@ -2364,7 +2364,6 @@ async def remove_wrongbook_v3(entry_id: str, current_user: Dict[str, Any] = Depe
         conn.close()
 
 
-
 @app.get("/api/vocab/audio/{filename}")
 async def serve_vocab_audio(filename: str):
     filename = unquote((filename or "").strip())
