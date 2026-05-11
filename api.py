@@ -2,13 +2,11 @@ from fastapi import FastAPI, Query, Body, HTTPException, Depends, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from ai_service import AIService
 from dictionary_service import DictionaryService
-from vocab_service import VocabService
 from supabase import create_client
 import httpx
 import uvicorn
@@ -28,16 +26,7 @@ import psycopg.rows
 import uuid
 import string
 
-# --- Auth Configuration ---
-# 禁止硬编码凭证：若未配置 SECRET_KEY，则运行时随机生成（开发/演示用）。
-# 生产环境请务必在 Render 环境变量中设置 SECRET_KEY（否则重启会使旧 token 失效）。
-SECRET_KEY = os.getenv("SECRET_KEY")
-if not SECRET_KEY:
-    SECRET_KEY = secrets.token_urlsafe(32)
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 1 week
-
-# --- Supabase Configuration (Stage 1) ---
+# --- Supabase Configuration ---
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().strip("`")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip()
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
@@ -131,8 +120,6 @@ def _normalize_library_selector(level: str) -> str:
 def _is_kaoyan_selector(level: str) -> bool:
     return _normalize_library_selector(level) == "KAOYAN"
 
-pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
-
 
 # --- Invitation codes ---
 _INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # avoid 0/O/1/I
@@ -154,295 +141,18 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS ai_cache 
                  (word TEXT PRIMARY KEY, result TEXT, timestamp REAL)''')
     
-    # User accounts
-    c.execute('''CREATE TABLE IF NOT EXISTS users 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                  username TEXT UNIQUE, 
-                  hashed_password TEXT,
-                  created_at REAL)''')
-    
-    # User learning progress
-    c.execute('''CREATE TABLE IF NOT EXISTS user_progress 
-                 (user_id INTEGER, 
-                  word TEXT, 
-                  level TEXT,
-                  status TEXT, -- 'learning', 'mastered'
-                  last_seen REAL,
-                  next_review REAL,
-                  review_count INTEGER DEFAULT 0,
-                  PRIMARY KEY (user_id, word))''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS vocab_bank 
-                 (word TEXT,
-                  kana TEXT,
-                  meaning TEXT,
-                  level TEXT,
-                  order_no INTEGER,
-                  PRIMARY KEY (word, level))''')
-
-    c.execute('''CREATE TABLE IF NOT EXISTS daily_goals
-                 (user_id INTEGER,
-                  level TEXT,
-                  date TEXT,
-                  target_count INTEGER,
-                  done_new INTEGER DEFAULT 0,
-                  done_review INTEGER DEFAULT 0,
-                  PRIMARY KEY (user_id, level, date))''')
-
-    c.execute('''CREATE TABLE IF NOT EXISTS study_sessions
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  user_id INTEGER,
-                  level TEXT,
-                  date TEXT,
-                  started_at REAL,
-                  ended_at REAL,
-                  total_new INTEGER,
-                  total_review INTEGER,
-                  know_count INTEGER,
-                  fuzzy_count INTEGER,
-                  dont_know_count INTEGER)''')
-
     c.execute('''CREATE TABLE IF NOT EXISTS vocab_meta_cache
                  (word TEXT PRIMARY KEY,
                   meaning_zh TEXT,
                   origin TEXT,
                   updated_at REAL)''')
 
-    c.execute('''CREATE TABLE IF NOT EXISTS forum_posts_local
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  user_name TEXT,
-                  title TEXT,
-                  content TEXT NOT NULL,
-                  parent_id INTEGER,
-                  created_at REAL)''')
-
-    c.execute('''CREATE TABLE IF NOT EXISTS feedbacks_local
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  user_name TEXT,
-                  content TEXT NOT NULL,
-                  created_at REAL)''')
-    
     conn.commit()
     conn.close()
 
 init_db()
 
-def _ensure_vocab_bank_columns():
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    try:
-        c.execute("ALTER TABLE vocab_bank ADD COLUMN order_no INTEGER")
-        conn.commit()
-    except Exception:
-        pass
-    finally:
-        conn.close()
 
-_ensure_vocab_bank_columns()
-
-def _migrate_vocab_bank_pk_if_needed():
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    try:
-        c.execute("PRAGMA table_info(vocab_bank)")
-        cols = c.fetchall()
-        if not cols:
-            return
-        pk_cols = [row[1] for row in cols if int(row[5] or 0) > 0]
-        if pk_cols == ["word", "level"]:
-            return
-        if pk_cols != ["word"]:
-            return
-        c.execute('''CREATE TABLE IF NOT EXISTS vocab_bank_new 
-                     (word TEXT,
-                      kana TEXT,
-                      meaning TEXT,
-                      level TEXT,
-                      order_no INTEGER,
-                      PRIMARY KEY (word, level))''')
-        c.execute(
-            "INSERT OR IGNORE INTO vocab_bank_new (word, kana, meaning, level, order_no) SELECT word, kana, meaning, level, order_no FROM vocab_bank"
-        )
-        c.execute("DROP TABLE vocab_bank")
-        c.execute("ALTER TABLE vocab_bank_new RENAME TO vocab_bank")
-        conn.commit()
-    finally:
-        conn.close()
-
-_migrate_vocab_bank_pk_if_needed()
-
-_VOCAB_BANK_EXTRA_COLS = [
-    ("register_social", "TEXT"),
-    ("scene_deep_dive", "TEXT"),
-    ("example_ja", "TEXT"),
-    ("example_zh", "TEXT"),
-    ("usage_frequency_note", "TEXT"),
-    ("audio_filename", "TEXT"),
-    ("image_prompt", "TEXT"),
-]
-
-
-def _ensure_vocab_bank_extra_columns():
-    conn = sqlite3.connect("cache.db")
-    c = conn.cursor()
-    try:
-        for col, typ in _VOCAB_BANK_EXTRA_COLS:
-            try:
-                c.execute(f"ALTER TABLE vocab_bank ADD COLUMN {col} {typ}")
-            except Exception:
-                pass
-        conn.commit()
-    finally:
-        conn.close()
-
-
-_ensure_vocab_bank_extra_columns()
-
-VOCAB_SOURCE_FILES = {
-    "N5": "https://raw.githubusercontent.com/elzup/jlpt-word-list/master/src/n5.csv",
-    "N4": "https://raw.githubusercontent.com/elzup/jlpt-word-list/master/src/n4.csv",
-    "N3": "https://raw.githubusercontent.com/elzup/jlpt-word-list/master/src/n3.csv",
-    "N2": "https://raw.githubusercontent.com/elzup/jlpt-word-list/master/src/n2.csv",
-    "N1": "https://raw.githubusercontent.com/elzup/jlpt-word-list/master/src/n1.csv",
-}
-
-def _maybe_populate_vocab_bank():
-    if os.getenv("SKIP_VOCAB_DOWNLOAD") == "1":
-        return
-
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    try:
-        c.execute("SELECT COUNT(*) FROM vocab_bank")
-        total = int(c.fetchone()[0] or 0)
-        if total >= 5000:
-            return
-    finally:
-        conn.close()
-
-    try:
-        import httpx
-        conn = sqlite3.connect('cache.db')
-        c = conn.cursor()
-        c.execute("SELECT COALESCE(MAX(order_no), 0) FROM vocab_bank")
-        order_no = int(c.fetchone()[0] or 0) + 1
-
-        for level, url in VOCAB_SOURCE_FILES.items():
-            r = httpx.get(url, timeout=30)
-            r.raise_for_status()
-            text = r.text
-            reader = csv.DictReader(text.splitlines())
-            for row in reader:
-                expression = (row.get("expression") or "").strip()
-                reading = (row.get("reading") or "").strip()
-                meaning = (row.get("meaning") or "").strip()
-                if not expression or not meaning:
-                    continue
-                word = expression.split(";")[0].strip()
-                kana = reading.split(";")[0].strip()
-                if not word:
-                    continue
-                c.execute(
-                    "INSERT OR IGNORE INTO vocab_bank (word, kana, meaning, level, order_no) VALUES (?, ?, ?, ?, ?)",
-                    (word, kana, meaning, level, order_no),
-                )
-                order_no += 1
-
-        conn.commit()
-    except Exception as e:
-        print(f"Vocab download skipped: {e}")
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-
-_maybe_populate_vocab_bank()
-
-def _populate_vocab_bank_from_builtin_if_needed():
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    try:
-        c.execute("SELECT COUNT(*) FROM vocab_bank")
-        total = int(c.fetchone()[0] or 0)
-        if total >= 500:
-            return
-    finally:
-        conn.close()
-
-    from vocab_service import JLPT_VOCAB
-
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute("SELECT COALESCE(MAX(order_no), 0) FROM vocab_bank")
-    order_no = int(c.fetchone()[0] or 0) + 1
-    for level, items in JLPT_VOCAB.items():
-        for item in items:
-            word = (item.get("word") or "").strip()
-            kana = (item.get("kana") or "").strip()
-            meaning = (item.get("meaning") or "").strip()
-            if not word or not meaning:
-                continue
-            c.execute(
-                "INSERT OR IGNORE INTO vocab_bank (word, kana, meaning, level, order_no) VALUES (?, ?, ?, ?, ?)",
-                (word, kana, meaning, level, order_no),
-            )
-            order_no += 1
-    conn.commit()
-    conn.close()
-
-_populate_vocab_bank_from_builtin_if_needed()
-
-# --- Auth Helpers ---
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-async def get_current_user(token: str = Depends(oauth2_scheme)):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        return username
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-def _get_user_id_by_username(username: str) -> Optional[int]:
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute("SELECT id FROM users WHERE username=?", (username,))
-    row = c.fetchone()
-    conn.close()
-    return int(row[0]) if row else None
-
-SRS_INTERVALS_SECONDS = [
-    0,
-    60 * 60,
-    60 * 60 * 24,
-    60 * 60 * 24 * 2,
-    60 * 60 * 24 * 4,
-    60 * 60 * 24 * 7,
-    60 * 60 * 24 * 15,
-]
-
-def _next_review_from_rating(now_ts: float, interval_index: int, rating: str):
-    if rating == "dont_know":
-        interval_index = 0
-    elif rating == "fuzzy":
-        interval_index = max(0, interval_index - 1)
-    else:
-        interval_index = min(interval_index + 1, len(SRS_INTERVALS_SECONDS) - 1)
-    next_review = now_ts + SRS_INTERVALS_SECONDS[interval_index]
-    return interval_index, next_review
 
 # --- Cache Helpers ---
 def get_cached_result(word):
@@ -488,7 +198,6 @@ app.add_middleware(
 # Initialize Services
 ai = AIService()
 dictionary = DictionaryService()
-vocab = VocabService()
 
 # Mock In-memory database for feedback
 FEEDBACKS = []
@@ -783,25 +492,6 @@ def init_supabase_schema():
             )
             cur.execute("SELECT COUNT(*) FROM words")
             words_count = int((cur.fetchone() or [0])[0] or 0)
-            if words_count == 0:
-                order_no = 1
-                for lv in ["N5", "N4", "N3", "N2", "N1"]:
-                    for item in (vocab.get_list(lv) or []):
-                        w = (item.get("word") or "").strip()
-                        if not w:
-                            continue
-                        k = (item.get("kana") or "").strip()
-                        m = (item.get("meaning") or "").strip() or "未提供释义"
-                        cur.execute(
-                            """
-                            INSERT INTO words (level, word, kana, meaning_zh, social_targets, offense_risk, usage_frequency, scene_tags, order_no)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (level, word)
-                            DO UPDATE SET kana=EXCLUDED.kana, meaning_zh=EXCLUDED.meaning_zh, order_no=EXCLUDED.order_no
-                            """,
-                            (lv, w, k, m, ["通用"], 0, 3, ["基础"], order_no),
-                        )
-                        order_no += 1
         conn.commit()
     finally:
         conn.close()
@@ -1331,39 +1021,7 @@ async def system_bootstrap_v2(x_admin_key: str | None = Header(default=None, ali
     stats = bootstrap_supabase_data()
     return {"status": "success", "stats": stats}
 
-# --- Auth Routes ---
-
-@app.post("/api/auth/register")
-async def register(username: str = Body(...), password: str = Body(...)):
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    try:
-        hashed_pw = get_password_hash(password)
-        c.execute("INSERT INTO users (username, hashed_password, created_at) VALUES (?, ?, ?)", 
-                  (username, hashed_pw, time.time()))
-        conn.commit()
-        return {"status": "success"}
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="Username already exists")
-    finally:
-        conn.close()
-
-@app.post("/api/auth/login")
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute("SELECT hashed_password FROM users WHERE username=?", (form_data.username,))
-    row = c.fetchone()
-    conn.close()
-    
-    if not row or not verify_password(form_data.password, row[0]):
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
-    
-    access_token = create_access_token(data={"sub": form_data.username})
-    return {"access_token": access_token, "token_type": "bearer"}
-
-
-# --- Stage 1: Supabase Auth + Plan + Ebbinghaus ---
+# --- Supabase Auth ---
 async def get_current_supabase_user(token: str = Depends(oauth2_scheme)):
     async def _fetch_user():
         if not (SUPABASE_URL and SUPABASE_ANON_KEY):
@@ -2706,340 +2364,6 @@ async def remove_wrongbook_v3(entry_id: str, current_user: Dict[str, Any] = Depe
         conn.close()
 
 
-@app.post("/api/v2/system/seed-demo")
-async def seed_demo_data_v2(x_admin_key: str | None = Header(default=None, alias="x-admin-key")):
-    _require_admin_key(x_admin_key)
-    conn = _pg_conn()
-    demo_rows = [
-        ("N5", "お疲れ様です", "おつかれさまです", "辛苦了", None, ["同事", "上司"], 5, 5, ["职场"], 1),
-        ("N5", "すみません", "すみません", "不好意思；劳驾", None, ["店员", "陌生人"], 3, 5, ["服务场景"], 2),
-        ("N4", "失礼します", "しつれいします", "打扰了；失礼了", None, ["上司", "客户"], 2, 4, ["商务"], 3),
-        ("N4", "グッド", "ぐっど", "好；优秀", "good", ["朋友"], 8, 3, ["口语"], 4),
-        ("N3", "配慮", "はいりょ", "关照；体谅", None, ["同事", "客户"], 1, 4, ["商务礼仪"], 5),
-    ]
-    try:
-        with conn.cursor() as cur:
-            for level, word, kana, meaning_zh, origin, social_targets, offense_risk, usage_frequency, scene_tags, order_no in demo_rows:
-                cur.execute(
-                    """
-                    INSERT INTO words (level, word, kana, meaning_zh, origin, social_targets, offense_risk, usage_frequency, scene_tags, order_no)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (level, word) DO UPDATE SET
-                      kana=EXCLUDED.kana,
-                      meaning_zh=EXCLUDED.meaning_zh,
-                      origin=EXCLUDED.origin,
-                      social_targets=EXCLUDED.social_targets,
-                      offense_risk=EXCLUDED.offense_risk,
-                      usage_frequency=EXCLUDED.usage_frequency,
-                      scene_tags=EXCLUDED.scene_tags
-                    """,
-                    (level, word, kana, meaning_zh, origin, social_targets, offense_risk, usage_frequency, scene_tags, order_no),
-                )
-        conn.commit()
-        return {"status": "success", "seeded": len(demo_rows)}
-    finally:
-        conn.close()
-
-# --- Personalized Vocab Routes ---
-
-@app.get("/api/vocab/random")
-async def get_random_vocab(level: str = Query("N5"), username: Optional[str] = None):
-    # If logged in, prioritize words user is learning but hasn't mastered
-    if username:
-        conn = sqlite3.connect('cache.db')
-        c = conn.cursor()
-        c.execute("SELECT id FROM users WHERE username=?", (username,))
-        user_id_row = c.fetchone()
-        if user_id_row:
-            user_id = user_id_row[0]
-            # Try to find a word that needs review or is new from vocab_bank
-            c.execute(
-                """SELECT word, kana, meaning, register_social, scene_deep_dive, example_ja, example_zh,
-                          usage_frequency_note, audio_filename, image_prompt
-                   FROM vocab_bank
-                   WHERE level=? AND word NOT IN
-                         (SELECT word FROM user_progress WHERE user_id=? AND status='mastered')
-                   ORDER BY RANDOM() LIMIT 1""",
-                (level, user_id),
-            )
-            row = c.fetchone()
-            if row:
-                conn.close()
-                return {
-                    "word": row[0],
-                    "kana": row[1],
-                    "meaning": row[2],
-                    "meaning_zh": row[2],
-                    "register_social": row[3] or "",
-                    "scene_deep_dive": row[4] or "",
-                    "example_ja": row[5] or "",
-                    "example_zh": row[6] or "",
-                    "usage_frequency_note": row[7] or "",
-                    "audio_filename": row[8] or "",
-                    "image_prompt": row[9] or "",
-                }
-        conn.close()
-    
-    # Fallback to general random from memory service
-    return vocab.get_random(level)
-
-@app.get("/api/vocab/list")
-async def get_vocab_list(level: str = Query("N5")):
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute(
-        """SELECT word, kana, meaning, register_social, scene_deep_dive, example_ja, example_zh,
-                  usage_frequency_note, audio_filename, image_prompt
-           FROM vocab_bank WHERE level=? ORDER BY order_no ASC""",
-        (level,),
-    )
-    rows = c.fetchall()
-    conn.close()
-    if rows:
-        out = []
-        for r in rows:
-            m = r[2] or ""
-            out.append(
-                {
-                    "word": r[0],
-                    "kana": r[1] or "",
-                    "meaning": m,
-                    "meaning_zh": m,
-                    "register_social": r[3] or "",
-                    "scene_deep_dive": r[4] or "",
-                    "example_ja": r[5] or "",
-                    "example_zh": r[6] or "",
-                    "usage_frequency_note": r[7] or "",
-                    "audio_filename": r[8] or "",
-                    "image_prompt": r[9] or "",
-                }
-            )
-        return out
-    return vocab.get_list(level)
-
-@app.post("/api/vocab/progress")
-async def update_progress(word: str = Body(...), level: str = Body(...), status: str = Body(...), username: str = Depends(get_current_user)):
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute("SELECT id FROM users WHERE username=?", (username,))
-    user_id = c.fetchone()[0]
-    
-    now = time.time()
-    # Simple SRS-like review schedule
-    next_review = now + (86400 * 3) if status == 'mastered' else now + 3600
-    
-    c.execute("""INSERT OR REPLACE INTO user_progress 
-                 (user_id, word, level, status, last_seen, next_review, review_count)
-                 VALUES (?, ?, ?, ?, ?, ?, 
-                 COALESCE((SELECT review_count FROM user_progress WHERE user_id=? AND word=?)+1, 1))""",
-              (user_id, word, level, status, now, next_review, user_id, word))
-    conn.commit()
-    conn.close()
-    return {"status": "success"}
-
-@app.post("/api/user/goal")
-async def set_daily_goal(level: str = Body(...), date: str = Body(...), target_count: int = Body(...), username: str = Depends(get_current_user)):
-    user_id = _get_user_id_by_username(username)
-    if not user_id:
-        raise HTTPException(status_code=400, detail="User not found")
-
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute(
-        "INSERT OR REPLACE INTO daily_goals (user_id, level, date, target_count, done_new, done_review) VALUES (?, ?, ?, ?, COALESCE((SELECT done_new FROM daily_goals WHERE user_id=? AND level=? AND date=?), 0), COALESCE((SELECT done_review FROM daily_goals WHERE user_id=? AND level=? AND date=?), 0))",
-        (user_id, level, date, int(target_count), user_id, level, date, user_id, level, date),
-    )
-    conn.commit()
-    conn.close()
-    return {"status": "success"}
-
-@app.get("/api/user/goal")
-async def get_daily_goal(level: str = Query(...), date: str = Query(...), username: str = Depends(get_current_user)):
-    user_id = _get_user_id_by_username(username)
-    if not user_id:
-        raise HTTPException(status_code=400, detail="User not found")
-
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute(
-        "SELECT target_count, done_new, done_review FROM daily_goals WHERE user_id=? AND level=? AND date=?",
-        (user_id, level, date),
-    )
-    row = c.fetchone()
-    conn.close()
-    if not row:
-        return {"target_count": 0, "done_new": 0, "done_review": 0}
-    return {"target_count": row[0], "done_new": row[1], "done_review": row[2]}
-
-@app.get("/api/study/queue")
-async def get_study_queue(level: str = Query("N5"), target_count: int = Query(50), username: str = Depends(get_current_user)):
-    user_id = _get_user_id_by_username(username)
-    if not user_id:
-        raise HTTPException(status_code=400, detail="User not found")
-
-    now = time.time()
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-
-    c.execute(
-        "SELECT word FROM user_progress WHERE user_id=? AND level=? AND next_review IS NOT NULL AND next_review<=? ORDER BY next_review ASC LIMIT ?",
-        (user_id, level, now, int(target_count)),
-    )
-    due_words = [r[0] for r in c.fetchall()]
-
-    remaining = max(int(target_count) - len(due_words), 0)
-    new_words: List[str] = []
-    if remaining > 0:
-        c.execute(
-            "SELECT word FROM vocab_bank WHERE level=? AND word NOT IN (SELECT word FROM user_progress WHERE user_id=? AND level=?) ORDER BY order_no ASC LIMIT ?",
-            (level, user_id, level, remaining),
-        )
-        new_words = [r[0] for r in c.fetchall()]
-
-    if remaining > 0 and len(new_words) < remaining:
-        c.execute(
-            "SELECT word FROM user_progress WHERE user_id=? AND level=?",
-            (user_id, level),
-        )
-        seen_words = {r[0] for r in c.fetchall()}
-        seen_words.update(due_words)
-        seen_words.update(new_words)
-
-        builtin = vocab.get_list(level) or []
-        for it in builtin:
-            w = (it.get("word") or "").strip()
-            if not w or w in seen_words:
-                continue
-            new_words.append(w)
-            seen_words.add(w)
-            if len(new_words) >= remaining:
-                break
-
-    words = [(w, "review") for w in due_words] + [(w, "new") for w in new_words]
-    if not words:
-        conn.close()
-        return {"queue": [], "total": 0, "due": len(due_words), "new": len(new_words)}
-
-    word_values = [w[0] for w in words]
-    placeholders = ",".join(["?"] * len(word_values))
-    c.execute(
-        f"""SELECT word, kana, meaning, register_social, scene_deep_dive, example_ja, example_zh,
-                   usage_frequency_note, audio_filename, image_prompt
-            FROM vocab_bank WHERE level=? AND word IN ({placeholders})""",
-        tuple([level] + word_values),
-    )
-    bank = {}
-    for r in c.fetchall():
-        m = r[2] or ""
-        bank[r[0]] = {
-            "word": r[0],
-            "kana": r[1] or "",
-            "meaning": m,
-            "meaning_zh": m,
-            "register_social": r[3] or "",
-            "scene_deep_dive": r[4] or "",
-            "example_ja": r[5] or "",
-            "example_zh": r[6] or "",
-            "usage_frequency_note": r[7] or "",
-            "audio_filename": r[8] or "",
-            "image_prompt": r[9] or "",
-        }
-    conn.close()
-
-    builtin_map = {}
-    try:
-        for it in (vocab.get_list(level) or []):
-            w = (it.get("word") or "").strip()
-            if not w:
-                continue
-            builtin_map[w] = {"word": w, "kana": (it.get("kana") or ""), "meaning": (it.get("meaning") or "")}
-    except Exception:
-        builtin_map = {}
-
-    queue = []
-    for word, kind in words:
-        if word in bank:
-            item = bank[word]
-        elif word in builtin_map:
-            item = builtin_map[word]
-        else:
-            item = {"word": word, "kana": "", "meaning": ""}
-        item["kind"] = kind
-        queue.append(item)
-
-    return {"queue": queue, "total": len(queue), "due": len(due_words), "new": len(new_words)}
-
-@app.post("/api/study/rate")
-async def rate_word(word: str = Body(...), level: str = Body(...), rating: str = Body(...), kind: str = Body(...), date: str = Body(...), username: str = Depends(get_current_user)):
-    if rating not in ("know", "fuzzy", "dont_know"):
-        raise HTTPException(status_code=400, detail="Invalid rating")
-    if kind not in ("new", "review"):
-        raise HTTPException(status_code=400, detail="Invalid kind")
-
-    user_id = _get_user_id_by_username(username)
-    if not user_id:
-        raise HTTPException(status_code=400, detail="User not found")
-
-    now = time.time()
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute(
-        "SELECT next_review, review_count FROM user_progress WHERE user_id=? AND word=?",
-        (user_id, word),
-    )
-    row = c.fetchone()
-    prev_count = int(row[1]) if row and row[1] is not None else 0
-    interval_index = min(prev_count, len(SRS_INTERVALS_SECONDS) - 1)
-    interval_index, next_review = _next_review_from_rating(now, interval_index, rating)
-    status_value = "learning"
-    if interval_index >= len(SRS_INTERVALS_SECONDS) - 1 and rating == "know":
-        status_value = "mastered"
-
-    c.execute(
-        "INSERT OR REPLACE INTO user_progress (user_id, word, level, status, last_seen, next_review, review_count) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (user_id, word, level, status_value, now, next_review, interval_index),
-    )
-
-    c.execute(
-        "INSERT OR IGNORE INTO daily_goals (user_id, level, date, target_count, done_new, done_review) VALUES (?, ?, ?, 0, 0, 0)",
-        (user_id, level, date),
-    )
-    if kind == "new":
-        c.execute(
-            "UPDATE daily_goals SET done_new = done_new + 1 WHERE user_id=? AND level=? AND date=?",
-            (user_id, level, date),
-        )
-    else:
-        c.execute(
-            "UPDATE daily_goals SET done_review = done_review + 1 WHERE user_id=? AND level=? AND date=?",
-            (user_id, level, date),
-        )
-
-    conn.commit()
-    conn.close()
-    return {"status": "success", "next_review": next_review, "interval_index": interval_index, "progress_status": status_value}
-
-@app.get("/api/user/stats")
-async def get_user_stats(username: str = Depends(get_current_user)):
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute("SELECT id FROM users WHERE username=?", (username,))
-    user_id = c.fetchone()[0]
-    
-    c.execute("SELECT level, COUNT(*) FROM user_progress WHERE user_id=? AND status='mastered' GROUP BY level", (user_id,))
-    mastered = dict(c.fetchall())
-    
-    c.execute("SELECT level, COUNT(*) FROM user_progress WHERE user_id=? AND status='learning' GROUP BY level", (user_id,))
-    learning = dict(c.fetchall())
-    
-    conn.close()
-    return {
-        "username": username,
-        "stats": {
-            "mastered": mastered,
-            "learning": learning
-        }
-    }
 
 @app.get("/api/vocab/audio/{filename}")
 async def serve_vocab_audio(filename: str):
@@ -3103,6 +2427,7 @@ async def get_vocab_tip(word: str = Query(...), current_user: Dict[str, Any] = D
 
 @app.get("/api/vocab/meta")
 async def get_vocab_meta(word: str = Query(...), kana: str = Query(""), meaning: str = Query("")):
+    # 1) check SQLite cache first
     conn = sqlite3.connect('cache.db')
     c = conn.cursor()
     c.execute("SELECT meaning_zh, origin FROM vocab_meta_cache WHERE word=?", (word,))
@@ -3112,17 +2437,48 @@ async def get_vocab_meta(word: str = Query(...), kana: str = Query(""), meaning:
         return {"meaning_zh": row[0] or "", "origin": row[1]}
     conn.close()
 
+    origin = None
+
+    # 2) check Supabase vocab_library
+    if SUPABASE_DB_ENABLED:
+        try:
+            pg = _pg_conn()
+            with pg.cursor(row_factory=psycopg.rows.dict_row) as cur:
+                cur.execute(
+                    "SELECT meaning, reading FROM vocab_library WHERE word=%s ORDER BY level DESC LIMIT 1",
+                    (word,),
+                )
+                lib_row = cur.fetchone()
+            pg.close()
+            if lib_row:
+                meaning_zh = (lib_row.get("meaning") or "").strip()
+                # detect loanword origin for katakana words
+                if all('゠' <= c <= 'ヿ' or c == 'ー' for c in word) and meaning_zh:
+                    origin = _guess_origin_from_meaning(meaning_zh)
+                # cache and return
+                conn = sqlite3.connect('cache.db')
+                c = conn.cursor()
+                c.execute(
+                    "INSERT OR REPLACE INTO vocab_meta_cache (word, meaning_zh, origin, updated_at) VALUES (?, ?, ?, ?)",
+                    (word, meaning_zh, origin, time.time()),
+                )
+                conn.commit()
+                conn.close()
+                return {"meaning_zh": meaning_zh, "origin": origin}
+        except Exception:
+            pass
+
+    # 3) fallback: AI
     def _has_cjk(s: str) -> bool:
         for ch in s:
-            if '\u4e00' <= ch <= '\u9fff':
+            if '一' <= ch <= '鿿':
                 return True
         return False
 
     meaning_clean = (meaning or "").strip()
     meaning_zh = meaning_clean if _has_cjk(meaning_clean) else ""
-    origin = None
 
-    if not meaning_zh or all('\u30a0' <= c <= '\u30ff' or c == 'ー' for c in word):
+    if not meaning_zh or all('゠' <= c <= 'ヿ' or c == 'ー' for c in word):
         meta = await ai.get_vocab_meta(word=word, kana=kana, meaning=meaning_clean)
         meaning_zh = (meta.get("meaning_zh") or meaning_zh or meaning_clean).strip()
         origin = meta.get("origin") or None
@@ -3136,6 +2492,15 @@ async def get_vocab_meta(word: str = Query(...), kana: str = Query(""), meaning:
     conn.commit()
     conn.close()
     return {"meaning_zh": meaning_zh, "origin": origin}
+
+
+def _guess_origin_from_meaning(meaning: str) -> Optional[str]:
+    """从释义中粗略提取外来语来源；仅用于前端展示，不做强依赖。"""
+    parts = meaning.replace("；", ";").split(";")
+    first = parts[0].strip() if parts else ""
+    if first and all(c.isascii() and (c.isalpha() or c.isspace()) for c in first) and len(first) <= 30:
+        return first.lower()
+    return None
 
 @app.get("/api/analyze")
 async def analyze(word: str = Query(..., min_length=1, max_length=80), request: Request = None):
@@ -4260,40 +3625,6 @@ async def enrich_library_word(slug: str = Body(..., embed=True)):
         conn.close()
 
 
-@app.get("/api/user/progress-forecast")
-async def get_progress_forecast(level: str = Query(...), username: str = Depends(get_current_user)):
-    user_id = _get_user_id_by_username(username)
-    if not user_id:
-        raise HTTPException(status_code=400, detail="User not found")
-    conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM vocab_bank WHERE level=?", (level,))
-    total = int(c.fetchone()[0] or 0)
-    c.execute("SELECT COUNT(*) FROM user_progress WHERE user_id=? AND level=?", (user_id, level))
-    learned = int(c.fetchone()[0] or 0)
-    today = datetime.now().strftime("%Y-%m-%d")
-    c.execute(
-        "SELECT target_count FROM daily_goals WHERE user_id=? AND level=? AND date=?",
-        (user_id, level, today),
-    )
-    row = c.fetchone()
-    daily_new = int(row[0]) if row and row[0] else 50
-    remaining = max(total - learned, 0)
-    days_left = (remaining + max(daily_new, 1) - 1) // max(daily_new, 1)
-    est_finish_ts = time.time() + days_left * 86400
-    est_finish_date = datetime.fromtimestamp(est_finish_ts).strftime("%Y-%m-%d")
-    conn.close()
-    return {
-        "level": level,
-        "total": total,
-        "learned": learned,
-        "remaining": remaining,
-        "daily_new": daily_new,
-        "estimated_days_left": int(days_left),
-        "estimated_finish_date": est_finish_date,
-    }
-
-# --- Page Routes ---
 
 @app.get("/api/healthz")
 async def healthz():
@@ -4327,20 +3658,6 @@ async def root():
 @app.api_route("/web.html", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def web_html_alias():
     return await root()
-
-@app.api_route("/study-prototype", methods=["GET", "HEAD"], response_class=HTMLResponse)
-async def study_prototype_page():
-    try:
-        return HTMLResponse(
-            content=_read_local_file("study-prototype.html"),
-            headers={"Cache-Control": "no-store, max-age=0"},
-        )
-    except FileNotFoundError:
-        return HTMLResponse(
-            content="study-prototype.html not found on server.",
-            status_code=404,
-            headers={"Cache-Control": "no-store, max-age=0"},
-        )
 
 @app.api_route("/study-prototype-v2", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def study_prototype_v2_page():
