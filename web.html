@@ -1614,6 +1614,7 @@
             if (authToken && currentUser) {
                 userArea.innerHTML = `
                     <span class="nav-link text-green-600">Hi, ${escapeHtml(currentUser)}</span>
+                    <span class="nav-link" onclick="location.href='/admin'">后台</span>
                     <span class="nav-link" onclick="toggleSettingsModal()">设置</span>
                     <span class="nav-link" onclick="handleLogout()">退出</span>
                 `;
