@@ -1486,7 +1486,8 @@ async def code_auth_update_refresh_token_v2(
 
 @app.get("/api/v2/auth/me")
 async def me_v2(current_user: Dict[str, Any] = Depends(get_current_supabase_user)):
-    return current_user
+    is_admin = _is_admin_uid(current_user["id"])
+    return {**current_user, "is_admin": is_admin}
 
 
 @app.get("/api/v2/profile/me")

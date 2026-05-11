@@ -1333,6 +1333,7 @@
             authToken = null;
             currentUser = null;
             supabaseProfile = null;
+            isAdminUser = false;
             localStorage.removeItem('authToken');
             localStorage.removeItem('currentUser');
             const prevInviteCode = activeInviteCode || localStorage.getItem('inviteCode') || null;
@@ -1603,7 +1604,8 @@
             throw lastErr;
         }
 
-        function updateUserUI() {
+        let isAdminUser = false;
+        async function updateUserUI() {
             const escapeHtml = (s) => String(s ?? '')
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
@@ -1612,9 +1614,17 @@
                 .replace(/'/g, '&#39;');
             const userArea = document.getElementById('userArea');
             if (authToken && currentUser) {
+                // 异步查是否管理员（缓存到变量避免反复请求）
+                if (!isAdminUser && authToken) {
+                    try {
+                        const r = await fetch('/api/v2/auth/me', { headers: { 'Authorization': 'Bearer ' + authToken } });
+                        const d = await r.json();
+                        isAdminUser = !!d.is_admin;
+                    } catch (e) { isAdminUser = false; }
+                }
                 userArea.innerHTML = `
                     <span class="nav-link text-green-600">Hi, ${escapeHtml(currentUser)}</span>
-                    <span class="nav-link" onclick="location.href='/admin'">后台</span>
+                    ${isAdminUser ? '<span class="nav-link text-amber-600 font-bold" onclick="location.href=\x27/admin\x27">后台</span>' : ''}
                     <span class="nav-link" onclick="toggleSettingsModal()">设置</span>
                     <span class="nav-link" onclick="handleLogout()">退出</span>
                 `;
