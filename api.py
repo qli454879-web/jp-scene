@@ -900,11 +900,7 @@ def _ensure_ai_usage_table() -> None:
 
 @app.on_event("startup")
 async def _startup_init_pg_schema() -> None:
-    """
-    Render/Supabase 环境中，数据库可能短暂不可用（网络、pooler 熔断、密码更新等）。
-    为避免因为“初始化表结构/补列”失败导致整个服务无法启动，这里在启动时尝试初始化，
-    但捕获异常并记录日志，让服务先起来（必要时可通过管理员接口再触发 bootstrap）。
-    """
+    """Light DDL init only. Heavy queries run in background to not block health check."""
     if not SUPABASE_DB_ENABLED:
         return
     try:
@@ -913,7 +909,16 @@ async def _startup_init_pg_schema() -> None:
         _ensure_invitation_codes_extra_columns()
         _ensure_invitation_codes_limits_columns()
         _ensure_ai_usage_table()
-        # 预创建用户列表相关表/索引，避免背词时每次同步都跑 DDL 导致“同步中”很久
+    except Exception:
+        logging.exception("Postgres init/ensure failed (non-fatal).")
+
+    import asyncio
+    asyncio.ensure_future(_background_init_heavy())
+
+
+async def _background_init_heavy() -> None:
+    """Background: pre-create indices + backfill last_active_at. Failure is non-fatal."""
+    try:
         try:
             conn = _pg_conn()
             try:
@@ -922,7 +927,7 @@ async def _startup_init_pg_schema() -> None:
                 conn.close()
         except Exception:
             logging.exception("Ensure library user list tables failed (non-fatal).")
-        # 一次性回填老用户的 last_active_at（优先取最近学习/发帖/资料更新时间）
+
         try:
             conn = _pg_conn()
             try:
@@ -951,7 +956,8 @@ async def _startup_init_pg_schema() -> None:
         except Exception:
             logging.exception("Backfill last_active_at failed (non-fatal).")
     except Exception:
-        logging.exception("Postgres init/ensure failed (non-fatal).")
+        pass
+
 
 
 def _get_user_ai_limit(user_id: str) -> Optional[int]:
