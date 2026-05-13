@@ -5,8 +5,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Redirect
 from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
-from ai_service import AIService
-from dictionary_service import DictionaryService
+# AIService 延迟导入，避免 Render 启动超时
+# DictionaryService 延迟导入，避免 Render 启动超时
 from supabase import create_client
 import httpx
 import uvicorn
@@ -195,9 +195,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Services
-ai = AIService()
-dictionary = DictionaryService()
+# Initialize Services (AIService 延迟加载，避免冷启动超时)
+ai = None
+def get_ai():
+    global ai
+    if ai is None:
+        from ai_service import AIService
+        ai = AIService()
+    return ai
+dictionary = None
+def get_dictionary():
+    global dictionary
+    if dictionary is None:
+        from dictionary_service import DictionaryService
+        dictionary = DictionaryService()
+    return dictionary
 
 # Mock In-memory database for feedback
 FEEDBACKS = []
@@ -2543,7 +2555,7 @@ async def serve_vocab_audio(filename: str):
 async def get_vocab_tip(word: str = Query(...), current_user: Dict[str, Any] = Depends(get_current_supabase_user)):
     _assert_ai_quota_available(current_user["id"])
     try:
-        tip = await ai.get_quick_tip(word)
+        tip = await get_ai().get_quick_tip(word)
     except RuntimeError as e:
         if str(e) == "AI_QUOTA":
             raise HTTPException(status_code=503, detail="AI 服务额度暂时不足，请稍后再试。")
@@ -2605,7 +2617,7 @@ async def get_vocab_meta(word: str = Query(...), kana: str = Query(""), meaning:
     meaning_zh = meaning_clean if _has_cjk(meaning_clean) else ""
 
     if not meaning_zh or all('゠' <= c <= 'ヿ' or c == 'ー' for c in word):
-        meta = await ai.get_vocab_meta(word=word, kana=kana, meaning=meaning_clean)
+        meta = await get_ai().get_vocab_meta(word=word, kana=kana, meaning=meaning_clean)
         meaning_zh = (meta.get("meaning_zh") or meaning_zh or meaning_clean).strip()
         origin = meta.get("origin") or None
 
@@ -2678,8 +2690,8 @@ async def analyze(word: str = Query(..., min_length=1, max_length=80), request: 
     if cached:
         return cached
 
-    dict_info = dictionary.lookup(word)
-    result = await ai.analyze_word(word, dict_info)
+    dict_info = get_dictionary().lookup(word)
+    result = await get_ai().analyze_word(word, dict_info)
     save_to_cache(word, result)
     return result
 
@@ -2713,7 +2725,7 @@ async def chat(
             context += f"参考例句：{_clip(example_ja, 220)}\n"
     prompt = f"{context}\n用户问题：{q}\n请结合当前单词给出简洁、可执行的中文回答。"
     try:
-        answer = await ai.chat(prompt)
+        answer = await get_ai().chat(prompt)
     except RuntimeError as e:
         if str(e) == "AI_QUOTA":
             raise HTTPException(status_code=503, detail="AI 服务额度暂时不足，请稍后再试。")
@@ -2792,7 +2804,7 @@ async def chat_post(payload: Dict[str, Any] = Body(...), current_user: Dict[str,
                 msgs.append({"role": "user", "content": q})
 
     try:
-        answer = await ai.chat(q, messages=msgs)
+        answer = await get_ai().chat(q, messages=msgs)
     except RuntimeError as e:
         if str(e) == "AI_QUOTA":
             raise HTTPException(status_code=503, detail="AI 服务额度暂时不足，请稍后再试。")
@@ -2833,7 +2845,7 @@ async def analyze_sentence(q: str = Query(...), current_user: Dict[str, Any] = D
     _assert_ai_quota_available(current_user["id"])
     try:
         # 句子分析是“特定任务”，把 prompt 当作本轮用户输入即可
-        answer = await ai.chat(prompt)
+        answer = await get_ai().chat(prompt)
     except RuntimeError as e:
         if str(e) == "AI_QUOTA":
             raise HTTPException(status_code=503, detail="AI 服务额度暂时不足，请稍后再试。")
@@ -3885,7 +3897,7 @@ async def enrich_library_word(slug: str = Body(..., embed=True)):
             }
 
         # AI enrich (image_url intentionally left empty)
-        enriched = await ai.enrich_library_entry(
+        enriched = await get_ai().enrich_library_entry(
             word=str(row.get("word") or ""),
             reading=str(row.get("reading") or ""),
             meaning=str(row.get("meaning") or ""),

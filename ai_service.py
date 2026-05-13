@@ -382,23 +382,32 @@ class AIService:
             return None
 
         prompt = f"""
-你是日语词汇老师，面向中文学习者。请只输出一个 JSON 对象，不要解释，不要 markdown。
+你是东京本地日语老师，专门教中文母语者地道日语。请只输出一个 JSON 对象，不要解释，不要 markdown。
 
-词条等级: {level}
 单词: {word}
 读音: {reading}
 释义: {meaning}
 
 输出字段（严格 JSON）：
-1) social_context: 对应 3 个社交场景块，结构如下（allowed 为布尔，reason 为 8~30 字中文简述）：
+1) social_context: 对应 3 个社交场景，allowed 为布尔，reason 为 15~40 字中文解释，要具体到这个词的实际使用语境，不要泛泛而谈：
 {{
   "casual": {{"label_ja":"カジュアル","label_zh":"友人・同僚","allowed":true,"reason":"..."}},
   "business": {{"label_ja":"ビジネス","label_zh":"上司・目上","allowed":false,"reason":"..."}},
   "formal": {{"label_ja":"フォーマル","label_zh":"店員・陌生人","allowed":false,"reason":"..."}}
 }}
-2) heatmap_data: 高频出现场景百分比（整数 0~100），3~6 项，按高到低，例如：
-{{"SNS/ネット": 90, "一般生活": 60, "正式场合": 5}}
-3) insight_text: 中文 60~140 字，像图中那样一段总结（可包含少量日语注记，如【俗】等）。
+2) heatmap_data: 该词最常出现的 3 个具体场景及真实使用频率（整数 0~100，每个场景独立打分，不要求和为100）。场景名要具体（如 居酒屋、便利店、Line群聊、公司会议、约会、跟邻居唠嗑），不要泛泛的"一般生活"：
+{{"具体场景A": 85, "具体场景B": 60, "具体场景C": 30}}
+3) insight_text: 中文 100~200字，一段自然的深度解析。像跟朋友聊天一样讲这个词怎么用。只从以下角度挑1-2个展开（别全写，别列清单）：发音是否容易读错、跟近义词的语感差异、背后反映的日本思维习惯、容易闹笑话的坑。不要写"该词""学习者""本词"这类翻译腔，不要在里面写频率和例句（频率和例句已用独立字段输出）。也不用加【】标签，直接写正文段落。
+
+4) frequency_stars: 整数 1~5，代表该词在日常会话中的使用频率（1=几乎不用/冷僻，3=偶尔用到，5=天天挂在嘴边）。
+
+5) examples: 三个地道例句的 JSON 数组 [{{ "cn":"中文翻译1","jp":"日语例句1" }}, ...]。例句必须是日本人真实对话中会说的，不要教科书例句，三个覆盖不同场景。
+
+6) meaning_cn: 将原文释义翻译成地道中文，10~80字。原文即使是英文也必须翻译为中文，禁止返回英文或日文。如果单词是片假名外来语，请在释义末尾用括号标注原词来源（如「蛋糕（cake）」「电脑（computer）」）。
+
+7) pos_cn: 中文词性，从以下选一个最合适的：名词、他动词、自动词、自他动词、形容词（い形）、形容动词（な形）、副词、连体词、接续词、感叹词、助词、助动词、接尾词、接头词、惯用表达。
+
+8) pitch: 日语声调核位置，一个整数。0=平板型（第一个音低，之后全高，无下降），1=头高型（第一个音高，之后全低），2=中高型第2拍后下降，依此类推。参考读音拍数判断。
 """
 
         def _parse_json_text(text: str) -> Dict[str, Any]:
@@ -439,15 +448,49 @@ class AIService:
             social_context = data.get("social_context") or {}
             heatmap_data = data.get("heatmap_data") or {}
             insight_text = (data.get("insight_text") or "").strip()
+            frequency_stars = data.get("frequency_stars")
+            examples = data.get("examples")
+            meaning_cn = (data.get("meaning_cn") or "").strip()
+            pos_cn = (data.get("pos_cn") or "").strip()
+            pitch = data.get("pitch")
 
             if not isinstance(social_context, dict) or not isinstance(heatmap_data, dict) or not insight_text:
                 return None
 
+            # Validate frequency_stars
+            try:
+                frequency_stars = int(frequency_stars)
+                frequency_stars = max(1, min(5, frequency_stars))
+            except (TypeError, ValueError):
+                frequency_stars = None
+
+            # Validate examples
+            if not isinstance(examples, list) or len(examples) < 1:
+                examples = None
+            else:
+                examples = [{"cn": str(e.get("cn","") or e.get("zh","")), "jp": str(e.get("jp","") or e.get("ja",""))} for e in examples[:3] if isinstance(e, dict)]
+
+            # Validate meaning_cn
+            if not meaning_cn:
+                meaning_cn = None
+
+            # Validate pos_cn
+            valid_pos = {"名词","他动词","自动词","自他动词","形容词（い形）","形容动词（な形）","副词","连体词","接续词","感叹词","助词","助动词","接尾词","接头词","惯用表达"}
+            if pos_cn not in valid_pos:
+                pos_cn = None
+
+            # Validate pitch (0-10 range)
+            try:
+                pitch = int(pitch)
+                pitch = max(0, min(10, pitch))
+            except (TypeError, ValueError):
+                pitch = None
+
             # Normalize expected keys for social_context
             for k, ja, zh in (
                 ("casual", "カジュアル", "友人・同僚"),
-                ("business", "ビジネス", "上司・目上"),
                 ("formal", "フォーマル", "店員・陌生人"),
+                ("business", "ビジネス", "上司・目上"),
             ):
                 v = social_context.get(k) if isinstance(social_context, dict) else None
                 if not isinstance(v, dict):
@@ -455,8 +498,8 @@ class AIService:
                 allowed = bool(v.get("allowed"))
                 reason = str(v.get("reason") or "").strip()
                 social_context[k] = {
-                    "label_ja": str(v.get("label_ja") or ja),
-                    "label_zh": str(v.get("label_zh") or zh),
+                    "label_ja": ja,
+                    "label_zh": zh,
                     "allowed": allowed,
                     "reason": reason[:60],
                 }
@@ -468,9 +511,9 @@ class AIService:
                 if not key:
                     continue
                 hm[key] = _clamp_pct(sv)
-            hm = dict(sorted(hm.items(), key=lambda kv: kv[1], reverse=True)[:6])
+            hm = dict(sorted(hm.items(), key=lambda kv: kv[1], reverse=True)[:3])
 
-            return {"social_context": social_context, "heatmap_data": hm, "insight_text": insight_text}
+            return {"social_context": social_context, "heatmap_data": hm, "insight_text": insight_text, "frequency_stars": frequency_stars, "examples": examples, "meaning_cn": meaning_cn, "pos_cn": pos_cn, "pitch": pitch}
         except Exception as e:
             print(f"!!! enrich_library_entry ({self.provider}): {type(e).__name__} - {e}")
             return None
