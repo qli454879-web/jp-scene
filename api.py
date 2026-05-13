@@ -220,8 +220,20 @@ def get_dictionary():
 # Mock In-memory database for feedback
 FEEDBACKS = []
 
-supabase_auth = create_client(SUPABASE_URL, SUPABASE_ANON_KEY) if SUPABASE_ENABLED else None
-supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) if (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY) else None
+_supabase_auth = None
+_supabase_admin = None
+
+def _get_supabase_auth():
+    global _supabase_auth
+    if _supabase_auth is None and SUPABASE_ENABLED:
+        _supabase_auth = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+    return _supabase_auth
+
+def _get_supabase_admin():
+    global _supabase_admin
+    if _supabase_admin is None and SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+        _supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    return _supabase_admin
 
 SRS_INTERVAL_DAYS = [0, 1, 2, 4, 7, 15, 30]
 
@@ -1158,10 +1170,10 @@ async def require_admin_user(current_user: Dict[str, Any] = Depends(get_current_
 
 @app.post("/api/v2/auth/register")
 async def register_v2(email: str = Body(...), password: str = Body(...)):
-    if not SUPABASE_ENABLED or not supabase_auth:
+    if not SUPABASE_ENABLED or not _get_supabase_auth():
         raise HTTPException(status_code=500, detail="Supabase Auth not configured")
     try:
-        resp = supabase_auth.auth.sign_up({"email": email, "password": password})
+        resp = _get_supabase_auth().auth.sign_up({"email": email, "password": password})
         user = getattr(resp, "user", None)
         return {
             "status": "success",
@@ -1174,10 +1186,10 @@ async def register_v2(email: str = Body(...), password: str = Body(...)):
 
 @app.post("/api/v2/auth/login")
 async def login_v2(email: str = Body(...), password: str = Body(...)):
-    if not SUPABASE_ENABLED or not supabase_auth:
+    if not SUPABASE_ENABLED or not _get_supabase_auth():
         raise HTTPException(status_code=500, detail="Supabase Auth not configured")
     try:
-        resp = supabase_auth.auth.sign_in_with_password({"email": email, "password": password})
+        resp = _get_supabase_auth().auth.sign_in_with_password({"email": email, "password": password})
         session = getattr(resp, "session", None)
         if not session or not getattr(session, "access_token", None):
             raise HTTPException(status_code=401, detail="Login failed")
@@ -2510,41 +2522,38 @@ async def serve_vocab_audio(filename: str):
         or any(ord(ch) < 32 for ch in filename)
     ):
         raise HTTPException(status_code=404, detail="Invalid audio filename")
-    if VOCAB_AUDIO_BUCKET and (supabase_admin or supabase_auth):
-        storage = (supabase_admin or supabase_auth).storage
-        obj_path = f"{VOCAB_AUDIO_PREFIX}/{filename}" if VOCAB_AUDIO_PREFIX else filename
+
+    # 优先从 DB 查已有 mp3 URL（毫秒级），避免每次调 Supabase Storage API
+    if SUPABASE_DB_ENABLED:
         try:
-            signed = None
-            try:
-                signed = storage.from_(VOCAB_AUDIO_BUCKET).create_signed_url(obj_path, 60 * 60)
-            except Exception:
-                signed = None
-            if isinstance(signed, dict):
-                signed_url = (
-                    signed.get("signedURL")
-                    or signed.get("signed_url")
-                    or signed.get("signedUrl")
+            conn = _pg_conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT mp3 FROM vocab_library WHERE mp3 LIKE %s LIMIT 1",
+                    (f"%{filename}",),
                 )
-                if signed_url:
-                    return RedirectResponse(
-                        signed_url,
-                        status_code=302,
-                        headers={"Cache-Control": "public, max-age=3600"},
-                    )
-        except Exception:
-            pass
-        try:
-            public_url = storage.from_(VOCAB_AUDIO_BUCKET).get_public_url(obj_path)
-            if public_url:
+                row = cur.fetchone()
+            conn.close()
+            if row and row[0] and (row[0] or "").startswith("http"):
                 return RedirectResponse(
-                    public_url,
+                    row[0],
                     status_code=302,
                     headers={"Cache-Control": "public, max-age=604800, immutable"},
                 )
         except Exception:
             pass
 
-    raise HTTPException(status_code=404, detail="Audio file not found in Supabase bucket")
+    # 回退：直接从 Storage 构造 public URL（不调 API，纯拼接）
+    if VOCAB_AUDIO_BUCKET and SUPABASE_URL:
+        obj_path = f"{VOCAB_AUDIO_PREFIX}/{filename}" if VOCAB_AUDIO_PREFIX else filename
+        public_url = f"{SUPABASE_URL}/storage/v1/object/public/{VOCAB_AUDIO_BUCKET}/{obj_path}"
+        return RedirectResponse(
+            public_url,
+            status_code=302,
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    raise HTTPException(status_code=404, detail="Audio file not found")
 
 
 @app.get("/api/vocab/tip")
