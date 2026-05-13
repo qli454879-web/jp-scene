@@ -4021,12 +4021,6 @@ async def serve_public_file(filename: str):
         headers = {"Cache-Control": "public, max-age=604800, immutable"}
     return FileResponse(path, headers=headers)
 
-# 所有函数定义完成后，启动后台线程做 schema 初始化
-if SUPABASE_DB_ENABLED:
-    import threading
-    _bg_init_thread = threading.Thread(target=_sync_background_init, daemon=True)
-    _bg_init_thread.start()
-
 if __name__ == "__main__":
     port = int(os.getenv("PORT") or "8000")
     print(f"Starting Japanese Scene Lab Production Server on port {port}...")
