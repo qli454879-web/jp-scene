@@ -25,7 +25,7 @@ SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL", "").strip()
 
 DRY_RUN = os.getenv("BATCH_ENRICH_DRY", "") == "1"
 BATCH_SIZE = 200          # 每批 AI 并发数
-CONCURRENCY = 60         # AI API 并发上限（降一半给前端让路）
+CONCURRENCY = 30         # AI API 并发上限（防 DB 超时）
 DB_SUB_BATCH = 50         # 每 N 个词提交一次 DB（断点安全）
 MAX_TOTAL = int(os.getenv("BATCH_ENRICH_MAX", "200000"))
 
