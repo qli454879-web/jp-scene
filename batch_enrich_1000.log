@@ -1,0 +1,288 @@
+/Users/chenchanghou/Library/Python/3.9/lib/python/site-packages/google/api_core/_python_version_support.py:242: FutureWarning: You are using a non-supported Python version (3.9.6). Google will not post any further updates to google.api_core supporting this Python version. Please upgrade to the latest Python version, or at least Python 3.10, and then update google.api_core.
+  warnings.warn(message, FutureWarning)
+/Users/chenchanghou/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+/Users/chenchanghou/Library/Python/3.9/lib/python/site-packages/google/auth/__init__.py:54: FutureWarning: You are using a Python version 3.9 past its end of life. Google will update google-auth with critical bug fixes on a best-effort basis, but not with any other fixes or features. Please upgrade your Python version, and then update google-auth.
+  warnings.warn(eol_message.format("3.9"), FutureWarning)
+/Users/chenchanghou/Library/Python/3.9/lib/python/site-packages/google/oauth2/__init__.py:40: FutureWarning: You are using a Python version 3.9 past its end of life. Google will update google-auth with critical bug fixes on a best-effort basis, but not with any other fixes or features. Please upgrade your Python version, and then update google-auth.
+  warnings.warn(eol_message.format("3.9"), FutureWarning)
+/Users/chenchanghou/Documents/trae_projects/ai_service.py:4: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+2026-05-12 23:31:18,187 [N5] 全部已加工，跳过
+2026-05-12 23:31:18,250 [N4] 全部已加工，跳过
+2026-05-12 23:31:18,338 [N3] 全部已加工，跳过
+2026-05-12 23:31:19,151 [N2] 待加工 1000 词，本次最多处理 1000
+2026-05-12 23:31:19,151   批次 1: 10 词 — 世帯主, 後姿, 僕たち, レインシューズ, 将又...
+2026-05-12 23:32:05,421 Retrying request to /chat/completions in 0.397418 seconds
+2026-05-12 23:32:51,718 Retrying request to /chat/completions in 0.855268 seconds
+2026-05-12 23:32:59,247 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:32:59,898     ✓ 世帯主 [N2] (1/1000)
+2026-05-12 23:33:05,784 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:33:05,952     ✓ 後姿 [N2] (2/1000)
+2026-05-12 23:33:51,260 Retrying request to /chat/completions in 0.407980 seconds
+2026-05-12 23:34:37,443 Retrying request to /chat/completions in 0.835679 seconds
+2026-05-12 23:35:12,571 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:35:12,754     ✓ 僕たち [N2] (3/1000)
+2026-05-12 23:35:58,063 Retrying request to /chat/completions in 0.411411 seconds
+2026-05-12 23:36:44,306 Retrying request to /chat/completions in 0.926200 seconds
+2026-05-12 23:36:53,640 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:36:53,807     ✓ レインシューズ [N2] (4/1000)
+2026-05-12 23:37:39,116 Retrying request to /chat/completions in 0.423688 seconds
+2026-05-12 23:38:25,350 Retrying request to /chat/completions in 0.982938 seconds
+2026-05-12 23:38:33,068 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:38:33,235     ✓ 将又 [N2] (5/1000)
+2026-05-12 23:39:13,553 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:39:13,775     ✓ 雑巾 [N2] (6/1000)
+2026-05-12 23:39:20,863 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:39:21,029     ✓ 乃至は [N2] (7/1000)
+2026-05-12 23:40:06,338 Retrying request to /chat/completions in 0.466711 seconds
+2026-05-12 23:40:14,452 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:40:14,602     ✓ ドイツ [N2] (8/1000)
+2026-05-12 23:40:59,912 Retrying request to /chat/completions in 0.470467 seconds
+2026-05-12 23:41:06,575 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:41:06,741     ✓ 吾人 [N2] (9/1000)
+2026-05-12 23:41:13,012 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:41:13,170     ✓ 受信料 [N2] (10/1000)
+2026-05-12 23:41:13,471   等待 15s ...
+2026-05-12 23:41:28,473   批次 2: 10 词 — 其文字, 酸味料, 並めて, 起請, 染め粉...
+2026-05-12 23:41:37,785 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:41:37,960     ✓ 其文字 [N2] (11/1000)
+2026-05-12 23:42:23,271 Retrying request to /chat/completions in 0.389303 seconds
+2026-05-12 23:43:09,400 Retrying request to /chat/completions in 0.999816 seconds
+2026-05-12 23:43:25,940 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:43:26,103     ✓ 酸味料 [N2] (12/1000)
+2026-05-12 23:43:32,905 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:43:33,088     ✓ 並めて [N2] (13/1000)
+2026-05-12 23:44:18,398 Retrying request to /chat/completions in 0.382308 seconds
+2026-05-12 23:44:27,332 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:44:27,496     ✓ 起請 [N2] (14/1000)
+2026-05-12 23:44:34,345 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:44:34,509     ✓ 染め粉 [N2] (15/1000)
+2026-05-12 23:44:47,950 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:44:48,120     ✓ 間隙 [N2] (16/1000)
+2026-05-12 23:44:53,595 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:44:53,758     ✓ 両個 [N2] (17/1000)
+2026-05-12 23:45:24,612 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:45:24,755     ✓ 使い料 [N2] (18/1000)
+2026-05-12 23:46:07,657 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:46:07,823     ✓ 非ざる [N2] (19/1000)
+2026-05-12 23:46:53,964 Retrying request to /chat/completions in 0.475838 seconds
+2026-05-12 23:47:40,148 Retrying request to /chat/completions in 0.861759 seconds
+2026-05-12 23:47:58,427 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:47:58,573     ✓ 油っこい [N2] (20/1000)
+2026-05-12 23:47:58,874   等待 15s ...
+2026-05-12 23:48:13,876   批次 3: 10 词 — 男の人, 弐つ, 金烏, 泥んこ, スペイン...
+2026-05-12 23:48:21,650 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:48:21,781     ✓ 男の人 [N2] (21/1000)
+2026-05-12 23:48:28,533 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:48:28,684     ✓ 弐つ [N2] (22/1000)
+2026-05-12 23:49:13,995 Retrying request to /chat/completions in 0.499478 seconds
+2026-05-12 23:49:21,371 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:49:21,507     ✓ 金烏 [N2] (23/1000)
+2026-05-12 23:50:06,818 Retrying request to /chat/completions in 0.420229 seconds
+2026-05-12 23:50:48,771 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:50:48,911     ✓ 泥んこ [N2] (24/1000)
+2026-05-12 23:51:34,222 Retrying request to /chat/completions in 0.457605 seconds
+2026-05-12 23:52:20,538 Retrying request to /chat/completions in 0.782872 seconds
+2026-05-12 23:52:27,165 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:52:27,321     ✓ スペイン [N2] (25/1000)
+2026-05-12 23:52:33,912 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:52:34,084     ✓ 旅舎 [N2] (26/1000)
+2026-05-12 23:53:19,394 Retrying request to /chat/completions in 0.403912 seconds
+2026-05-12 23:53:26,719 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:53:26,858     ✓ 好印象 [N2] (27/1000)
+2026-05-12 23:53:40,448 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:53:40,597     ✓ 提宇子 [N2] (28/1000)
+2026-05-12 23:53:46,179 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:53:46,341     ✓ 寒帯 [N2] (29/1000)
+2026-05-12 23:54:22,326 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:54:22,527     ✓ 吾が身 [N2] (30/1000)
+2026-05-12 23:54:22,829   等待 15s ...
+2026-05-12 23:54:37,831   批次 4: 10 词 — 雅兄, ２６時, 男衆, 突先, 連結網...
+2026-05-12 23:54:45,311 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:54:45,482     ✓ 雅兄 [N2] (31/1000)
+2026-05-12 23:55:30,789 Retrying request to /chat/completions in 0.440382 seconds
+2026-05-12 23:56:16,954 Retrying request to /chat/completions in 0.912553 seconds
+2026-05-12 23:57:03,758     ✗ ２６時: AI 返回空
+2026-05-12 23:57:11,389 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:57:11,541     ✓ 男衆 [N2] (32/1000)
+2026-05-12 23:57:13,357 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2026-05-12 23:57:13,359 Retrying request to /chat/completions in 0.467879 seconds
+2026-05-12 23:57:58,834 Retrying request to /chat/completions in 0.759930 seconds
+2026-05-12 23:58:45,384     ✗ 突先: AI 返回空
+2026-05-12 23:58:47,645 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2026-05-12 23:58:47,646 Retrying request to /chat/completions in 0.378931 seconds
+2026-05-12 23:59:03,723 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:59:03,895     ✓ 連結網 [N2] (33/1000)
+2026-05-12 23:59:11,740 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:59:11,893     ✓ 貴殿 [N2] (34/1000)
+2026-05-12 23:59:18,570 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-12 23:59:18,709     ✓ 部室 [N2] (35/1000)
+2026-05-13 00:00:04,019 Retrying request to /chat/completions in 0.410424 seconds
+2026-05-13 00:00:10,879 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-13 00:00:11,036     ✓ 一寝入り [N2] (36/1000)
+2026-05-13 00:00:56,346 Retrying request to /chat/completions in 0.375353 seconds
+2026-05-13 00:01:26,879 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-13 00:01:27,049     ✓ 江都 [N2] (37/1000)
+2026-05-13 00:01:34,065 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-13 00:01:34,220     ✓ 円弧 [N2] (38/1000)
+2026-05-13 00:01:34,522   等待 15s ...
+2026-05-13 00:01:49,523   批次 5: 10 词 — 灰汁, 貴下, 樹液, 尊台, 貴兄...
+2026-05-13 00:01:55,961 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-13 00:01:56,108     ✓ 灰汁 [N2] (39/1000)
+2026-05-13 00:02:41,419 Retrying request to /chat/completions in 0.471988 seconds
+2026-05-13 00:03:05,761 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-13 00:03:05,935     ✓ 貴下 [N2] (40/1000)
+2026-05-13 00:03:06,711 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2026-05-13 00:03:06,713 Retrying request to /chat/completions in 0.467118 seconds
+2026-05-13 00:03:52,186 Retrying request to /chat/completions in 0.797112 seconds
+2026-05-13 00:04:00,786 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-13 00:04:00,789     ✗ 樹液: AI 返回空
+2026-05-13 00:04:45,796 Retrying request to /chat/completions in 0.489565 seconds
+2026-05-13 00:05:32,041 Retrying request to /chat/completions in 0.991826 seconds
+2026-05-13 00:05:39,878 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-13 00:05:40,041     ✓ 尊台 [N2] (41/1000)
+2026-05-13 00:05:48,128 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-13 00:05:48,285     ✓ 貴兄 [N2] (42/1000)
+2026-05-13 00:05:54,245 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-13 00:05:54,391     ✓ ２５時 [N2] (43/1000)
+2026-05-13 00:05:59,877 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-13 00:06:00,034     ✓ 紅鏡 [N2] (44/1000)
+2026-05-13 00:06:45,344 Retrying request to /chat/completions in 0.384783 seconds
+2026-05-13 00:07:15,040 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-13 00:07:15,198     ✓ 丹色 [N2] (45/1000)
+2026-05-13 00:07:22,414 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-13 00:07:22,574     ✓ どちら様 [N2] (46/1000)
+2026-05-13 00:07:29,454 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-13 00:07:29,593     ✓ 欠席届 [N2] (47/1000)
+2026-05-13 00:07:29,895   等待 15s ...
+2026-05-13 00:07:44,897   批次 6: 10 词 — ニュージーランド, 最優先, 大前提, お釜, 修道尼...
+2026-05-13 00:07:46,169 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:07:46,172     ✗ ニュージーランド: AI 返回空
+2026-05-13 00:07:46,476 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:07:46,478     ✗ 最優先: AI 返回空
+2026-05-13 00:07:46,784 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:07:46,786     ✗ 大前提: AI 返回空
+2026-05-13 00:07:47,032 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:07:47,034     ✗ お釜: AI 返回空
+2026-05-13 00:07:47,295 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:07:47,297     ✗ 修道尼: AI 返回空
+2026-05-13 00:07:47,602 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:07:47,604     ✗ 継続者: AI 返回空
+2026-05-13 00:07:47,840 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:07:47,842     ✗ 此様: AI 返回空
+2026-05-13 00:07:48,072 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:07:48,074     ✗ 理法: AI 返回空
+2026-05-13 00:07:48,421 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:07:48,424     ✗ 何奴: AI 返回空
+2026-05-13 00:07:48,730 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:07:48,732     ✗ 非ず: AI 返回空
+2026-05-13 00:07:48,732   等待 15s ...
+2026-05-13 00:08:03,733   批次 7: 10 词 — 赤丹, ワン公, 喜悦, 使いどころ, 飛輪...
+2026-05-13 00:08:04,702 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:04,704     ✗ 赤丹: AI 返回空
+2026-05-13 00:08:04,922 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:04,925     ✗ ワン公: AI 返回空
+2026-05-13 00:08:05,215 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:05,217     ✗ 喜悦: AI 返回空
+2026-05-13 00:08:05,442 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:05,445     ✗ 使いどころ: AI 返回空
+2026-05-13 00:08:05,727 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:05,729     ✗ 飛輪: AI 返回空
+2026-05-13 00:08:05,944 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:05,946     ✗ 室積み: AI 返回空
+2026-05-13 00:08:06,166 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:06,168     ✗ とろろ芋: AI 返回空
+2026-05-13 00:08:06,380 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:06,382     ✗ 手鍋: AI 返回空
+2026-05-13 00:08:06,597 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:06,598     ✗ 其の許: AI 返回空
+2026-05-13 00:08:06,810 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:06,811     ✗ 丸材: AI 返回空
+2026-05-13 00:08:06,812   等待 15s ...
+2026-05-13 00:08:21,813   批次 8: 10 词 — 自我, 蚊食鳥, 変に, 原文ママ, イタリア...
+2026-05-13 00:08:23,084 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:23,087     ✗ 自我: AI 返回空
+2026-05-13 00:08:23,592 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:23,593     ✗ 蚊食鳥: AI 返回空
+2026-05-13 00:08:24,160 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:24,161     ✗ 変に: AI 返回空
+2026-05-13 00:08:24,642 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:24,643     ✗ 原文ママ: AI 返回空
+2026-05-13 00:08:25,102 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:25,105     ✗ イタリア: AI 返回空
+2026-05-13 00:08:25,578 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:25,580     ✗ 嘘言: AI 返回空
+2026-05-13 00:08:26,070 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:26,072     ✗ 御辺: AI 返回空
+2026-05-13 00:08:26,617 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:26,619     ✗ 今しき: AI 返回空
+2026-05-13 00:08:27,083 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:27,085     ✗ 大神: AI 返回空
+2026-05-13 00:08:27,641 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:27,643     ✗ ５月: AI 返回空
+2026-05-13 00:08:27,643   等待 15s ...
+2026-05-13 00:08:42,645   批次 9: 10 词 — 金型, ゲル状, 我主, 泥土, 大御神...
+2026-05-13 00:08:43,909 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:43,910     ✗ 金型: AI 返回空
+2026-05-13 00:08:44,345 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+AI Service: Using OpenAI (ChatGPT).
+!!! enrich_library_entry (openai): APITimeoutError - Request timed out.
+!!! enrich_library_entry (openai): APITimeoutError - Request timed out.
+!!! enrich_library_entry (openai): JSONDecodeError - Extra data: line 47 column 1 (char 1263)
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 2026051223074610059300Gg3QE96R)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230746286851356EgDaYCzp)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230746584587227BS4Kk2CE)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 202605122307469034386911Onie0zv)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230747148854026sP1Soezz)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230747411114562rQPmZxUK)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 2026051223074771319459552oNcUio)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 202605122307479452741051HwI9tG0)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230748187325953vIpbZZlc)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 202605122307485402072093GZ3nKmp)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230804494481880soWWCEa8)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 202605122308048072420290QCEquZE)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 2026051223080533616764kAWTmAQH)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230805326031133G5YJ0x4n)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230805547573888cdQhXhlo)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230805830378767WKJ1ERbR)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230806515443829EEsydCH)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230806268423098XbZuJ5Uy)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230806484917273V0VfQ0ZZ)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 2026051223080669658395972aCvZZC)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230822762668092LvqzQgEq)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230823243469522ckKZMK3R)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230823734123479wZgVSZ2o)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230824299151598gba1G0Fs)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230824783173351RyXD09hu)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 2026051223082524636696774N1ILqJ)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230825720057856390J4QHX)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 202605122308262139091576Q5JnSe0)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230826758596135K4xthn3s)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230827217489606FdOD6cF9)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+!!! enrich_library_entry (openai): PermissionDeniedError - Error code: 403 - {'error': {'message': 'user quota is not enough (request id: 20260512230843440949072Qpva4xXs)', 'type': 'new_api_error', 'param': '', 'code': 'local:insufficient_quota'}}
+2026-05-13 00:08:44,346     ✗ ゲル状: AI 返回空
+2026-05-13 00:08:44,871 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:44,872     ✗ 我主: AI 返回空
+2026-05-13 00:08:45,331 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:45,333     ✗ 泥土: AI 返回空
+2026-05-13 00:08:45,900 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:45,902     ✗ 大御神: AI 返回空
+2026-05-13 00:08:46,381 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:46,384     ✗ ロック鳥: AI 返回空
+2026-05-13 00:08:46,843 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:46,845     ✗ 許可証明書: AI 返回空
+2026-05-13 00:08:47,507 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:47,509     ✗ 我殿: AI 返回空
+2026-05-13 00:08:48,007 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:48,009     ✗ お前さん: AI 返回空
+2026-05-13 00:08:48,633 HTTP Request: POST https://api.vectorengine.ai/v1/chat/completions "HTTP/1.1 403 Forbidden"
+2026-05-13 00:08:48,635     ✗ 頓才: AI 返回空
+2026-05-13 00:08:48,636   等待 15s ...
