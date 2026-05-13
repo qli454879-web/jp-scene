@@ -14,3 +14,8 @@ cache.db
 *.key
 *.p12
 *.pfx
+JMdict_e
+JMdict_e.gz
+*.log
+*.csv
+tts_samples/
