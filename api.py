@@ -1,4 +1,3 @@
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, Body, HTTPException, Depends, status, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -174,15 +173,7 @@ def save_to_cache(word, result):
     conn.commit()
     conn.close()
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """启动瞬间返回，DB 初始化交给独立线程，完全不碰事件循环。"""
-    if SUPABASE_DB_ENABLED:
-        import threading
-        threading.Thread(target=_sync_background_init, daemon=True).start()
-    yield
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 # Enable CORS
 _cors_origins_raw = (os.getenv("CORS_ALLOW_ORIGINS") or "").strip()
@@ -971,6 +962,10 @@ def _sync_background_init() -> None:
         pass
 
 
+# 后台线程做 schema 初始化，不经过任何 FastAPI 启动钩子，Render 秒起
+if SUPABASE_DB_ENABLED:
+    import threading
+    threading.Thread(target=_sync_background_init, daemon=True).start()
 
 
 def _get_user_ai_limit(user_id: str) -> Optional[int]:
