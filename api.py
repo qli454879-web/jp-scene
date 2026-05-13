@@ -3257,11 +3257,12 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         enable_meaning = (not is_kana_only) and chinese_chars >= 2
         fetch_limit = max(int(limit) * 8, 80)
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            # 新版本会多取 insight_text 用于“去重时选内容最丰富的那条”。
-            # 为了兼容老库/临时 schema 不一致，这里若查询失败则自动降级到旧查询。
+            # 设 5s 超时：meaning ILIKE 无 trigram 索引可能全表扫描 10s+
+            # 超时自动降级为 word/reading 快速查询，避免白屏
             try:
+                cur.execute(“SET LOCAL statement_timeout = '5s'”)
                 cur.execute(
-                    """
+                    “””
                     SELECT id, level, word, reading, meaning, mp3,
                            pos, frequency, examples,
                            image_url, is_ai_enriched, order_no,
@@ -3289,28 +3290,72 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                       level DESC,
                       order_no ASC
                     LIMIT %(limit)s
-                    """,
+                    “””,
                     {
-                        "q": qq,
-                        "prefix": like_prefix,
-                        "like_any": like_any,
-                        "enable_contains": enable_contains,
-                        "enable_meaning": enable_meaning,
-                        "limit": fetch_limit,
+                        “q”: qq,
+                        “prefix”: like_prefix,
+                        “like_any”: like_any,
+                        “enable_contains”: enable_contains,
+                        “enable_meaning”: enable_meaning,
+                        “limit”: fetch_limit,
                     },
                 )
             except Exception:
-                # 前一次执行失败会让 transaction 进入 aborted 状态；必须 rollback 后才能继续执行下一条 SQL
+                # 超时或其它错误 → rollback 后降级为快速查询（无 meaning ILIKE）
                 try:
                     conn.rollback()
                 except Exception:
                     pass
-                cur.execute(
-                    """
-                    SELECT id, level, word, reading, meaning, mp3,
-                           pos, frequency, examples,
-                           image_url, is_ai_enriched, order_no
-                    FROM vocab_library
+                try:
+                    cur.execute(“SET LOCAL statement_timeout = '3s'”)
+                    cur.execute(
+                        “””
+                        SELECT id, level, word, reading, meaning, mp3,
+                               pos, frequency, examples,
+                               image_url, is_ai_enriched, order_no,
+                               insight_text
+                        FROM vocab_library
+                        WHERE
+                          word = %(q)s
+                          OR reading = %(q)s
+                          OR word ILIKE %(prefix)s
+                          OR reading ILIKE %(prefix)s
+                          OR (%(enable_contains)s AND word ILIKE %(like_any)s)
+                          OR (%(enable_contains)s AND reading ILIKE %(like_any)s)
+                        ORDER BY
+                          CASE
+                            WHEN word = %(q)s THEN 0
+                            WHEN reading = %(q)s THEN 1
+                            WHEN word ILIKE %(prefix)s THEN 2
+                            WHEN reading ILIKE %(prefix)s THEN 3
+                            WHEN (%(enable_contains)s AND word ILIKE %(like_any)s) THEN 4
+                            WHEN (%(enable_contains)s AND reading ILIKE %(like_any)s) THEN 5
+                            ELSE 9
+                          END,
+                          level DESC,
+                          order_no ASC
+                        LIMIT %(limit)s
+                        “””,
+                        {
+                            “q”: qq,
+                            “prefix”: like_prefix,
+                            “like_any”: like_any,
+                            “enable_contains”: enable_contains,
+                            “limit”: fetch_limit,
+                        },
+                    )
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    # 最终降级：旧查询（无 insight_text）
+                    cur.execute(
+                        “””
+                        SELECT id, level, word, reading, meaning, mp3,
+                               pos, frequency, examples,
+                               image_url, is_ai_enriched, order_no
+                        FROM vocab_library
                     WHERE
                       word = %(q)s
                       OR reading = %(q)s
