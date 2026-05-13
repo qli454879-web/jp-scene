@@ -912,9 +912,15 @@ def _ensure_ai_usage_table() -> None:
 
 @app.on_event("startup")
 async def _startup_init_pg_schema() -> None:
-    """Light DDL init only. Heavy queries run in background to not block health check."""
+    """全部放后台，不阻塞 health check。"""
     if not SUPABASE_DB_ENABLED:
         return
+    import asyncio
+    asyncio.ensure_future(_background_init_heavy())
+
+
+async def _background_init_heavy() -> None:
+    """Background: schema init + indices + backfill. Failure is non-fatal."""
     try:
         init_supabase_schema()
         _ensure_pg_words_extra_columns()
@@ -922,14 +928,8 @@ async def _startup_init_pg_schema() -> None:
         _ensure_invitation_codes_limits_columns()
         _ensure_ai_usage_table()
     except Exception:
-        logging.exception("Postgres init/ensure failed (non-fatal).")
+        logging.exception("Schema init failed (non-fatal).")
 
-    import asyncio
-    asyncio.ensure_future(_background_init_heavy())
-
-
-async def _background_init_heavy() -> None:
-    """Background: pre-create indices + backfill last_active_at. Failure is non-fatal."""
     try:
         try:
             conn = _pg_conn()
