@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, Body, HTTPException, Depends, status, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -173,7 +174,15 @@ def save_to_cache(word, result):
     conn.commit()
     conn.close()
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """启动：把 DB 初始化扔到线程池，不占事件循环，health check 立即就绪。"""
+    if SUPABASE_DB_ENABLED:
+        import asyncio
+        asyncio.ensure_future(_background_init_heavy())
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 # Enable CORS
 _cors_origins_raw = (os.getenv("CORS_ALLOW_ORIGINS") or "").strip()
@@ -910,17 +919,8 @@ def _ensure_ai_usage_table() -> None:
         conn.close()
 
 
-@app.on_event("startup")
-async def _startup_init_pg_schema() -> None:
-    """全部放后台，不阻塞 health check。"""
-    if not SUPABASE_DB_ENABLED:
-        return
-    import asyncio
-    asyncio.ensure_future(_background_init_heavy())
-
-
-async def _background_init_heavy() -> None:
-    """Background: schema init + indices + backfill. Failure is non-fatal."""
+def _sync_background_init() -> None:
+    """All blocking DB schema init work. Runs in thread pool to keep event loop free."""
     try:
         init_supabase_schema()
         _ensure_pg_words_extra_columns()
@@ -969,6 +969,13 @@ async def _background_init_heavy() -> None:
             logging.exception("Backfill last_active_at failed (non-fatal).")
     except Exception:
         pass
+
+
+async def _background_init_heavy() -> None:
+    """在独立线程跑 DB 初始化，不阻塞事件循环。Failure is non-fatal."""
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _sync_background_init)
 
 
 
