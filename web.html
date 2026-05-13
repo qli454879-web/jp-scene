@@ -1832,7 +1832,12 @@
         }
 
         function playVocabAudio() {
-            const fn = (currentVocabData?.mp3 || currentVocabData?.audio_filename || '').trim();
+            let fn = (currentVocabData?.mp3 || currentVocabData?.audio_filename || '').trim();
+            // 若是完整 URL，提取末尾文件名
+            if (fn.startsWith('http')) {
+              const segs = fn.split('/');
+              fn = segs[segs.length - 1] || fn;
+            }
             const sharedAudio = document.getElementById('globalAudio') || window.__jpAudio || new Audio();
             try {
                 sharedAudio.preload = 'auto';

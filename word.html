@@ -558,8 +558,13 @@
       } catch (e) {}
       window.__jpAudio = sharedAudio;
       btn.onclick = () => {
-        const fn = (data.mp3 || data.audio_filename || '').trim();
+        let fn = (data.mp3 || data.audio_filename || '').trim();
         if (!fn) return;
+        // 若是完整 URL，提取末尾文件名
+        if (fn.startsWith('http')) {
+          const segs = fn.split('/');
+          fn = segs[segs.length - 1] || fn;
+        }
         try { sharedAudio.pause(); } catch (e) {}
         sharedAudio.src = '/api/vocab/audio/' + encodeURIComponent(fn);
         try { sharedAudio.load(); } catch (e) {}

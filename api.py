@@ -2514,6 +2514,9 @@ async def remove_wrongbook_v3(entry_id: str, current_user: Dict[str, Any] = Depe
 @app.get("/api/vocab/audio/{filename}")
 async def serve_vocab_audio(filename: str):
     filename = unquote((filename or "").strip())
+    # 如果前端传了完整 URL，提取末尾文件名
+    if filename.startswith("http"):
+        filename = filename.rsplit("/", 1)[-1] if "/" in filename else filename
     if (
         not filename
         or filename in {".", ".."}
