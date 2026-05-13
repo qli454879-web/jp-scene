@@ -297,7 +297,7 @@ def _pg_conn():
     # Supabase 的 pooler（尤其是 transaction/session pooler）可能复用后端连接，
     # 若启用 prepared statements，可能出现 DuplicatePreparedStatement（_pg3_0 already exists）。
     # psycopg3 正确的禁用方式是 prepare_threshold=None（0 反而代表“每次都 prepare”）。
-    conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None)
+    conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
 
     # 需要兼容 N3/N4 新增字段：pos / frequency / examples
     # 做一次性“自动迁移”，避免上线后列缺失导致查询报错。
