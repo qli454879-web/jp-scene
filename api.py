@@ -3252,9 +3252,9 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         enable_contains = len(qq) >= 3
         # 纯假名输入：不要做中文释义模糊匹配，否则会引入大量无关候选（例如“いる”不该匹配到“僧”）
         is_kana_only = _is_kana_only(qq)
-        # \u81f3\u5c11 2 \u4e2a\u4e2d\u6587\u5b57\u7b26\u624d\u641c\u91ca\u4e49\uff0c\u907f\u514d\u5355\u5b57\u5982\u300c\u5403\u300d\u89e6\u53d1\u5168\u8868\u626b\u63cf\uff08meaning \u5217\u65e0 trigram \u7d22\u5f15\uff09
+        # 3+ \u4e2d\u6587\u5b57\u7b26\u624d\u641c\u91ca\u4e49\uff08\u907f\u514d 1-2 \u5b57\u5982\u300c\u5403\u300d\u300c\u5403\u996d\u300d\u89e6\u53d1 meaning \u5168\u8868\u626b\u63cf\u5bfc\u81f4 10s+ \u767d\u5c4f\uff09
         chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", qq))
-        enable_meaning = (not is_kana_only) and chinese_chars >= 2
+        enable_meaning = (not is_kana_only) and chinese_chars >= 3
         fetch_limit = max(int(limit) * 8, 80)
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             # 设 5s 超时：meaning ILIKE 无 trigram 索引可能全表扫描 10s+
