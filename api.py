@@ -176,10 +176,10 @@ def save_to_cache(word, result):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """启动：把 DB 初始化扔到线程池，不占事件循环，health check 立即就绪。"""
+    """启动瞬间返回，DB 初始化交给独立线程，完全不碰事件循环。"""
     if SUPABASE_DB_ENABLED:
-        import asyncio
-        asyncio.ensure_future(_background_init_heavy())
+        import threading
+        threading.Thread(target=_sync_background_init, daemon=True).start()
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -970,12 +970,6 @@ def _sync_background_init() -> None:
     except Exception:
         pass
 
-
-async def _background_init_heavy() -> None:
-    """在独立线程跑 DB 初始化，不阻塞事件循环。Failure is non-fatal."""
-    import asyncio
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _sync_background_init)
 
 
 
