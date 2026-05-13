@@ -2526,34 +2526,14 @@ async def serve_vocab_audio(filename: str):
     ):
         raise HTTPException(status_code=404, detail="Invalid audio filename")
 
-    # 优先从 DB 查已有 mp3 URL（毫秒级），避免每次调 Supabase Storage API
-    if SUPABASE_DB_ENABLED:
-        try:
-            conn = _pg_conn()
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT mp3 FROM vocab_library WHERE mp3 LIKE %s LIMIT 1",
-                    (f"%{filename}",),
-                )
-                row = cur.fetchone()
-            conn.close()
-            if row and row[0] and (row[0] or "").startswith("http"):
-                return RedirectResponse(
-                    row[0],
-                    status_code=302,
-                    headers={"Cache-Control": "public, max-age=604800, immutable"},
-                )
-        except Exception:
-            pass
-
-    # 回退：直接从 Storage 构造 public URL（不调 API，纯拼接）
+    # 直接构造 public URL（纯字符串拼接，不查 DB、不调 API，毫秒级）
     if VOCAB_AUDIO_BUCKET and SUPABASE_URL:
         obj_path = f"{VOCAB_AUDIO_PREFIX}/{filename}" if VOCAB_AUDIO_PREFIX else filename
         public_url = f"{SUPABASE_URL}/storage/v1/object/public/{VOCAB_AUDIO_BUCKET}/{obj_path}"
         return RedirectResponse(
             public_url,
             status_code=302,
-            headers={"Cache-Control": "public, max-age=3600"},
+            headers={"Cache-Control": "public, max-age=604800, immutable"},
         )
 
     raise HTTPException(status_code=404, detail="Audio file not found")
