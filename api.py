@@ -173,7 +173,13 @@ def save_to_cache(word, result):
     conn.commit()
     conn.close()
 
-app = FastAPI()
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield  # 立即就绪，不等待任何初始化
+
+app = FastAPI(lifespan=lifespan)
 
 # Enable CORS
 _cors_origins_raw = (os.getenv("CORS_ALLOW_ORIGINS") or "").strip()
@@ -960,12 +966,6 @@ def _sync_background_init() -> None:
             logging.exception("Backfill last_active_at failed (non-fatal).")
     except Exception:
         pass
-
-
-# 后台线程做 schema 初始化，不经过任何 FastAPI 启动钩子，Render 秒起
-if SUPABASE_DB_ENABLED:
-    import threading
-    threading.Thread(target=_sync_background_init, daemon=True).start()
 
 
 def _get_user_ai_limit(user_id: str) -> Optional[int]:
@@ -4020,6 +4020,12 @@ async def serve_public_file(filename: str):
     if filename.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
         headers = {"Cache-Control": "public, max-age=604800, immutable"}
     return FileResponse(path, headers=headers)
+
+# 所有函数定义完成后，启动后台线程做 schema 初始化
+if SUPABASE_DB_ENABLED:
+    import threading
+    _bg_init_thread = threading.Thread(target=_sync_background_init, daemon=True)
+    _bg_init_thread.start()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT") or "8000")
