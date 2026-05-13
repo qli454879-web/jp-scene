@@ -3330,7 +3330,10 @@ async function startLearning() {
                     }
                 } else {
                     try {
-                        const res = await fetch(`/api/library/search?q=${encodeURIComponent(query)}&limit=30`);
+                        const ctl = new AbortController();
+                        const t = setTimeout(() => ctl.abort(), 8000);
+                        const res = await fetch(`/api/library/search?q=${encodeURIComponent(query)}&limit=30`, { signal: ctl.signal });
+                        clearTimeout(t);
                         const arr = await res.json().catch(() => null);
                         if (!res.ok) throw new Error((arr && (arr.detail || arr.error)) || 'LIBRARY_SEARCH_FAILED');
                         if (!Array.isArray(arr) || arr.length === 0) {
