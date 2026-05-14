@@ -58,40 +58,48 @@ _SEARCH_CACHE_MAX = 500
 # ── 内存词库缓存：搜索不访问数据库 ──
 _vocab_cache: list = []  # List[Dict] — 全量词库
 _vocab_cache_loaded_at: float = 0
+_vocab_cache_loading: bool = False
 _VOCAB_CACHE_TTL = 300  # 5 分钟自动刷新
 
 
 def _ensure_vocab_cache():
     """首次调用或过期时加载全量词库到内存，后续搜索纯内存匹配。"""
-    global _vocab_cache, _vocab_cache_loaded_at
+    global _vocab_cache, _vocab_cache_loaded_at, _vocab_cache_loading
     now_s = time.time()
     if _vocab_cache and (now_s - _vocab_cache_loaded_at) < _VOCAB_CACHE_TTL:
         return
+    # 防止并发请求同时加载
+    if _vocab_cache_loading:
+        return
+    _vocab_cache_loading = True
     try:
-        conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
-    except Exception:
-        return  # DB 不可达，保留旧缓存或返回空
-    try:
-        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            cur.execute(
-                """SELECT id, level, word, reading, meaning, mp3,
-                          pos, frequency,
-                          COALESCE(jsonb_array_length(examples), 0) AS examples_count,
-                          COALESCE(length(insight_text), 0) AS insight_len,
-                          image_url, is_ai_enriched, order_no
-                   FROM vocab_library"""
-            )
-            rows = cur.fetchall()
-            if rows:
-                _vocab_cache = rows
-                _vocab_cache_loaded_at = now_s
-    except Exception:
-        pass  # 查询失败，保留旧缓存
-    finally:
         try:
-            conn.close()
+            conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
         except Exception:
-            pass
+            return  # DB 不可达，保留旧缓存或返回空
+        try:
+            with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+                cur.execute(
+                    """SELECT id, level, word, reading, meaning, mp3,
+                              pos, frequency,
+                              COALESCE(jsonb_array_length(examples), 0) AS examples_count,
+                              COALESCE(length(insight_text), 0) AS insight_len,
+                              image_url, is_ai_enriched, order_no
+                       FROM vocab_library"""
+                )
+                rows = cur.fetchall()
+                if rows:
+                    _vocab_cache = rows
+                    _vocab_cache_loaded_at = now_s
+        except Exception:
+            pass  # 查询失败，保留旧缓存
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    finally:
+        _vocab_cache_loading = False
 
 
 def _invalidate_vocab_cache():
@@ -284,12 +292,7 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动时预加载词库到内存，避免首次搜索等待 DB 查询
-    if SUPABASE_DB_ENABLED:
-        try:
-            await asyncio.to_thread(_ensure_vocab_cache)
-        except Exception:
-            pass  # 首次请求时自动重试
+    # 词库懒加载：首次搜索时加载到内存，不阻塞启动
     yield
 
 app = FastAPI(lifespan=lifespan)
