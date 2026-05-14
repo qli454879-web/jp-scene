@@ -880,7 +880,7 @@ def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count
 
 
 def _ensure_invitation_codes_extra_columns() -> None:
-    """邀请码：支持"首次使用后 7 天内可重复登录，过期失效""""
+    """邀请码：支持'首次使用后 7 天内可重复登录，过期失效'"""
     if not SUPABASE_DB_ENABLED:
         return
     conn = _pg_conn()
