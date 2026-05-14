@@ -3445,6 +3445,9 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 else:
                     d["match_kind"] = "meaning_match"
                     d["match_rank"] = 4
+                    # 记录关键词在释义中的位置，越靠前越可能是定义
+                    m = str(d.get("meaning") or "").lower()
+                    d["_kw_pos"] = m.find(qq.lower())
                 ex = d.get("examples")
                 d["examples_count"] = len(ex) if isinstance(ex, list) else 0
                 d.pop("examples", None)
@@ -3491,10 +3494,11 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                     )
                 )
             else:
-                # 非纯假名：优先"内容更丰富的解析"（insight 更长）
+                # 非纯假名：word/reading 优先，meaning 按关键词位置排序
                 out.sort(
                     key=lambda x: (
                         int(x.get("match_rank") or 9),
+                        x.get("_kw_pos", 9999),
                         -len(str(x.get("insight_text") or "")),
                         -_int0(x.get("frequency")),
                         -_lv_rank(str(x.get("level") or "")),
@@ -3510,6 +3514,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         for d in out:
             d.pop("scene_deep_dive", None)
             d.pop("insight_text", None)
+            d.pop("_kw_pos", None)
         if _debug:
             in_rows = any(str(r.get("word") or "") == "食べる" for r in rows)
             in_out = any(str(r.get("word") or "") == "食べる" for r in out)
