@@ -3511,7 +3511,9 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
             d.pop("scene_deep_dive", None)
             d.pop("insight_text", None)
         if _debug:
-            return {"items": out, "_debug": {"enable_meaning": enable_meaning, "meaning_count": len(meaning_rows), "meaning_error": meaning_error, "meaning_first": [str(r.get("word") or "") for r in meaning_rows[:10]], "rows_total": len(rows)}}
+            in_rows = any(str(r.get("word") or "") == "食べる" for r in rows)
+            in_out = any(str(r.get("word") or "") == "食べる" for r in out)
+            return {"items": out, "_debug": {"enable_meaning": enable_meaning, "meaning_count": len(meaning_rows), "meaning_error": meaning_error, "meaning_first": [str(r.get("word") or "") for r in meaning_rows[:10]], "rows_total": len(rows), "taberu_in_rows": in_rows, "taberu_in_out": in_out}}
         return out
     finally:
         conn.close()
