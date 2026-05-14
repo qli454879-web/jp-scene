@@ -3241,13 +3241,16 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
     if not qq:
         return []
 
+    t0 = time.time()
     conn = _pg_conn()
+    t_conn = time.time() - t0
     try:
         # ── 两阶段搜索 ──
         # 第一阶段：word/reading 匹配（有 trigram 索引，始终快速）
         # 第二阶段：meaning 匹配（独立查询，有超时，按释义位置排序去噪）
         like_any = f"%{qq}%"
         like_prefix = f"{qq}%"
+        t1 = time.time()
         is_kana_only = _is_kana_only(qq)
         has_kana = bool(re.search(r"[\u3040-\u309f\u30a0-\u30ff\u30fc]", qq))
         chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", qq))
@@ -3368,6 +3371,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
             rows = cur.fetchall() or []
 
             # Python 排序代替 SQL ORDER BY（允许 PG 提前终止扫描）
+            t_phase1 = time.time() - t1
             if rows:
                 _LV = {"N5": 5, "N4": 4, "N3": 3, "N2": 2, "N1": 1}
                 def _lvl(r):
@@ -3434,6 +3438,8 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         if w and w not in wr_words:
                             rows.append(dict(r))
                             wr_words.add(w)
+
+            t_phase2 = time.time() - t1 - t_phase1
 
 
         def _build_out(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -3532,7 +3538,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         if _debug:
             in_rows = any(str(r.get("word") or "") == "食べる" for r in rows)
             in_out = any(str(r.get("word") or "") == "食べる" for r in out)
-            return {"items": out, "_debug": {"enable_meaning": enable_meaning, "meaning_count": len(meaning_rows), "meaning_error": meaning_error, "meaning_first": [str(r.get("word") or "") for r in meaning_rows[:10]], "rows_total": len(rows), "taberu_in_rows": in_rows, "taberu_in_out": in_out}}
+            return {"items": out, "_debug": {"t_conn": round(t_conn, 3), "t_phase1": round(t_phase1, 3), "t_phase2": round(t_phase2, 3), "t_total": round(time.time() - t0, 3), "enable_meaning": enable_meaning, "meaning_count": len(meaning_rows), "meaning_error": meaning_error, "meaning_first": [str(r.get("word") or "") for r in meaning_rows[:10]], "rows_total": len(rows), "taberu_in_rows": in_rows, "taberu_in_out": in_out}}
         return out
     finally:
         conn.close()
