@@ -23,7 +23,6 @@ import mimetypes
 from urllib.parse import urlparse, unquote
 import psycopg
 import psycopg.rows
-from psycopg_pool import ConnectionPool
 import uuid
 import string
 
@@ -240,18 +239,7 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _pool
-    if SUPABASE_DB_ENABLED:
-        _pool = ConnectionPool(
-            SUPABASE_DB_URL,
-            min_size=2,
-            max_size=10,
-            kwargs={"prepare_threshold": None, "connect_timeout": 5},
-        )
     yield
-    if _pool:
-        _pool.close()
-        _pool = None
 
 app = FastAPI(lifespan=lifespan)
 
@@ -377,44 +365,11 @@ def _moderate_forum_text(title: str, content: str) -> None:
             raise HTTPException(status_code=400, detail="论坛暂不允许发布不明外链，请删除链接后再发布（如需分享请用文字描述）。")
 
 
-# ── 连接池 ──
-_pool: ConnectionPool | None = None
-
-
-class _PooledConn:
-    """包装 psycopg 连接，使 .close() 归还到池而非真正关闭。
-
-    连接池模式下 40+ 个端点的 conn.close() 无需改动，底层自动归还。
-    """
-
-    def __init__(self, conn, pool):
-        self._conn = conn
-        self._pool = pool
-
-    def close(self):
-        try:
-            self._pool.putconn(self._conn)
-        except Exception:
-            try:
-                self._conn.close()
-            except Exception:
-                pass
-
-    def __getattr__(self, name):
-        return getattr(self._conn, name)
-
-
 def _pg_conn():
     if not SUPABASE_DB_ENABLED:
         raise HTTPException(status_code=500, detail="SUPABASE_DB_URL is not configured")
-    global _pool
-    if _pool is None:
-        # 冷启动快捷创建连接（池未初始化时退化到单连接）
-        conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
-    else:
-        conn = _pool.getconn()
+    conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
 
-    # 一次性"自动迁移"
     global _VOCAB_LIBRARY_SCHEMA_OK
     if not _VOCAB_LIBRARY_SCHEMA_OK:
         try:
@@ -430,8 +385,6 @@ def _pg_conn():
         except Exception:
             conn.rollback()
 
-    if _pool is not None:
-        return _PooledConn(conn, _pool)
     return conn
 
 
