@@ -3257,6 +3257,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             # 第一阶段：word/reading（无 meaning 分支，始终快）
             try:
+                # 无 ORDER BY — 让 PostgreSQL 利用 trigram 索引提前终止扫描，结果在 Python 中排序
                 cur.execute(
                     """
                     SELECT id, level, word, reading, meaning, mp3,
@@ -3271,18 +3272,6 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                       OR reading ILIKE %(prefix)s
                       OR (%(enable_contains)s AND word ILIKE %(like_any)s)
                       OR (%(enable_contains)s AND reading ILIKE %(like_any)s)
-                    ORDER BY
-                      CASE
-                        WHEN word = %(q)s THEN 0
-                        WHEN reading = %(q)s THEN 1
-                        WHEN word ILIKE %(prefix)s THEN 2
-                        WHEN reading ILIKE %(prefix)s THEN 3
-                        WHEN (%(enable_contains)s AND word ILIKE %(like_any)s) THEN 4
-                        WHEN (%(enable_contains)s AND reading ILIKE %(like_any)s) THEN 5
-                        ELSE 9
-                      END,
-                      level DESC,
-                      order_no ASC
                     LIMIT %(limit)s
                     """,
                     {
@@ -3377,6 +3366,29 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         },
                     )
             rows = cur.fetchall() or []
+
+            # Python 排序代替 SQL ORDER BY（允许 PG 提前终止扫描）
+            if rows:
+                _LV = {"N5": 5, "N4": 4, "N3": 3, "N2": 2, "N1": 1}
+                def _lvl(r):
+                    return _LV.get(str(r.get("level") or "").upper(), 0)
+                def _phase1_rank(r):
+                    w = str(r.get("word") or "")
+                    rn = str(r.get("reading") or "")
+                    if w == qq:
+                        return (0, -_lvl(r), int(r.get("order_no") or 0))
+                    if rn == qq:
+                        return (1, -_lvl(r), int(r.get("order_no") or 0))
+                    if w.startswith(qq):
+                        return (2, -_lvl(r), int(r.get("order_no") or 0))
+                    if rn.startswith(qq):
+                        return (3, -_lvl(r), int(r.get("order_no") or 0))
+                    if enable_contains and qq in w:
+                        return (4, -_lvl(r), int(r.get("order_no") or 0))
+                    if enable_contains and qq in rn:
+                        return (5, -_lvl(r), int(r.get("order_no") or 0))
+                    return (9, -_lvl(r), int(r.get("order_no") or 0))
+                rows.sort(key=_phase1_rank)
 
             # 第二阶段：meaning 匹配（独立查询，有超时，按释义位置排序去噪）
             meaning_rows = []
