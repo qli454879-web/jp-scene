@@ -12,3 +12,4 @@ python-jose[cryptography]==3.4.0
 python-multipart==0.0.22
 supabase>=2.0.0,<3.0.0
 psycopg[binary]==3.2.13
+psycopg_pool

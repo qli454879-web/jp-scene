@@ -23,6 +23,7 @@ import mimetypes
 from urllib.parse import urlparse, unquote
 import psycopg
 import psycopg.rows
+from psycopg_pool import ConnectionPool
 import uuid
 import string
 
@@ -48,6 +49,11 @@ ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "").strip()
 _PUBLIC_ANALYZE_WINDOW_SECONDS = 60
 _PUBLIC_ANALYZE_MAX_REQUESTS = 20
 _PUBLIC_ANALYZE_HITS: Dict[str, List[float]] = {}
+
+# 搜索缓存（进程内 TTL）
+_search_cache: Dict[Tuple[str, int], Tuple[float, list]] = {}
+_SEARCH_CACHE_TTL = 120  # seconds
+_SEARCH_CACHE_MAX = 500
 
 # 简体→日文常用汉字映射（可按需要持续扩充；避免引入冷门第三方库）
 # 目标：让用户输入简体（如"强/强化"）也能命中日文词条（如"強/強化"）
@@ -234,7 +240,18 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield  # 立即就绪，不等待任何初始化
+    global _pool
+    if SUPABASE_DB_ENABLED:
+        _pool = ConnectionPool(
+            SUPABASE_DB_URL,
+            min_size=2,
+            max_size=10,
+            kwargs={"prepare_threshold": None, "connect_timeout": 5},
+        )
+    yield
+    if _pool:
+        _pool.close()
+        _pool = None
 
 app = FastAPI(lifespan=lifespan)
 
@@ -360,16 +377,44 @@ def _moderate_forum_text(title: str, content: str) -> None:
             raise HTTPException(status_code=400, detail="论坛暂不允许发布不明外链，请删除链接后再发布（如需分享请用文字描述）。")
 
 
+# ── 连接池 ──
+_pool: ConnectionPool | None = None
+
+
+class _PooledConn:
+    """包装 psycopg 连接，使 .close() 归还到池而非真正关闭。
+
+    连接池模式下 40+ 个端点的 conn.close() 无需改动，底层自动归还。
+    """
+
+    def __init__(self, conn, pool):
+        self._conn = conn
+        self._pool = pool
+
+    def close(self):
+        try:
+            self._pool.putconn(self._conn)
+        except Exception:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
 def _pg_conn():
     if not SUPABASE_DB_ENABLED:
         raise HTTPException(status_code=500, detail="SUPABASE_DB_URL is not configured")
-    # Supabase 的 pooler（尤其是 transaction/session pooler）可能复用后端连接，
-    # 若启用 prepared statements，可能出现 DuplicatePreparedStatement（_pg3_0 already exists）。
-    # psycopg3 正确的禁用方式是 prepare_threshold=None（0 反而代表"每次都 prepare"）。
-    conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+    global _pool
+    if _pool is None:
+        # 冷启动快捷创建连接（池未初始化时退化到单连接）
+        conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+    else:
+        conn = _pool.getconn()
 
-    # 需要兼容 N3/N4 新增字段：pos / frequency / examples
-    # 做一次性"自动迁移"，避免上线后列缺失导致查询报错。
+    # 一次性"自动迁移"
     global _VOCAB_LIBRARY_SCHEMA_OK
     if not _VOCAB_LIBRARY_SCHEMA_OK:
         try:
@@ -385,6 +430,8 @@ def _pg_conn():
         except Exception:
             conn.rollback()
 
+    if _pool is not None:
+        return _PooledConn(conn, _pool)
     return conn
 
 
@@ -2926,51 +2973,27 @@ def _library_fetch_by_slug(conn, slug: str) -> Optional[Dict[str, Any]]:
                 (slug,),
             )
         else:
-            # 1) 优先精确匹配：日语原形
+            # 单次查询完成 word/reading 精确匹配 + meaning 模糊匹配
+            like = f"%{slug}%"
             cur.execute(
                 """
                 SELECT id, level, word, reading, meaning, mp3,
                        pos, frequency, examples,
                        social_context, heatmap_data, insight_text, image_url, is_ai_enriched, order_no
                 FROM vocab_library
-                WHERE word=%s
-                ORDER BY level DESC, order_no ASC
+                WHERE word = %(slug)s OR reading = %(slug)s OR meaning ILIKE %(like)s
+                ORDER BY
+                  CASE
+                    WHEN word = %(slug)s THEN 1
+                    WHEN reading = %(slug)s THEN 2
+                    ELSE 3
+                  END,
+                  level DESC, order_no ASC
                 LIMIT 1
                 """,
-                (slug,),
+                {"slug": slug, "like": like},
             )
             row = cur.fetchone()
-            if not row:
-                # 2) 精确匹配：假名（reading）
-                cur.execute(
-                    """
-                    SELECT id, level, word, reading, meaning, mp3,
-                           pos, frequency, examples,
-                           social_context, heatmap_data, insight_text, image_url, is_ai_enriched, order_no
-                    FROM vocab_library
-                    WHERE reading=%s
-                    ORDER BY level DESC, order_no ASC
-                    LIMIT 1
-                    """,
-                    (slug,),
-                )
-                row = cur.fetchone()
-            if not row:
-                # 3) 中文/关键词：匹配释义（meaning）模糊搜索
-                like = f"%{slug}%"
-                cur.execute(
-                    """
-                    SELECT id, level, word, reading, meaning, mp3,
-                           pos, frequency, examples,
-                           social_context, heatmap_data, insight_text, image_url, is_ai_enriched, order_no
-                    FROM vocab_library
-                    WHERE meaning ILIKE %s
-                    ORDER BY level DESC, order_no ASC
-                    LIMIT 1
-                    """,
-                    (like,),
-                )
-                row = cur.fetchone()
             if not row:
                 return None
             return dict(row)
@@ -3302,6 +3325,16 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
     if not qq:
         return []
 
+    # 进程内搜索缓存（1 分钟有效）
+    cache_key = (qq.lower(), int(limit))
+    now_s = time.time()
+    entry = _search_cache.get(cache_key)
+    if entry is not None:
+        expires, cached = entry
+        if now_s < expires:
+            return cached
+        del _search_cache[cache_key]
+
     t0 = time.time()
     conn = _pg_conn()
     t_conn = time.time() - t0
@@ -3322,18 +3355,21 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         has_jp_variant = qq_j != qq
         prefix_j = f"{qq_j}%"
         like_any_j = f"%{qq_j}%"
-        fetch_limit = max(int(limit) * 8, 100)
+        fetch_limit = max(int(limit) * 3, 50)
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             # 第一阶段：word/reading（无 meaning 分支，始终快）
             try:
-                # 无 ORDER BY — 让 PostgreSQL 利用 trigram 索引提前终止扫描，结果在 Python 中排序
-                cur.execute(
-                    """
-                    SELECT id, level, word, reading, meaning, mp3,
-                           pos, frequency, examples,
-                           image_url, is_ai_enriched, order_no,
-                           insight_text
-                    FROM vocab_library
+                cur.execute("SET statement_timeout = '5s'")
+                try:
+                    # 无 ORDER BY — 让 PostgreSQL 利用 trigram 索引提前终止扫描，结果在 Python 中排序
+                    cur.execute(
+                        """
+                        SELECT id, level, word, reading, meaning, mp3,
+                               pos, frequency,
+                               COALESCE(jsonb_array_length(examples), 0) AS examples_count,
+                               COALESCE(length(insight_text), 0) AS insight_len,
+                               image_url, is_ai_enriched, order_no
+                        FROM vocab_library
                     WHERE
                       word = %(q)s
                       OR reading = %(q)s
@@ -3361,6 +3397,11 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         "like_any_j": like_any_j,
                     },
                 )
+                finally:
+                    try:
+                        cur.execute("RESET statement_timeout")
+                    except Exception:
+                        pass
             except Exception:
                 try:
                     conn.rollback()
@@ -3371,9 +3412,10 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                     cur.execute(
                         """
                         SELECT id, level, word, reading, meaning, mp3,
-                               pos, frequency, examples,
-                               image_url, is_ai_enriched, order_no,
-                               insight_text
+                               pos, frequency,
+                               COALESCE(jsonb_array_length(examples), 0) AS examples_count,
+                               COALESCE(length(insight_text), 0) AS insight_len,
+                               image_url, is_ai_enriched, order_no
                         FROM vocab_library
                         WHERE
                           word = %(q)s
@@ -3422,7 +3464,8 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                     cur.execute(
                         """
                         SELECT id, level, word, reading, meaning, mp3,
-                               pos, frequency, examples,
+                               pos, frequency,
+                               COALESCE(jsonb_array_length(examples), 0) AS examples_count,
                                image_url, is_ai_enriched, order_no
                         FROM vocab_library
                         WHERE
@@ -3515,9 +3558,10 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         cur.execute(
                             """
                             SELECT id, level, word, reading, meaning, mp3,
-                                   pos, frequency, examples,
-                                   image_url, is_ai_enriched, order_no,
-                                   insight_text
+                                   pos, frequency,
+                                   COALESCE(jsonb_array_length(examples), 0) AS examples_count,
+                                   COALESCE(length(insight_text), 0) AS insight_len,
+                                   image_url, is_ai_enriched, order_no
                             FROM vocab_library
                             WHERE meaning ILIKE %(like_any)s
                             LIMIT %(meaning_limit)s
@@ -3588,9 +3632,6 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                     d["match_kind"] = "meaning_match"
                     d["match_rank"] = 6
                     d["_kw_pos"] = pos
-                ex = d.get("examples")
-                d["examples_count"] = len(ex) if isinstance(ex, list) else 0
-                d.pop("examples", None)
                 out_local.append(d)
             return out_local
 
@@ -3604,9 +3645,8 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 return m.get((lv or "").upper(), 0)
 
             def _score(d: Dict[str, Any]) -> Tuple[int, int, int, int]:
-                ins = str(d.get("insight_text") or "")
                 return (
-                    len(ins),
+                    int(d.get("insight_len") or 0),
                     1 if bool(d.get("is_ai_enriched") or False) else 0,
                     _int0(d.get("frequency")),
                     _lv_rank(str(d.get("level") or "")),
@@ -3629,7 +3669,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         int(x.get("match_rank", 9)),
                         -_int0(x.get("frequency")),
                         len(str(x.get("word") or "")),
-                        -len(str(x.get("insight_text") or "")),
+                        -int(x.get("insight_len") or 0),
                         -_lv_rank(str(x.get("level") or "")),
                         str(x.get("word") or ""),
                     )
@@ -3644,7 +3684,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         x.get("_kw_pos", 9999),
                         -_int0(x.get("frequency")),
                         len(str(x.get("word") or "")),
-                        -len(str(x.get("insight_text") or "")),
+                        -int(x.get("insight_len") or 0),
                         -_lv_rank(str(x.get("level") or "")),
                         str(x.get("word") or ""),
                     )
@@ -3657,12 +3697,18 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         # 列表接口不返回大字段，详情页再取
         for d in out:
             d.pop("scene_deep_dive", None)
-            d.pop("insight_text", None)
+            d.pop("insight_len", None)
             d.pop("_kw_pos", None)
         if _debug:
             in_rows = any(str(r.get("word") or "") == "食べる" for r in rows)
             in_out = any(str(r.get("word") or "") == "食べる" for r in out)
             return {"items": out, "_debug": {"t_conn": round(t_conn, 3), "t_phase1": round(t_phase1, 3), "t_phase2": round(t_phase2, 3), "t_total": round(time.time() - t0, 3), "enable_meaning": enable_meaning, "meaning_count": len(meaning_rows), "meaning_error": meaning_error, "meaning_first": [str(r.get("word") or "") for r in meaning_rows[:10]], "rows_total": len(rows), "taberu_in_rows": in_rows, "taberu_in_out": in_out}}
+        # 存入进程内缓存
+        _search_cache[cache_key] = (now_s + _SEARCH_CACHE_TTL, out)
+        if len(_search_cache) > _SEARCH_CACHE_MAX:
+            stale = [k for k, (exp, _) in _search_cache.items() if now_s >= exp]
+            for k in stale:
+                _search_cache.pop(k, None)
         return out
     finally:
         conn.close()
