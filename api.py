@@ -3243,22 +3243,18 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
 
     conn = _pg_conn()
     try:
-        # 性能优化：大型词库上 "%xxx%" 的 ILIKE 会很慢。
-        # - 日文/假名：优先精确 + 前缀匹配（可走索引）
-        # - 仅当输入较长时才启用包含匹配
-        # - 中文释义匹配仅在输入包含中文时启用（否则会扫全表）
+        # ── 两阶段搜索 ──
+        # 第一阶段：word/reading 匹配（有 trigram 索引，始终快速）
+        # 第二阶段：meaning 匹配（独立查询，有超时，按释义位置排序去噪）
         like_any = f"%{qq}%"
         like_prefix = f"{qq}%"
         enable_contains = len(qq) >= 3
-        # 纯假名输入：不要做中文释义模糊匹配，否则会引入大量无关候选（例如"いる"不该匹配到"僧"）
         is_kana_only = _is_kana_only(qq)
-        # 3+ \u4e2d\u6587\u5b57\u7b26\u624d\u641c\u91ca\u4e49\uff08\u907f\u514d 1-2 \u5b57\u5982\u300c\u5403\u300d\u300c\u5403\u996d\u300d\u89e6\u53d1 meaning \u5168\u8868\u626b\u63cf\u5bfc\u81f4 10s+ \u767d\u5c4f\uff09
         chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", qq))
-        enable_meaning = (not is_kana_only) and chinese_chars >= 3
+        enable_meaning = (not is_kana_only) and chinese_chars >= 1
         fetch_limit = max(int(limit) * 8, 80)
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            # 设 5s 超时：meaning ILIKE 无 trigram 索引可能全表扫描 10s+
-            # 超时自动降级为 word/reading 快速查询，避免白屏
+            # 第一阶段：word/reading（无 meaning 分支，始终快）
             try:
                 cur.execute("SET LOCAL statement_timeout = '5s'")
                 cur.execute(
@@ -3275,7 +3271,6 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                       OR reading ILIKE %(prefix)s
                       OR (%(enable_contains)s AND word ILIKE %(like_any)s)
                       OR (%(enable_contains)s AND reading ILIKE %(like_any)s)
-                      OR (%(enable_meaning)s AND meaning ILIKE %(like_any)s)
                     ORDER BY
                       CASE
                         WHEN word = %(q)s THEN 0
@@ -3284,7 +3279,6 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         WHEN reading ILIKE %(prefix)s THEN 3
                         WHEN (%(enable_contains)s AND word ILIKE %(like_any)s) THEN 4
                         WHEN (%(enable_contains)s AND reading ILIKE %(like_any)s) THEN 5
-                        WHEN (%(enable_meaning)s AND meaning ILIKE %(like_any)s) THEN 6
                         ELSE 9
                       END,
                       level DESC,
@@ -3296,12 +3290,10 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         "prefix": like_prefix,
                         "like_any": like_any,
                         "enable_contains": enable_contains,
-                        "enable_meaning": enable_meaning,
                         "limit": fetch_limit,
                     },
                 )
             except Exception:
-                # 超时或其它错误 → rollback 后降级为快速查询（无 meaning ILIKE）
                 try:
                     conn.rollback()
                 except Exception:
@@ -3349,46 +3341,86 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         conn.rollback()
                     except Exception:
                         pass
-                    # 最终降级：旧查询（无 insight_text）
                     cur.execute(
                         """
                         SELECT id, level, word, reading, meaning, mp3,
                                pos, frequency, examples,
                                image_url, is_ai_enriched, order_no
                         FROM vocab_library
-                    WHERE
-                      word = %(q)s
-                      OR reading = %(q)s
-                      OR word ILIKE %(prefix)s
-                      OR reading ILIKE %(prefix)s
-                      OR (%(enable_contains)s AND word ILIKE %(like_any)s)
-                      OR (%(enable_contains)s AND reading ILIKE %(like_any)s)
-                      OR (%(enable_meaning)s AND meaning ILIKE %(like_any)s)
-                    ORDER BY
-                      CASE
-                        WHEN word = %(q)s THEN 0
-                        WHEN reading = %(q)s THEN 1
-                        WHEN word ILIKE %(prefix)s THEN 2
-                        WHEN reading ILIKE %(prefix)s THEN 3
-                        WHEN (%(enable_contains)s AND word ILIKE %(like_any)s) THEN 4
-                        WHEN (%(enable_contains)s AND reading ILIKE %(like_any)s) THEN 5
-                        WHEN (%(enable_meaning)s AND meaning ILIKE %(like_any)s) THEN 6
-                        ELSE 9
-                      END,
-                      level DESC,
-                      order_no ASC
-                    LIMIT %(limit)s
-                    """,
-                    {
-                        "q": qq,
-                        "prefix": like_prefix,
-                        "like_any": like_any,
-                        "enable_contains": enable_contains,
-                        "enable_meaning": enable_meaning,
-                        "limit": fetch_limit,
-                    },
-                )
+                        WHERE
+                          word = %(q)s
+                          OR reading = %(q)s
+                          OR word ILIKE %(prefix)s
+                          OR reading ILIKE %(prefix)s
+                          OR (%(enable_contains)s AND word ILIKE %(like_any)s)
+                          OR (%(enable_contains)s AND reading ILIKE %(like_any)s)
+                        ORDER BY
+                          CASE
+                            WHEN word = %(q)s THEN 0
+                            WHEN reading = %(q)s THEN 1
+                            WHEN word ILIKE %(prefix)s THEN 2
+                            WHEN reading ILIKE %(prefix)s THEN 3
+                            WHEN (%(enable_contains)s AND word ILIKE %(like_any)s) THEN 4
+                            WHEN (%(enable_contains)s AND reading ILIKE %(like_any)s) THEN 5
+                            ELSE 9
+                          END,
+                          level DESC,
+                          order_no ASC
+                        LIMIT %(limit)s
+                        """,
+                        {
+                            "q": qq,
+                            "prefix": like_prefix,
+                            "like_any": like_any,
+                            "enable_contains": enable_contains,
+                            "limit": fetch_limit,
+                        },
+                    )
             rows = cur.fetchall() or []
+
+            # 第二阶段：meaning 匹配（独立查询，有超时，按释义位置排序去噪）
+            if enable_meaning:
+                meaning_rows = []
+                try:
+                    cur.execute("SET LOCAL statement_timeout = '3s'")
+                    cur.execute(
+                        """
+                        SELECT id, level, word, reading, meaning, mp3,
+                               pos, frequency, examples,
+                               image_url, is_ai_enriched, order_no,
+                               insight_text,
+                               strpos(lower(meaning), lower(%(q)s)) AS kw_pos
+                        FROM vocab_library
+                        WHERE meaning ILIKE %(like_any)s
+                        ORDER BY
+                          strpos(lower(meaning), lower(%(q)s)),
+                          level DESC,
+                          order_no ASC
+                        LIMIT %(meaning_limit)s
+                        """,
+                        {
+                            "q": qq,
+                            "like_any": like_any,
+                            "meaning_limit": min(int(limit) * 2, 40),
+                        },
+                    )
+                    meaning_rows = cur.fetchall() or []
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                # 合并：word/reading 在前，meaning 在后，去重
+                if meaning_rows:
+                    wr_words = {str(r.get("word") or "").strip() for r in rows}
+                    for r in meaning_rows:
+                        w = str(r.get("word") or "").strip()
+                        if w and w not in wr_words:
+                            d = dict(r)
+                            d.pop("kw_pos", None)
+                            rows.append(d)
+                            wr_words.add(w)
+
 
         def _build_out(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             out_local: List[Dict[str, Any]] = []
