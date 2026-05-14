@@ -3400,7 +3400,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                             {
                                 "q": qq,
                                 "like_any": like_any,
-                                "meaning_limit": min(int(limit) * 8, 200),
+                                "meaning_limit": min(int(limit) * 10, 500),
                             },
                         )
                     meaning_rows = cur.fetchall() or []
