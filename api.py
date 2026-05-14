@@ -3228,7 +3228,7 @@ async def get_library_word(slug: str = Query(...)):
 
 
 @app.get("/api/library/search")
-async def search_library(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=50)):
+async def search_library(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=50), _debug: int = Query(0, ge=0, le=1)):
     """
     词库搜索：
     - 支持日语：word / reading 精确匹配、模糊匹配
@@ -3379,8 +3379,9 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
             rows = cur.fetchall() or []
 
             # 第二阶段：meaning 匹配（独立查询，有超时，按释义位置排序去噪）
+            meaning_rows = []
+            meaning_error = None
             if enable_meaning:
-                meaning_rows = []
                 try:
                     # SET LOCAL requires an explicit transaction in psycopg 3
                     # (autocommit=on makes each execute a separate transaction)
@@ -3404,7 +3405,8 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                             },
                         )
                     meaning_rows = cur.fetchall() or []
-                except Exception:
+                except Exception as e:
+                    meaning_error = str(e)[:200]
                     try:
                         conn.rollback()
                     except Exception:
@@ -3509,6 +3511,8 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         for d in out:
             d.pop("scene_deep_dive", None)
             d.pop("insight_text", None)
+        if _debug:
+            return {"items": out, "_debug": {"enable_meaning": enable_meaning, "meaning_count": len(meaning_rows), "meaning_error": meaning_error}}
         return out
     finally:
         conn.close()
