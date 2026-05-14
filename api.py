@@ -4007,7 +4007,7 @@ async def enrich_library_word(slug: str = Body(..., embed=True)):
 @app.get("/api/healthz")
 async def healthz():
     """轻量健康检查：不依赖数据库/外部网络。"""
-    return {"ok": True}
+    return {"ok": True, "v": "two-phase-v3"}
 
 
 def _read_local_file(filename: str) -> str:
