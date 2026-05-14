@@ -3475,8 +3475,10 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 def _phase1_rank(r):
                     w = str(r.get("word") or "")
                     rn = str(r.get("reading") or "")
-                    if w == qq or (has_jp_variant and w == qq_j):
+                    if w == qq:
                         return (0, -_lvl(r), int(r.get("order_no") or 0))
+                    if has_jp_variant and w == qq_j:
+                        return (2, -_lvl(r), int(r.get("order_no") or 0))
                     if rn == qq or (has_jp_variant and rn == qq_j):
                         return (1, -_lvl(r), int(r.get("order_no") or 0))
                     # JP variant prefix/contains ranks ahead of original (more relevant)
@@ -3555,9 +3557,12 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 # 前端用于"是否直接跳转/是否需要候选列表"的判断
                 w = str(d.get("word") or "")
                 rd = str(d.get("reading") or "")
-                if w == qq or (has_jp_variant and w == qq_j):
+                if w == qq:
                     d["match_kind"] = "word_exact"
                     d["match_rank"] = 0
+                elif has_jp_variant and w == qq_j:
+                    d["match_kind"] = "word_exact"
+                    d["match_rank"] = 2
                 elif rd == qq or (has_jp_variant and rd == qq_j):
                     d["match_kind"] = "reading_exact"
                     d["match_rank"] = 1
