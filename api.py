@@ -3628,6 +3628,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                     key=lambda x: (
                         int(x.get("match_rank", 9)),
                         -_int0(x.get("frequency")),
+                        len(str(x.get("word") or "")),
                         -len(str(x.get("insight_text") or "")),
                         -_lv_rank(str(x.get("level") or "")),
                         str(x.get("word") or ""),
@@ -3642,6 +3643,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         else int(x.get("match_rank", 9)),
                         x.get("_kw_pos", 9999),
                         -_int0(x.get("frequency")),
+                        len(str(x.get("word") or "")),
                         -len(str(x.get("insight_text") or "")),
                         -_lv_rank(str(x.get("level") or "")),
                         str(x.get("word") or ""),
