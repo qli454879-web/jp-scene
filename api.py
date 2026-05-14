@@ -3359,10 +3359,8 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             # 第一阶段：word/reading（无 meaning 分支，始终快）
             try:
-                cur.execute("SET statement_timeout = '5s'")
-                try:
-                    # 无 ORDER BY — 让 PostgreSQL 利用 trigram 索引提前终止扫描，结果在 Python 中排序
-                    cur.execute(
+                # 无 ORDER BY — 让 PostgreSQL 利用 trigram 索引提前终止扫描，结果在 Python 中排序
+                cur.execute(
                         """
                         SELECT id, level, word, reading, meaning, mp3,
                                pos, frequency,
@@ -3397,11 +3395,6 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         "like_any_j": like_any_j,
                     },
                 )
-                finally:
-                    try:
-                        cur.execute("RESET statement_timeout")
-                    except Exception:
-                        pass
             except Exception:
                 try:
                     conn.rollback()
