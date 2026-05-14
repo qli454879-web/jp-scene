@@ -3486,7 +3486,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 # 纯假名：优先"最常用"（frequency 高），"要る/居る"应排在前面
                 out.sort(
                     key=lambda x: (
-                        int(x.get("match_rank") or 9),
+                        int(x.get("match_rank", 9)),
                         -_int0(x.get("frequency")),
                         -len(str(x.get("insight_text") or "")),
                         -_lv_rank(str(x.get("level") or "")),
@@ -3497,7 +3497,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 # 非纯假名：word/reading 优先，meaning 按关键词位置排序
                 out.sort(
                     key=lambda x: (
-                        int(x.get("match_rank") or 9),
+                        int(x.get("match_rank", 9)),
                         x.get("_kw_pos", 9999),
                         -len(str(x.get("insight_text") or "")),
                         -_int0(x.get("frequency")),
