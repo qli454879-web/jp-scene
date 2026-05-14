@@ -3354,8 +3354,8 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         is_kana_only = _is_kana_only(qq)
         has_kana = bool(re.search(r"[\u3040-\u309f\u30a0-\u30ff\u30fc]", qq))
         chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", qq))
-        enable_contains = len(qq) >= 3 or chinese_chars >= 2
-        enable_meaning = (not has_kana) and chinese_chars >= 2
+        enable_contains = len(qq) >= 3 or chinese_chars >= 1
+        enable_meaning = (not has_kana) and chinese_chars >= 1
         # 中文 → 日文汉字映射（搜"吃"也能命中 食べる）
         qq_j = _map_s2j(qq)
         has_jp_variant = qq_j != qq
@@ -3378,19 +3378,26 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         WHERE
                           word = %(q)s
                           OR reading = %(q)s
+                          OR word ILIKE %(prefix)s
+                          OR reading ILIKE %(prefix)s
                           OR (%(has_jp)s AND word = %(q_j)s)
                           OR (%(has_jp)s AND reading = %(q_j)s)
-                          OR ({expr}) ILIKE %(like_any)s
-                          OR (%(has_jp)s AND {expr} ILIKE %(like_any_j)s)
+                          OR (%(has_jp)s AND word ILIKE %(prefix_j)s)
+                          OR (%(has_jp)s AND reading ILIKE %(prefix_j)s)
+                          OR (%(enable_contains)s AND ({expr}) ILIKE %(like_any)s)
+                          OR (%(has_jp)s AND %(enable_contains)s AND ({expr}) ILIKE %(like_any_j)s)
                         LIMIT %(limit)s
                         """
                     ).format(expr=_SEARCH_EXPR),
                     {
                         "q": qq,
+                        "prefix": like_prefix,
                         "like_any": like_any,
+                        "enable_contains": enable_contains,
                         "limit": fetch_limit,
                         "has_jp": has_jp_variant,
                         "q_j": qq_j,
+                        "prefix_j": prefix_j,
                         "like_any_j": like_any_j,
                     },
                 )
@@ -3413,19 +3420,27 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         WHERE
                           word = %(q)s
                           OR reading = %(q)s
+                          OR word ILIKE %(prefix)s
+                          OR reading ILIKE %(prefix)s
                           OR (%(has_jp)s AND word = %(q_j)s)
                           OR (%(has_jp)s AND reading = %(q_j)s)
-                          OR ({expr}) ILIKE %(like_any)s
-                          OR (%(has_jp)s AND {expr} ILIKE %(like_any_j)s)
+                          OR (%(has_jp)s AND word ILIKE %(prefix_j)s)
+                          OR (%(has_jp)s AND reading ILIKE %(prefix_j)s)
+                          OR (%(enable_contains)s AND ({expr}) ILIKE %(like_any)s)
+                          OR (%(has_jp)s AND %(enable_contains)s AND ({expr}) ILIKE %(like_any_j)s)
                         ORDER BY
                           CASE
                             WHEN word = %(q)s THEN 0
                             WHEN reading = %(q)s THEN 1
-                            WHEN (%(has_jp)s AND word = %(q_j)s) THEN 2
-                            WHEN (%(has_jp)s AND reading = %(q_j)s) THEN 3
-                            WHEN ({expr}) ILIKE %(like_any)s THEN 4
-                            WHEN (%(has_jp)s AND {expr} ILIKE %(like_any_j)s) THEN 5
-                            ELSE 9
+                            WHEN word ILIKE %(prefix)s THEN 2
+                            WHEN reading ILIKE %(prefix)s THEN 3
+                            WHEN (%(has_jp)s AND word = %(q_j)s) THEN 4
+                            WHEN (%(has_jp)s AND reading = %(q_j)s) THEN 5
+                            WHEN (%(has_jp)s AND word ILIKE %(prefix_j)s) THEN 6
+                            WHEN (%(has_jp)s AND reading ILIKE %(prefix_j)s) THEN 7
+                            WHEN (%(enable_contains)s AND ({expr}) ILIKE %(like_any)s) THEN 8
+                            WHEN (%(has_jp)s AND %(enable_contains)s AND ({expr}) ILIKE %(like_any_j)s) THEN 9
+                            ELSE 10
                           END,
                           level DESC,
                           order_no ASC
@@ -3434,10 +3449,13 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         ).format(expr=_SEARCH_EXPR),
                     {
                         "q": qq,
+                        "prefix": like_prefix,
                         "like_any": like_any,
+                        "enable_contains": enable_contains,
                         "limit": fetch_limit,
                         "has_jp": has_jp_variant,
                         "q_j": qq_j,
+                        "prefix_j": prefix_j,
                         "like_any_j": like_any_j,
                     },
                 )
@@ -3457,19 +3475,27 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         WHERE
                           word = %(q)s
                           OR reading = %(q)s
+                          OR word ILIKE %(prefix)s
+                          OR reading ILIKE %(prefix)s
                           OR (%(has_jp)s AND word = %(q_j)s)
                           OR (%(has_jp)s AND reading = %(q_j)s)
-                          OR ({expr}) ILIKE %(like_any)s
-                          OR (%(has_jp)s AND {expr} ILIKE %(like_any_j)s)
+                          OR (%(has_jp)s AND word ILIKE %(prefix_j)s)
+                          OR (%(has_jp)s AND reading ILIKE %(prefix_j)s)
+                          OR (%(enable_contains)s AND ({expr}) ILIKE %(like_any)s)
+                          OR (%(has_jp)s AND %(enable_contains)s AND ({expr}) ILIKE %(like_any_j)s)
                         ORDER BY
                           CASE
                             WHEN word = %(q)s THEN 0
                             WHEN reading = %(q)s THEN 1
-                            WHEN (%(has_jp)s AND word = %(q_j)s) THEN 2
-                            WHEN (%(has_jp)s AND reading = %(q_j)s) THEN 3
-                            WHEN ({expr}) ILIKE %(like_any)s THEN 4
-                            WHEN (%(has_jp)s AND {expr} ILIKE %(like_any_j)s) THEN 5
-                            ELSE 9
+                            WHEN word ILIKE %(prefix)s THEN 2
+                            WHEN reading ILIKE %(prefix)s THEN 3
+                            WHEN (%(has_jp)s AND word = %(q_j)s) THEN 4
+                            WHEN (%(has_jp)s AND reading = %(q_j)s) THEN 5
+                            WHEN (%(has_jp)s AND word ILIKE %(prefix_j)s) THEN 6
+                            WHEN (%(has_jp)s AND reading ILIKE %(prefix_j)s) THEN 7
+                            WHEN (%(enable_contains)s AND ({expr}) ILIKE %(like_any)s) THEN 8
+                            WHEN (%(has_jp)s AND %(enable_contains)s AND ({expr}) ILIKE %(like_any_j)s) THEN 9
+                            ELSE 10
                           END,
                           level DESC,
                           order_no ASC
@@ -3478,10 +3504,13 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         ).format(expr=_SEARCH_EXPR),
                     {
                         "q": qq,
+                        "prefix": like_prefix,
                         "like_any": like_any,
+                        "enable_contains": enable_contains,
                         "limit": fetch_limit,
                         "has_jp": has_jp_variant,
                         "q_j": qq_j,
+                        "prefix_j": prefix_j,
                         "like_any_j": like_any_j,
                     },
                 )
@@ -3562,11 +3591,8 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 else:
                     m = str(d.get("meaning") or "").lower()
                     pos = m.find(qq.lower())
-                    # 关键词出现在释义 50 字符之后 → 基本是例句噪声，过滤掉
-                    if pos > 50:
-                        continue
                     d["match_kind"] = "meaning_match"
-                    d["match_rank"] = 6
+                    d["match_rank"] = 6 if pos <= 50 else 8
                     d["_kw_pos"] = pos
                 out_local.append(d)
             return out_local
