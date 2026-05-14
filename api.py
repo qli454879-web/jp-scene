@@ -50,10 +50,10 @@ _PUBLIC_ANALYZE_MAX_REQUESTS = 20
 _PUBLIC_ANALYZE_HITS: Dict[str, List[float]] = {}
 
 # 简体→日文常用汉字映射（可按需要持续扩充；避免引入冷门第三方库）
-# 目标：让用户输入简体（如“强/强化”）也能命中日文词条（如“強/強化”）
+# 目标：让用户输入简体（如"强/强化"）也能命中日文词条（如"強/強化"）
 S2J_KANJI_MAP: Dict[str, str] = {
     "强": "強",
-    "来": "来",  # 兼容：日文常用也是“来”（繁体为“來”）
+    "来": "来",  # 兼容：日文常用也是"来"（繁体为"來"）
     "习": "習",
     "学": "学",
     "说": "說",
@@ -256,7 +256,7 @@ FORUM_ALLOW_LINK_DOMAINS = [d.strip().lower() for d in (os.getenv("FORUM_ALLOW_L
 
 def _normalize_cn_text(s: str) -> str:
     t = (s or "").lower()
-    t = re.sub(r"[\s\r\n\t\-_，。,.!！?？;；:：/\\|@#￥$%^&*()（）\[\]{}<>《》\"“”'‘’]+", "", t)
+    t = re.sub(r"[\s\r\n\t\-_，。,.!！?？;；:：/\\|@#￥$%^&*()（）\[\]{}<>《》\"""''']+", "", t)
     return t
 
 
@@ -308,11 +308,11 @@ def _pg_conn():
         raise HTTPException(status_code=500, detail="SUPABASE_DB_URL is not configured")
     # Supabase 的 pooler（尤其是 transaction/session pooler）可能复用后端连接，
     # 若启用 prepared statements，可能出现 DuplicatePreparedStatement（_pg3_0 already exists）。
-    # psycopg3 正确的禁用方式是 prepare_threshold=None（0 反而代表“每次都 prepare”）。
+    # psycopg3 正确的禁用方式是 prepare_threshold=None（0 反而代表"每次都 prepare"）。
     conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
 
     # 需要兼容 N3/N4 新增字段：pos / frequency / examples
-    # 做一次性“自动迁移”，避免上线后列缺失导致查询报错。
+    # 做一次性"自动迁移"，避免上线后列缺失导致查询报错。
     global _VOCAB_LIBRARY_SCHEMA_OK
     if not _VOCAB_LIBRARY_SCHEMA_OK:
         try:
@@ -653,7 +653,7 @@ def _build_daily_task_queue_pg(user_id: str, level: str, daily_new_count: int) -
             review_rows = cur.fetchall()
             due_count = len(review_rows)
 
-            # 如果今天没有到期复习词，仍优先给用户一批“学过的词”做开场复习，
+            # 如果今天没有到期复习词，仍优先给用户一批"学过的词"做开场复习，
             # 避免一进入背词就直接开始新词。
             if len(review_rows) < review_limit:
                 cur.execute(
@@ -880,7 +880,7 @@ def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count
 
 
 def _ensure_invitation_codes_extra_columns() -> None:
-    """邀请码：支持“首次使用后 7 天内可重复登录，过期失效”"""
+    """邀请码：支持"首次使用后 7 天内可重复登录，过期失效""""
     if not SUPABASE_DB_ENABLED:
         return
     conn = _pg_conn()
@@ -1259,7 +1259,7 @@ async def code_auth_login_v2(code: str = Body(..., embed=True)):
     finally:
         conn.close()
 
-    # 走到这里表示“老用户邀请码恢复”
+    # 走到这里表示"老用户邀请码恢复"
     # 优先在后端直接 refresh，并把轮换后的 refresh_token 写回 DB；
     # 若遇到 Already Used / token_not_found，则自动回退为恢复会话，避免把用户卡死。
     session = None
@@ -1383,7 +1383,7 @@ async def _supabase_refresh_session(refresh_token: str) -> Dict[str, Any]:
 @app.post("/api/v2/supabase/anonymous")
 async def supabase_anonymous_v2(code: str = Body("", embed=True)):
     """
-    仅用于邀请码新用户流程：避免前端依赖 CDN 的 supabase-js 导致“系统初始化中”。
+    仅用于邀请码新用户流程：避免前端依赖 CDN 的 supabase-js 导致"系统初始化中"。
     保护：必须提供一个存在且未使用的邀请码。
     """
     code_clean = (code or "").strip().upper()
@@ -2189,7 +2189,7 @@ async def rate_v3(
                 """,
                 (user_id, entry_id, selector, repetition, interval_days, ease, rating, interval_days, rating, rating),
             )
-            # 错词本：只要点了“不认识”，就自动加入（可在错词本里删除）
+            # 错词本：只要点了"不认识"，就自动加入（可在错词本里删除）
             if rating == "dont_know":
                 cur.execute(
                     """
@@ -2211,7 +2211,7 @@ async def rate_batch_v3(
     current_user: Dict[str, Any] = Depends(get_current_supabase_user),
 ):
     """
-    批量评分：前端背词时会快速连续点击，逐条提交会导致“同步中”很久。
+    批量评分：前端背词时会快速连续点击，逐条提交会导致"同步中"很久。
     这里允许一次提交多条，减少网络往返与 pooler 开销。
     payload: { items: [{entry_id, level, rating, date?}, ...] }
     """
@@ -2286,7 +2286,7 @@ async def rate_batch_v3(
 
 
 def _ensure_library_user_lists_tables(conn) -> None:
-    """错词本/收藏夹（均为“用户-词条”关系表）。"""
+    """错词本/收藏夹（均为"用户-词条"关系表）。"""
     global _LIBRARY_USER_LISTS_SCHEMA_OK
     if _LIBRARY_USER_LISTS_SCHEMA_OK:
         return
@@ -2725,7 +2725,7 @@ async def chat(
 @app.post("/api/chat")
 async def chat_post(payload: Dict[str, Any] = Body(...), current_user: Dict[str, Any] = Depends(get_current_supabase_user)):
     """
-    带上下文的聊天（推荐）：前端传入最近多轮 messages，让模型能“接上下文”。
+    带上下文的聊天（推荐）：前端传入最近多轮 messages，让模型能"接上下文"。
     payload:
       - q: string（本轮用户问题）
       - messages: [{role: "user"|"assistant", content: string}, ...]（可选）
@@ -2748,7 +2748,7 @@ async def chat_post(payload: Dict[str, Any] = Body(...), current_user: Dict[str,
                 continue
             msgs.append({"role": role, "content": content[:1200]})
 
-    # 附加“当前词条上下文”（若有）
+    # 附加"当前词条上下文"（若有）
     word = str((payload or {}).get("word") or "").strip()
     kana = str((payload or {}).get("kana") or "").strip()
     meaning = str((payload or {}).get("meaning") or "").strip()
@@ -2778,7 +2778,7 @@ async def chat_post(payload: Dict[str, Any] = Body(...), current_user: Dict[str,
         if example_ja:
             context += f"参考例句：{_clip(example_ja, 220)}\n"
 
-    # 把“词条上下文”作为一条用户消息塞到历史最前面（减少模型理解成本）
+    # 把"词条上下文"作为一条用户消息塞到历史最前面（减少模型理解成本）
     if context:
         msgs = [{"role": "user", "content": f"【上下文信息】\n{context}".strip()}] + msgs
 
@@ -2811,14 +2811,14 @@ async def analyze_sentence(q: str = Query(...), current_user: Dict[str, Any] = D
     if not text:
         raise HTTPException(status_code=400, detail="q is required")
 
-    # 只分析日语句子：必须包含假名（平假名/片假名）。否则按“普通聊天”处理更合理。
-    # 这样可以避免出现“分析中文句子结构”的尴尬体验。
+    # 只分析日语句子：必须包含假名（平假名/片假名）。否则按"普通聊天"处理更合理。
+    # 这样可以避免出现"分析中文句子结构"的尴尬体验。
     if not re.search(r"[\u3040-\u30FF]", text):
         raise HTTPException(status_code=400, detail="句子分析仅支持日语句子（需要包含假名）。中文问题请直接问小雪梨即可。")
 
     prompt = f"""
 你是面向中文母语者的日语写作教练。请只分析下面这句日语（可能不标准）。
-如果输入里夹杂了中文翻译/解释/提问背景，把中文当作参考即可：不要分析任何中文句子结构，也不要输出“中文主谓宾/中文语法结构”之类内容。
+如果输入里夹杂了中文翻译/解释/提问背景，把中文当作参考即可：不要分析任何中文句子结构，也不要输出"中文主谓宾/中文语法结构"之类内容。
 
 句子：
 {text}
@@ -2832,7 +2832,7 @@ async def analyze_sentence(q: str = Query(...), current_user: Dict[str, Any] = D
 """
     _assert_ai_quota_available(current_user["id"])
     try:
-        # 句子分析是“特定任务”，把 prompt 当作本轮用户输入即可
+        # 句子分析是"特定任务"，把 prompt 当作本轮用户输入即可
         answer = await get_ai().chat(prompt)
     except RuntimeError as e:
         if str(e) == "AI_QUOTA":
@@ -2920,7 +2920,7 @@ def _library_fetch_by_slug(conn, slug: str) -> Optional[Dict[str, Any]]:
 
 
 def _ensure_vocab_reports_table(conn) -> None:
-    """用于站内“单词卡报错”功能（若无表则自动创建）。"""
+    """用于站内"单词卡报错"功能（若无表则自动创建）。"""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -3188,7 +3188,7 @@ async def word_detail_page(slug: str):
             return HTMLResponse(
                 content=f.read(),
                 headers={
-                    # 避免 Render / 浏览器缓存旧版页面，导致“库里有字段但前端不显示”
+                    # 避免 Render / 浏览器缓存旧版页面，导致"库里有字段但前端不显示"
                     "Cache-Control": "no-store, max-age=0",
                 },
             )
@@ -3233,7 +3233,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
     词库搜索：
     - 支持日语：word / reading 精确匹配、模糊匹配
     - 支持中文：meaning ILIKE 模糊匹配
-    返回多条候选，供前端展示“选择列表”。
+    返回多条候选，供前端展示"选择列表"。
     """
     if not SUPABASE_DB_ENABLED:
         raise HTTPException(status_code=500, detail="SUPABASE_DB_URL is not configured")
@@ -3250,7 +3250,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         like_any = f"%{qq}%"
         like_prefix = f"{qq}%"
         enable_contains = len(qq) >= 3
-        # 纯假名输入：不要做中文释义模糊匹配，否则会引入大量无关候选（例如“いる”不该匹配到“僧”）
+        # 纯假名输入：不要做中文释义模糊匹配，否则会引入大量无关候选（例如"いる"不该匹配到"僧"）
         is_kana_only = _is_kana_only(qq)
         # 3+ \u4e2d\u6587\u5b57\u7b26\u624d\u641c\u91ca\u4e49\uff08\u907f\u514d 1-2 \u5b57\u5982\u300c\u5403\u300d\u300c\u5403\u996d\u300d\u89e6\u53d1 meaning \u5168\u8868\u626b\u63cf\u5bfc\u81f4 10s+ \u767d\u5c4f\uff09
         chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", qq))
@@ -3260,9 +3260,9 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
             # 设 5s 超时：meaning ILIKE 无 trigram 索引可能全表扫描 10s+
             # 超时自动降级为 word/reading 快速查询，避免白屏
             try:
-                cur.execute(“SET LOCAL statement_timeout = '5s'”)
+                cur.execute("SET LOCAL statement_timeout = '5s'")
                 cur.execute(
-                    “””
+                    """
                     SELECT id, level, word, reading, meaning, mp3,
                            pos, frequency, examples,
                            image_url, is_ai_enriched, order_no,
@@ -3290,14 +3290,14 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                       level DESC,
                       order_no ASC
                     LIMIT %(limit)s
-                    “””,
+                    """,
                     {
-                        “q”: qq,
-                        “prefix”: like_prefix,
-                        “like_any”: like_any,
-                        “enable_contains”: enable_contains,
-                        “enable_meaning”: enable_meaning,
-                        “limit”: fetch_limit,
+                        "q": qq,
+                        "prefix": like_prefix,
+                        "like_any": like_any,
+                        "enable_contains": enable_contains,
+                        "enable_meaning": enable_meaning,
+                        "limit": fetch_limit,
                     },
                 )
             except Exception:
@@ -3307,9 +3307,9 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 except Exception:
                     pass
                 try:
-                    cur.execute(“SET LOCAL statement_timeout = '3s'”)
+                    cur.execute("SET LOCAL statement_timeout = '3s'")
                     cur.execute(
-                        “””
+                        """
                         SELECT id, level, word, reading, meaning, mp3,
                                pos, frequency, examples,
                                image_url, is_ai_enriched, order_no,
@@ -3335,13 +3335,13 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                           level DESC,
                           order_no ASC
                         LIMIT %(limit)s
-                        “””,
+                        """,
                         {
-                            “q”: qq,
-                            “prefix”: like_prefix,
-                            “like_any”: like_any,
-                            “enable_contains”: enable_contains,
-                            “limit”: fetch_limit,
+                            "q": qq,
+                            "prefix": like_prefix,
+                            "like_any": like_any,
+                            "enable_contains": enable_contains,
+                            "limit": fetch_limit,
                         },
                     )
                 except Exception:
@@ -3351,7 +3351,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         pass
                     # 最终降级：旧查询（无 insight_text）
                     cur.execute(
-                        “””
+                        """
                         SELECT id, level, word, reading, meaning, mp3,
                                pos, frequency, examples,
                                image_url, is_ai_enriched, order_no
@@ -3395,7 +3395,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
             for r in raw_rows:
                 d = dict(r)
                 d["id"] = str(d.get("id"))
-                # 前端用于“是否直接跳转/是否需要候选列表”的判断
+                # 前端用于"是否直接跳转/是否需要候选列表"的判断
                 w = str(d.get("word") or "")
                 rd = str(d.get("reading") or "")
                 if w == qq:
@@ -3419,10 +3419,10 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 out_local.append(d)
             return out_local
 
-        # 默认先构造“未去重”的列表（永远不应该 500）
+        # 默认先构造"未去重"的列表（永远不应该 500）
         out = _build_out(rows)
 
-        # 去重：同一个 word 只显示一条，优先“场景深度解析更长”的那条
+        # 去重：同一个 word 只显示一条，优先"场景深度解析更长"的那条
         try:
             def _lv_rank(lv: str) -> int:
                 m = {"N5": 1, "N4": 2, "N3": 3, "N2": 4, "N1": 5}
@@ -3448,7 +3448,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
 
             out = list(by_word.values())
             if is_kana_only:
-                # 纯假名：优先“最常用”（frequency 高），“要る/居る”应排在前面
+                # 纯假名：优先"最常用"（frequency 高），"要る/居る"应排在前面
                 out.sort(
                     key=lambda x: (
                         int(x.get("match_rank") or 9),
@@ -3459,7 +3459,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                     )
                 )
             else:
-                # 非纯假名：优先“内容更丰富的解析”（insight 更长）
+                # 非纯假名：优先"内容更丰富的解析"（insight 更长）
                 out.sort(
                     key=lambda x: (
                         int(x.get("match_rank") or 9),
@@ -3471,7 +3471,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 )
             out = out[: int(limit)]
         except Exception:
-            # 若去重逻辑出错，回退为“不去重”列表（保证不影响可用性）
+            # 若去重逻辑出错，回退为"不去重"列表（保证不影响可用性）
             out = out[: int(limit)]
 
         # 列表接口不返回大字段，详情页再取
@@ -3497,7 +3497,7 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
         return []
     # 简体输入 → 日文汉字（用于前缀命中）
     qq_j = _map_s2j(qq)
-    # 用于释义匹配（中文关键词）：只在输入长度 >=2 时启用，避免单字造成大量“弱相关”
+    # 用于释义匹配（中文关键词）：只在输入长度 >=2 时启用，避免单字造成大量"弱相关"
     # 纯假名输入：不要做中文释义模糊匹配，否则会引入大量无关候选
     is_kana_only = _is_kana_only(qq)
     enable_meaning = (not is_kana_only) and len(qq) >= 2
