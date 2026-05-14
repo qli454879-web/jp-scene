@@ -3385,20 +3385,16 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                     # SET LOCAL requires an explicit transaction in psycopg 3
                     # (autocommit=on makes each execute a separate transaction)
                     with conn.transaction():
-                        cur.execute("SET LOCAL statement_timeout = '3s'")
+                        cur.execute("SET LOCAL statement_timeout = '5s'")
                         cur.execute(
                             """
                             SELECT id, level, word, reading, meaning, mp3,
                                    pos, frequency, examples,
                                    image_url, is_ai_enriched, order_no,
-                                   insight_text,
-                                   strpos(lower(meaning), lower(%(q)s)) AS kw_pos
+                                   insight_text
                             FROM vocab_library
                             WHERE meaning ILIKE %(like_any)s
-                            ORDER BY
-                              strpos(lower(meaning), lower(%(q)s)),
-                              level DESC,
-                              order_no ASC
+                            ORDER BY level DESC, order_no ASC
                             LIMIT %(meaning_limit)s
                             """,
                             {
@@ -3415,13 +3411,13 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         pass
                 # 合并：word/reading 在前，meaning 在后，去重
                 if meaning_rows:
+                    # 按关键词在释义中的位置排序（越靠前越可能是定义，靠后是例句）
+                    meaning_rows.sort(key=lambda r: str(r.get("meaning") or "").lower().find(qq.lower()))
                     wr_words = {str(r.get("word") or "").strip() for r in rows}
                     for r in meaning_rows:
                         w = str(r.get("word") or "").strip()
                         if w and w not in wr_words:
-                            d = dict(r)
-                            d.pop("kw_pos", None)
-                            rows.append(d)
+                            rows.append(dict(r))
                             wr_words.add(w)
 
 
