@@ -69,6 +69,63 @@ S2J_KANJI_MAP: Dict[str, str] = {
     "过": "過",
     "时": "時",
     "间": "間",
+    # 中文动词 → 日文常用汉字
+    "吃": "食",
+    "喝": "飲",
+    "说": "話",
+    "看": "見",
+    "听": "聞",
+    "走": "歩",
+    "跑": "走",
+    "买": "買",
+    "卖": "売",
+    "读": "読",
+    "写": "書",
+    "做": "作",
+    "睡": "寝",
+    "起": "起",
+    "坐": "座",
+    "开": "開",
+    "关": "閉",
+    "进": "入",
+    "出": "出",
+    "回": "戻",
+    "来": "来",
+    "去": "行",
+    "想": "思",
+    "爱": "愛",
+    "打": "打",
+    "笑": "笑",
+    "哭": "泣",
+    "死": "死",
+    "活": "生",
+    "给": "与",
+    "送": "送",
+    "等": "待",
+    "找": "探",
+    "用": "使",
+    "洗": "洗",
+    "切": "切",
+    "冷": "寒",
+    "热": "暑",
+    "忙": "忙",
+    "累": "疲",
+    "饿": "飢",
+    "渴": "渇",
+    "辣": "辛",
+    "甜": "甘",
+    "咸": "塩",
+    "鸟": "鳥",
+    "鱼": "魚",
+    "猫": "猫",
+    "狗": "犬",
+    "花": "花",
+    "药": "薬",
+    "钱": "金",
+    "饭": "飯",
+    "茶": "茶",
+    "酒": "酒",
+    "肉": "肉",
 }
 
 
@@ -3259,8 +3316,13 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         has_kana = bool(re.search(r"[\u3040-\u309f\u30a0-\u30ff\u30fc]", qq))
         chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", qq))
         enable_contains = len(qq) >= 3 or chinese_chars >= 2
-        enable_meaning = (not has_kana) and chinese_chars >= 1
+        enable_meaning = (not has_kana) and chinese_chars >= 2
         fetch_limit = max(int(limit) * 5, 50)
+        # 中文 → 日文汉字映射（搜"吃"也能命中 食べる）
+        qq_j = _map_s2j(qq)
+        has_jp_variant = qq_j != qq
+        prefix_j = f"{qq_j}%"
+        like_any_j = f"%{qq_j}%"
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             # 第一阶段：word/reading（无 meaning 分支，始终快）
             try:
@@ -3279,6 +3341,12 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                       OR reading ILIKE %(prefix)s
                       OR (%(enable_contains)s AND word ILIKE %(like_any)s)
                       OR (%(enable_contains)s AND reading ILIKE %(like_any)s)
+                      OR (%(has_jp)s AND word = %(q_j)s)
+                      OR (%(has_jp)s AND reading = %(q_j)s)
+                      OR (%(has_jp)s AND word ILIKE %(prefix_j)s)
+                      OR (%(has_jp)s AND reading ILIKE %(prefix_j)s)
+                      OR (%(has_jp)s AND %(enable_contains)s AND word ILIKE %(like_any_j)s)
+                      OR (%(has_jp)s AND %(enable_contains)s AND reading ILIKE %(like_any_j)s)
                     LIMIT %(limit)s
                     """,
                     {
@@ -3287,6 +3355,10 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         "like_any": like_any,
                         "enable_contains": enable_contains,
                         "limit": fetch_limit,
+                        "has_jp": has_jp_variant,
+                        "q_j": qq_j,
+                        "prefix_j": prefix_j,
+                        "like_any_j": like_any_j,
                     },
                 )
             except Exception:
@@ -3310,6 +3382,12 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                           OR reading ILIKE %(prefix)s
                           OR (%(enable_contains)s AND word ILIKE %(like_any)s)
                           OR (%(enable_contains)s AND reading ILIKE %(like_any)s)
+                          OR (%(has_jp)s AND word = %(q_j)s)
+                          OR (%(has_jp)s AND reading = %(q_j)s)
+                          OR (%(has_jp)s AND word ILIKE %(prefix_j)s)
+                          OR (%(has_jp)s AND reading ILIKE %(prefix_j)s)
+                          OR (%(has_jp)s AND %(enable_contains)s AND word ILIKE %(like_any_j)s)
+                          OR (%(has_jp)s AND %(enable_contains)s AND reading ILIKE %(like_any_j)s)
                         ORDER BY
                           CASE
                             WHEN word = %(q)s THEN 0
@@ -3330,6 +3408,10 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                             "like_any": like_any,
                             "enable_contains": enable_contains,
                             "limit": fetch_limit,
+                            "has_jp": has_jp_variant,
+                            "q_j": qq_j,
+                            "prefix_j": prefix_j,
+                            "like_any_j": like_any_j,
                         },
                     )
                 except Exception:
@@ -3350,6 +3432,12 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                           OR reading ILIKE %(prefix)s
                           OR (%(enable_contains)s AND word ILIKE %(like_any)s)
                           OR (%(enable_contains)s AND reading ILIKE %(like_any)s)
+                          OR (%(has_jp)s AND word = %(q_j)s)
+                          OR (%(has_jp)s AND reading = %(q_j)s)
+                          OR (%(has_jp)s AND word ILIKE %(prefix_j)s)
+                          OR (%(has_jp)s AND reading ILIKE %(prefix_j)s)
+                          OR (%(has_jp)s AND %(enable_contains)s AND word ILIKE %(like_any_j)s)
+                          OR (%(has_jp)s AND %(enable_contains)s AND reading ILIKE %(like_any_j)s)
                         ORDER BY
                           CASE
                             WHEN word = %(q)s THEN 0
@@ -3370,6 +3458,10 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                             "like_any": like_any,
                             "enable_contains": enable_contains,
                             "limit": fetch_limit,
+                            "has_jp": has_jp_variant,
+                            "q_j": qq_j,
+                            "prefix_j": prefix_j,
+                            "like_any_j": like_any_j,
                         },
                     )
             rows = cur.fetchall() or []
@@ -3383,19 +3475,28 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 def _phase1_rank(r):
                     w = str(r.get("word") or "")
                     rn = str(r.get("reading") or "")
-                    if w == qq:
+                    if w == qq or (has_jp_variant and w == qq_j):
                         return (0, -_lvl(r), int(r.get("order_no") or 0))
-                    if rn == qq:
+                    if rn == qq or (has_jp_variant and rn == qq_j):
                         return (1, -_lvl(r), int(r.get("order_no") or 0))
-                    if w.startswith(qq):
+                    # JP variant prefix/contains ranks ahead of original (more relevant)
+                    if has_jp_variant and w.startswith(qq_j):
                         return (2, -_lvl(r), int(r.get("order_no") or 0))
-                    if rn.startswith(qq):
+                    if w.startswith(qq):
                         return (3, -_lvl(r), int(r.get("order_no") or 0))
-                    if enable_contains and qq in w:
+                    if has_jp_variant and rn.startswith(qq_j):
                         return (4, -_lvl(r), int(r.get("order_no") or 0))
-                    if enable_contains and qq in rn:
+                    if rn.startswith(qq):
                         return (5, -_lvl(r), int(r.get("order_no") or 0))
-                    return (9, -_lvl(r), int(r.get("order_no") or 0))
+                    if enable_contains and has_jp_variant and qq_j in w:
+                        return (6, -_lvl(r), int(r.get("order_no") or 0))
+                    if enable_contains and qq in w:
+                        return (7, -_lvl(r), int(r.get("order_no") or 0))
+                    if enable_contains and has_jp_variant and qq_j in rn:
+                        return (8, -_lvl(r), int(r.get("order_no") or 0))
+                    if enable_contains and qq in rn:
+                        return (9, -_lvl(r), int(r.get("order_no") or 0))
+                    return (99, -_lvl(r), int(r.get("order_no") or 0))
                 rows.sort(key=_phase1_rank)
 
             # 第二阶段：meaning 匹配（独立查询，有超时，按释义位置排序去噪）
@@ -3454,18 +3555,25 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 # 前端用于"是否直接跳转/是否需要候选列表"的判断
                 w = str(d.get("word") or "")
                 rd = str(d.get("reading") or "")
-                if w == qq:
+                if w == qq or (has_jp_variant and w == qq_j):
                     d["match_kind"] = "word_exact"
                     d["match_rank"] = 0
-                elif rd == qq:
+                elif rd == qq or (has_jp_variant and rd == qq_j):
                     d["match_kind"] = "reading_exact"
                     d["match_rank"] = 1
-                elif qq.lower() in w.lower():
+                # JP 汉字命中优先（常见翻译）> 原始中文命中（罕见匹配）
+                elif has_jp_variant and qq_j.lower() in w.lower():
                     d["match_kind"] = "word_partial"
                     d["match_rank"] = 2
+                elif qq.lower() in w.lower():
+                    d["match_kind"] = "word_partial"
+                    d["match_rank"] = 3
+                elif has_jp_variant and qq_j.lower() in rd.lower():
+                    d["match_kind"] = "reading_partial"
+                    d["match_rank"] = 4
                 elif qq.lower() in rd.lower():
                     d["match_kind"] = "reading_partial"
-                    d["match_rank"] = 3
+                    d["match_rank"] = 5
                 else:
                     m = str(d.get("meaning") or "").lower()
                     pos = m.find(qq.lower())
@@ -3473,7 +3581,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                     if pos > 50:
                         continue
                     d["match_kind"] = "meaning_match"
-                    d["match_rank"] = 4
+                    d["match_rank"] = 6
                     d["_kw_pos"] = pos
                 ex = d.get("examples")
                 d["examples_count"] = len(ex) if isinstance(ex, list) else 0
@@ -3524,8 +3632,8 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 # 非纯假名排序：释义开头匹配（定义）提升优先级，常用词靠前
                 out.sort(
                     key=lambda x: (
-                        # meaning_match 且关键词在释义开头（≤2）→ 提升到 word_partial 同级
-                        2 if int(x.get("match_rank", 9)) == 4 and x.get("_kw_pos", 9999) <= 2
+                        # meaning_match 且关键词在释义开头（≤2）→ 提升到 JP word_partial 同级
+                        2 if int(x.get("match_rank", 9)) == 6 and x.get("_kw_pos", 9999) <= 2
                         else int(x.get("match_rank", 9)),
                         x.get("_kw_pos", 9999),
                         -_int0(x.get("frequency")),
