@@ -3248,11 +3248,10 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         # 第二阶段：meaning 匹配（独立查询，有超时，按释义位置排序去噪）
         like_any = f"%{qq}%"
         like_prefix = f"{qq}%"
-        enable_contains = len(qq) >= 2
         is_kana_only = _is_kana_only(qq)
         has_kana = bool(re.search(r"[\u3040-\u309f\u30a0-\u30ff\u30fc]", qq))
         chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", qq))
-        # \u4ec5\u7eaf\u4e2d\u6587\u8f93\u5165\uff08\u65e0\u5047\u540d\uff09\u89e6\u53d1 meaning \u641c\u7d22\uff0c\u65e5\u8bed\u8bcd\u8df3\u8fc7 Phase 2 \u4fdd\u6301\u5feb\u901f
+        enable_contains = len(qq) >= 3 or chinese_chars >= 2
         enable_meaning = (not has_kana) and chinese_chars >= 1
         fetch_limit = max(int(limit) * 8, 80)
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
