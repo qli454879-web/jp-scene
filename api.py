@@ -3257,7 +3257,6 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             # 第一阶段：word/reading（无 meaning 分支，始终快）
             try:
-                cur.execute("SET LOCAL statement_timeout = '5s'")
                 cur.execute(
                     """
                     SELECT id, level, word, reading, meaning, mp3,
@@ -3383,11 +3382,13 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
             meaning_rows = []
             meaning_error = None
             if enable_meaning:
+                # Phase 1 已找到精确匹配时，跳过 meaning 搜索（避免日语汉字词误触发慢查询）
+                if any(str(r.get("word") or "").strip() == qq for r in rows):
+                    enable_meaning = False
+            if enable_meaning:
                 try:
-                    # SET LOCAL requires an explicit transaction in psycopg 3
-                    # (autocommit=on makes each execute a separate transaction)
                     with conn.transaction():
-                        cur.execute("SET LOCAL statement_timeout = '8s'")
+                        cur.execute("SET LOCAL statement_timeout = '4s'")
                         cur.execute(
                             """
                             SELECT id, level, word, reading, meaning, mp3,
@@ -3401,7 +3402,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                             {
                                 "q": qq,
                                 "like_any": like_any,
-                                "meaning_limit": min(int(limit) * 8, 300),
+                                "meaning_limit": min(int(limit) * 4, 120),
                             },
                         )
                     meaning_rows = cur.fetchall() or []

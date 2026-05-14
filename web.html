@@ -3331,7 +3331,7 @@ async function startLearning() {
                 } else {
                     try {
                         const ctl = new AbortController();
-                        const t = setTimeout(() => ctl.abort(), 8000);
+                        const t = setTimeout(() => ctl.abort(), 15000);
                         const res = await fetch(`/api/library/search?q=${encodeURIComponent(query)}&limit=30`, { signal: ctl.signal });
                         clearTimeout(t);
                         const arr = await res.json().catch(() => null);
