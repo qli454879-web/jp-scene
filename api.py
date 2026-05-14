@@ -3386,7 +3386,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                     # SET LOCAL requires an explicit transaction in psycopg 3
                     # (autocommit=on makes each execute a separate transaction)
                     with conn.transaction():
-                        cur.execute("SET LOCAL statement_timeout = '5s'")
+                        cur.execute("SET LOCAL statement_timeout = '8s'")
                         cur.execute(
                             """
                             SELECT id, level, word, reading, meaning, mp3,
@@ -3395,7 +3395,6 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                                    insight_text
                             FROM vocab_library
                             WHERE meaning ILIKE %(like_any)s
-                            ORDER BY level DESC, order_no ASC
                             LIMIT %(meaning_limit)s
                             """,
                             {
