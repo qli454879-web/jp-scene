@@ -406,6 +406,10 @@ def init_supabase_schema():
     );
     CREATE INDEX IF NOT EXISTS idx_vocab_library_word ON vocab_library(word);
     CREATE INDEX IF NOT EXISTS idx_vocab_library_level_order ON vocab_library(level, order_no);
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    CREATE INDEX IF NOT EXISTS idx_vocab_library_word_trgm ON vocab_library USING gin (word gin_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_vocab_library_reading_trgm ON vocab_library USING gin (reading gin_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_vocab_library_meaning_trgm ON vocab_library USING gin (meaning gin_trgm_ops);
 
     -- Separate progress table for vocab_library (avoid breaking existing words-based progress)
     CREATE TABLE IF NOT EXISTS library_progress (
