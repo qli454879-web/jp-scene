@@ -4,5 +4,5 @@ services:
     runtime: python
     startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 30
     healthCheckPath: /api/healthz
-    healthCheckTimeout: 15
+    healthCheckTimeout: 20
     autoDeploy: true
