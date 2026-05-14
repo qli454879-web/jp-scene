@@ -3511,7 +3511,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
             d.pop("scene_deep_dive", None)
             d.pop("insight_text", None)
         if _debug:
-            return {"items": out, "_debug": {"enable_meaning": enable_meaning, "meaning_count": len(meaning_rows), "meaning_error": meaning_error}}
+            return {"items": out, "_debug": {"enable_meaning": enable_meaning, "meaning_count": len(meaning_rows), "meaning_error": meaning_error, "meaning_first": [str(r.get("word") or "") for r in meaning_rows[:10]], "rows_total": len(rows)}}
         return out
     finally:
         conn.close()
