@@ -62,12 +62,15 @@ _VOCAB_CACHE_TTL = 300  # 5 分钟自动刷新
 
 
 def _ensure_vocab_cache():
-    """首次调用或过期时加载全量词库到内存（一次查询），后续搜索纯内存匹配。"""
+    """首次调用或过期时加载全量词库到内存，后续搜索纯内存匹配。"""
     global _vocab_cache, _vocab_cache_loaded_at
     now_s = time.time()
     if _vocab_cache and (now_s - _vocab_cache_loaded_at) < _VOCAB_CACHE_TTL:
         return
-    conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=10)
+    try:
+        conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+    except Exception:
+        return  # DB 不可达，保留旧缓存或返回空
     try:
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(
@@ -82,8 +85,13 @@ def _ensure_vocab_cache():
             if rows:
                 _vocab_cache = rows
                 _vocab_cache_loaded_at = now_s
+    except Exception:
+        pass  # 查询失败，保留旧缓存
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def _invalidate_vocab_cache():
@@ -3313,10 +3321,9 @@ async def get_library_word(slug: str = Query(...)):
 @app.get("/api/library/search")
 async def search_library(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=50), _debug: int = Query(0, ge=0, le=1)):
     """
-    词库搜索（内存匹配，不访问数据库）：
-    - 支持日语：word / reading 精确匹配、模糊匹配
-    - 支持中文：meaning 模糊匹配
-    返回多条候选，供前端展示"选择列表"。
+    词库搜索（内存匹配）：
+    - 词匹配（精确/前缀/包含）永远优先于释义匹配
+    - 释义匹配最多 10 条补充，且按关键词位置排序
     """
     if not SUPABASE_DB_ENABLED:
         raise HTTPException(status_code=500, detail="SUPABASE_DB_URL is not configured")
@@ -3324,7 +3331,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
     if not qq:
         return []
 
-    # 进程内搜索缓存（结果缓存，2 分钟有效）
+    # 结果缓存
     cache_key = (qq.lower(), int(limit))
     now_s = time.time()
     entry = _search_cache.get(cache_key)
@@ -3336,11 +3343,10 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
 
     t0 = time.time()
 
-    # 确保内存词库已加载
+    # 确保词库已加载到内存
     _ensure_vocab_cache()
     t_load = time.time() - t0
 
-    # ── 搜索参数 ──
     qq_lower = qq.lower()
     is_kana_only = _is_kana_only(qq)
     has_kana = bool(re.search(r"[぀-ゟ゠-ヿー]", qq))
@@ -3351,8 +3357,10 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
     has_jp_variant = qq_j != qq
     qq_j_lower = qq_j.lower()
 
-    # ── 内存匹配 ──
-    matched: List[Dict[str, Any]] = []
+    # 单次遍历：分类 + 打分
+    word_reading: List[Dict[str, Any]] = []
+    meaning: List[Dict[str, Any]] = []
+
     for row in _vocab_cache:
         d = dict(row)
         d["id"] = str(d.get("id"))
@@ -3360,61 +3368,120 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         rd = str(d.get("reading") or "")
         w_lower = w.lower()
         rd_lower = rd.lower()
+        matched = False
 
+        # ── Tier 1: 词匹配（rank 0-5），最相关 ──
         if w == qq:
-            d["match_kind"] = "word_exact"
             d["match_rank"] = 0
-        elif has_jp_variant and w == qq_j:
             d["match_kind"] = "word_exact"
-            d["match_rank"] = 2
-        elif rd == qq or (has_jp_variant and rd == qq_j):
-            d["match_kind"] = "reading_exact"
+            matched = True
+        elif has_jp_variant and w == qq_j:
             d["match_rank"] = 1
+            d["match_kind"] = "word_exact_jp"
+            matched = True
         elif has_jp_variant and w_lower.startswith(qq_j_lower):
-            d["match_kind"] = "word_prefix"
             d["match_rank"] = 2
+            d["match_kind"] = "word_prefix_jp"
+            matched = True
         elif w_lower.startswith(qq_lower):
-            d["match_kind"] = "word_prefix"
             d["match_rank"] = 3
-        elif has_jp_variant and rd_lower.startswith(qq_j_lower):
-            d["match_kind"] = "reading_prefix"
-            d["match_rank"] = 4
-        elif rd_lower.startswith(qq_lower):
-            d["match_kind"] = "reading_prefix"
-            d["match_rank"] = 5
+            d["match_kind"] = "word_prefix"
+            matched = True
         elif enable_contains and has_jp_variant and qq_j_lower in w_lower:
-            d["match_kind"] = "word_partial"
-            d["match_rank"] = 6
+            d["match_rank"] = 4
+            d["match_kind"] = "word_partial_jp"
+            matched = True
         elif enable_contains and qq_lower in w_lower:
+            d["match_rank"] = 5
             d["match_kind"] = "word_partial"
-            d["match_rank"] = 7
-        elif enable_contains and has_jp_variant and qq_j_lower in rd_lower:
-            d["match_kind"] = "reading_partial"
-            d["match_rank"] = 8
-        elif enable_contains and qq_lower in rd_lower:
-            d["match_kind"] = "reading_partial"
-            d["match_rank"] = 9
-        elif enable_meaning:
+            matched = True
+
+        # ── Tier 2: 读音匹配（rank 10-15）──
+        if not matched:
+            if rd == qq:
+                d["match_rank"] = 10
+                d["match_kind"] = "reading_exact"
+                matched = True
+            elif has_jp_variant and rd == qq_j:
+                d["match_rank"] = 11
+                d["match_kind"] = "reading_exact_jp"
+                matched = True
+            elif has_jp_variant and rd_lower.startswith(qq_j_lower):
+                d["match_rank"] = 12
+                d["match_kind"] = "reading_prefix_jp"
+                matched = True
+            elif rd_lower.startswith(qq_lower):
+                d["match_rank"] = 13
+                d["match_kind"] = "reading_prefix"
+                matched = True
+            elif enable_contains and has_jp_variant and qq_j_lower in rd_lower:
+                d["match_rank"] = 14
+                d["match_kind"] = "reading_partial_jp"
+                matched = True
+            elif enable_contains and qq_lower in rd_lower:
+                d["match_rank"] = 15
+                d["match_kind"] = "reading_partial"
+                matched = True
+
+        # ── Tier 3: 释义匹配（rank 20+），仅作补充 ──
+        if not matched and enable_meaning:
             m = str(d.get("meaning") or "").lower()
             pos = m.find(qq_lower)
             if pos >= 0:
+                # 三元：释义最前 0-2 → rank 20；3-10 → rank 21-25；10+ → rank 26-30
+                if pos <= 2:
+                    d["match_rank"] = 20
+                elif pos <= 10:
+                    d["match_rank"] = 21 + pos // 3
+                else:
+                    d["match_rank"] = 26 + min(pos // 20, 4)
                 d["match_kind"] = "meaning_match"
-                d["match_rank"] = 6 if pos <= 50 else 8
                 d["_kw_pos"] = pos
-            else:
-                continue
-        else:
+                matched = True
+            elif has_jp_variant:
+                pos = m.find(qq_j_lower)
+                if pos >= 0:
+                    if pos <= 2:
+                        d["match_rank"] = 20
+                    elif pos <= 10:
+                        d["match_rank"] = 21 + pos // 3
+                    else:
+                        d["match_rank"] = 26 + min(pos // 20, 4)
+                    d["match_kind"] = "meaning_match"
+                    d["_kw_pos"] = pos
+                    matched = True
+
+        if not matched:
             continue
 
-        matched.append(d)
+        if d["match_rank"] < 20:
+            word_reading.append(d)
+        else:
+            meaning.append(d)
 
     t_match = time.time() - t0
 
-    # ── 去重 ──
+    # ── 排序：词/读优先，释义补充 ──
     def _lv_rank(lv: str) -> int:
         m = {"N5": 1, "N4": 2, "N3": 3, "N2": 4, "N1": 5}
         return m.get((lv or "").upper(), 0)
 
+    def _wr_sort_key(d):
+        return (
+            d["match_rank"],
+            -_int0(d.get("frequency")),
+            -int(d.get("insight_len") or 0),
+            -_lv_rank(str(d.get("level") or "")),
+        )
+
+    word_reading.sort(key=_wr_sort_key)
+    meaning.sort(key=lambda d: (d["match_rank"], d.get("_kw_pos", 9999), -_int0(d.get("frequency"))))
+
+    # 释义最多取 10 条
+    MAX_MEANING = 10
+    combined = word_reading + meaning[:MAX_MEANING]
+
+    # ── 去重 ──
     def _score(d: Dict[str, Any]) -> Tuple[int, int, int, int]:
         return (
             int(d.get("insight_len") or 0),
@@ -3424,7 +3491,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         )
 
     by_word: Dict[str, Dict[str, Any]] = {}
-    for d in matched:
+    for d in combined:
         wkey = str(d.get("word") or "").strip()
         if not wkey:
             continue
@@ -3434,35 +3501,26 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
 
     out = list(by_word.values())
 
-    # ── 排序 ──
+    # 最终排序
     if is_kana_only:
-        out.sort(
-            key=lambda x: (
-                int(x.get("match_rank", 9)),
-                -_int0(x.get("frequency")),
-                len(str(x.get("word") or "")),
-                -int(x.get("insight_len") or 0),
-                -_lv_rank(str(x.get("level") or "")),
-                str(x.get("word") or ""),
-            )
-        )
+        out.sort(key=lambda x: (
+            x["match_rank"],
+            -_int0(x.get("frequency")),
+            len(str(x.get("word") or "")),
+            -int(x.get("insight_len") or 0),
+            -_lv_rank(str(x.get("level") or "")),
+        ))
     else:
-        out.sort(
-            key=lambda x: (
-                2 if int(x.get("match_rank", 9)) == 6 and x.get("_kw_pos", 9999) <= 2
-                else int(x.get("match_rank", 9)),
-                x.get("_kw_pos", 9999),
-                -_int0(x.get("frequency")),
-                len(str(x.get("word") or "")),
-                -int(x.get("insight_len") or 0),
-                -_lv_rank(str(x.get("level") or "")),
-                str(x.get("word") or ""),
-            )
-        )
+        out.sort(key=lambda x: (
+            x["match_rank"],
+            x.get("_kw_pos", 9999),
+            -_int0(x.get("frequency")),
+            -int(x.get("insight_len") or 0),
+            -_lv_rank(str(x.get("level") or "")),
+        ))
 
-    out = out[: int(limit)]
+    out = out[:int(limit)]
 
-    # 清理内部字段
     for d in out:
         d.pop("scene_deep_dive", None)
         d.pop("insight_len", None)
@@ -3476,12 +3534,13 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 "t_match": round(t_match, 3),
                 "t_total": round(time.time() - t0, 3),
                 "cache_size": len(_vocab_cache),
-                "matched": len(matched),
-                "enable_meaning": enable_meaning,
+                "wr_count": len(word_reading),
+                "meaning_count": len(meaning),
+                "out_count": len(out),
             },
         }
 
-    # 存入进程内结果缓存
+    # 结果缓存
     _search_cache[cache_key] = (now_s + _SEARCH_CACHE_TTL, out)
     if len(_search_cache) > _SEARCH_CACHE_MAX:
         stale = [k for k, (exp, _) in _search_cache.items() if now_s >= exp]
@@ -3492,9 +3551,9 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
 @app.get("/api/library/suggest")
 async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(10, ge=1, le=30)):
     """
-    实时联想（强相关，内存匹配）：
-    - 只返回「以用户输入开头」的候选（word 前缀优先，其次 reading 前缀）
-    - 用于前端搜索框下方的实时候选，不做跳转
+    实时联想（内存匹配，纯前缀）：
+    - 仅返回 word/reading 前缀匹配的候选
+    - 不做释义匹配（避免单字噪音）
     """
     if not SUPABASE_DB_ENABLED:
         raise HTTPException(status_code=500, detail="SUPABASE_DB_URL is not configured")
@@ -3509,8 +3568,6 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
     qq_j_lower = qq_j.lower()
     has_jp_variant = qq_j != qq
     is_kana_only = _is_kana_only(qq)
-    has_kana = bool(re.search(r"[぀-ゟ゠-ヿー]", qq))
-    enable_meaning = (not has_kana) and len(qq) >= 1
 
     matched: List[Dict[str, Any]] = []
     for row in _vocab_cache:
@@ -3521,26 +3578,26 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
         w_lower = w.lower()
         rd_lower = rd.lower()
 
-        if w == qq or (has_jp_variant and w == qq_j):
+        # 精确匹配
+        if w == qq:
             d["_rank"] = 0
-        elif rd == qq or (has_jp_variant and rd == qq_j):
-            d["_rank"] = 1
+        elif has_jp_variant and w == qq_j:
+            d["_rank"] = 0
+        # 词前缀
         elif has_jp_variant and w_lower.startswith(qq_j_lower):
-            d["_rank"] = 2
+            d["_rank"] = 1
         elif w_lower.startswith(qq_lower):
-            d["_rank"] = 2
+            d["_rank"] = 1
+        # 读音前缀
         elif has_jp_variant and rd_lower.startswith(qq_j_lower):
-            d["_rank"] = 3
+            d["_rank"] = 2
         elif rd_lower.startswith(qq_lower):
+            d["_rank"] = 2
+        # 读音精确（较低优先级）
+        elif rd == qq:
             d["_rank"] = 3
-        elif enable_meaning:
-            m = str(d.get("meaning") or "").lower()
-            if qq_lower in m:
-                d["_rank"] = 4
-            elif has_jp_variant and qq_j_lower in m:
-                d["_rank"] = 4
-            else:
-                continue
+        elif has_jp_variant and rd == qq_j:
+            d["_rank"] = 3
         else:
             continue
 
@@ -3552,8 +3609,11 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
         return m.get((lv or "").upper(), 0)
 
     def _score(d: Dict[str, Any]) -> Tuple[int, int, int]:
-        ins = int(d.get("insight_len") or 0)
-        return (ins, 1 if bool(d.get("is_ai_enriched") or False) else 0, _lv_rank(str(d.get("level") or "")))
+        return (
+            int(d.get("insight_len") or 0),
+            1 if bool(d.get("is_ai_enriched") or False) else 0,
+            _lv_rank(str(d.get("level") or "")),
+        )
 
     by_word: Dict[str, Dict[str, Any]] = {}
     for d in matched:
