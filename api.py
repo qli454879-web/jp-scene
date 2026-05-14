@@ -14,6 +14,7 @@ import os
 import logging
 import secrets
 import time
+import asyncio
 import sqlite3
 import json
 from typing import Optional, List, Dict, Any, Tuple
@@ -275,6 +276,12 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 启动时预加载词库到内存，避免首次搜索等待 DB 查询
+    if SUPABASE_DB_ENABLED:
+        try:
+            await asyncio.to_thread(_ensure_vocab_cache)
+        except Exception:
+            pass  # 首次请求时自动重试
     yield
 
 app = FastAPI(lifespan=lifespan)
