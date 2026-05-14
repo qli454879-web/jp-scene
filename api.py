@@ -3317,7 +3317,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", qq))
         enable_contains = len(qq) >= 3 or chinese_chars >= 2
         enable_meaning = (not has_kana) and chinese_chars >= 2
-        fetch_limit = max(int(limit) * 5, 50)
+        fetch_limit = max(int(limit) * 8, 100) if has_jp_variant else max(int(limit) * 5, 50)
         # 中文 → 日文汉字映射（搜"吃"也能命中 食べる）
         qq_j = _map_s2j(qq)
         has_jp_variant = qq_j != qq
