@@ -3467,11 +3467,14 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                     d["match_kind"] = "reading_partial"
                     d["match_rank"] = 3
                 else:
+                    m = str(d.get("meaning") or "").lower()
+                    pos = m.find(qq.lower())
+                    # 关键词出现在释义 50 字符之后 → 基本是例句噪声，过滤掉
+                    if pos > 50:
+                        continue
                     d["match_kind"] = "meaning_match"
                     d["match_rank"] = 4
-                    # 记录关键词在释义中的位置，越靠前越可能是定义
-                    m = str(d.get("meaning") or "").lower()
-                    d["_kw_pos"] = m.find(qq.lower())
+                    d["_kw_pos"] = pos
                 ex = d.get("examples")
                 d["examples_count"] = len(ex) if isinstance(ex, list) else 0
                 d.pop("examples", None)
@@ -3518,13 +3521,15 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                     )
                 )
             else:
-                # 非纯假名：word/reading 优先，meaning 按关键词位置排序
+                # 非纯假名排序：释义开头匹配（定义）提升优先级，常用词靠前
                 out.sort(
                     key=lambda x: (
-                        int(x.get("match_rank", 9)),
+                        # meaning_match 且关键词在释义开头（≤2）→ 提升到 word_partial 同级
+                        2 if int(x.get("match_rank", 9)) == 4 and x.get("_kw_pos", 9999) <= 2
+                        else int(x.get("match_rank", 9)),
                         x.get("_kw_pos", 9999),
-                        -len(str(x.get("insight_text") or "")),
                         -_int0(x.get("frequency")),
+                        -len(str(x.get("insight_text") or "")),
                         -_lv_rank(str(x.get("level") or "")),
                         str(x.get("word") or ""),
                     )
