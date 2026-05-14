@@ -3382,28 +3382,31 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
             if enable_meaning:
                 meaning_rows = []
                 try:
-                    cur.execute("SET LOCAL statement_timeout = '3s'")
-                    cur.execute(
-                        """
-                        SELECT id, level, word, reading, meaning, mp3,
-                               pos, frequency, examples,
-                               image_url, is_ai_enriched, order_no,
-                               insight_text,
-                               strpos(lower(meaning), lower(%(q)s)) AS kw_pos
-                        FROM vocab_library
-                        WHERE meaning ILIKE %(like_any)s
-                        ORDER BY
-                          strpos(lower(meaning), lower(%(q)s)),
-                          level DESC,
-                          order_no ASC
-                        LIMIT %(meaning_limit)s
-                        """,
-                        {
-                            "q": qq,
-                            "like_any": like_any,
-                            "meaning_limit": min(int(limit) * 2, 40),
-                        },
-                    )
+                    # SET LOCAL requires an explicit transaction in psycopg 3
+                    # (autocommit=on makes each execute a separate transaction)
+                    with conn.transaction():
+                        cur.execute("SET LOCAL statement_timeout = '3s'")
+                        cur.execute(
+                            """
+                            SELECT id, level, word, reading, meaning, mp3,
+                                   pos, frequency, examples,
+                                   image_url, is_ai_enriched, order_no,
+                                   insight_text,
+                                   strpos(lower(meaning), lower(%(q)s)) AS kw_pos
+                            FROM vocab_library
+                            WHERE meaning ILIKE %(like_any)s
+                            ORDER BY
+                              strpos(lower(meaning), lower(%(q)s)),
+                              level DESC,
+                              order_no ASC
+                            LIMIT %(meaning_limit)s
+                            """,
+                            {
+                                "q": qq,
+                                "like_any": like_any,
+                                "meaning_limit": min(int(limit) * 2, 40),
+                            },
+                        )
                     meaning_rows = cur.fetchall() or []
                 except Exception:
                     try:
