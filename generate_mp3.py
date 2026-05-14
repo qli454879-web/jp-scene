@@ -139,6 +139,58 @@ async def main():
 
     log.info(f"完成: {done}/{total}")
 
+    # 补漏：重试失败/遗漏的词，直到全部完成（最多10轮）
+    retry_round = 0
+    while True:
+        retry_round += 1
+        if retry_round > 10:
+            log.info("补漏已达10轮，停止")
+            break
+
+        conn = get_conn()
+        try:
+            with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+                cur.execute("""
+                    SELECT id, word, reading, level
+                    FROM vocab_library
+                    WHERE reading IS NOT NULL AND reading != ''
+                      AND (mp3 IS NULL OR mp3 NOT LIKE 'http%')
+                    ORDER BY created_at DESC
+                """)
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        if not rows:
+            log.info("全部 MP3 生成完毕！")
+            break
+
+        log.info(f"[补漏第{retry_round}轮] 剩余 {len(rows)} 词")
+        prev_done = done
+
+        for i in range(0, len(rows), BATCH_SIZE):
+            batch = rows[i:i + BATCH_SIZE]
+            tasks = []
+            for wid, word, reading, level in batch:
+                mp3_name = make_mp3_name(level, reading, wid)
+                if not mp3_name:
+                    continue
+                tasks.append(gen_one(sem, wid, word, reading, mp3_name))
+            results = await asyncio.gather(*tasks)
+            ok = [r for r in results if r is not None]
+            saved = 0
+            for j in range(0, len(ok), DB_BATCH):
+                sub = ok[j:j + DB_BATCH]
+                saved += db_write(sub)
+            done += saved
+            log.info(f"  补漏进度: {done}")
+
+        if done == prev_done:
+            log.info(f"补漏第{retry_round}轮无新增成功，停止")
+            break
+
+    log.info(f"最终: {done}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
