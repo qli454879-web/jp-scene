@@ -3408,7 +3408,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
             if enable_meaning:
                 try:
                     with conn.transaction():
-                        cur.execute("SET LOCAL statement_timeout = '3s'")
+                        cur.execute("SET LOCAL statement_timeout = '2s'")
                         cur.execute(
                             """
                             SELECT id, level, word, reading, meaning, mp3,
@@ -3417,14 +3417,12 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                                    insight_text
                             FROM vocab_library
                             WHERE meaning ILIKE %(like_any)s
-                            ORDER BY strpos(lower(meaning), lower(%(q)s)),
-                                     frequency DESC NULLS LAST
                             LIMIT %(meaning_limit)s
                             """,
                             {
                                 "q": qq,
                                 "like_any": like_any,
-                                "meaning_limit": min(int(limit) * 3, 60),
+                                "meaning_limit": min(int(limit) * 5, 120),
                             },
                         )
                         meaning_rows = cur.fetchall() or []
@@ -3436,6 +3434,8 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                         pass
                 # 合并：word/reading 在前，meaning 在后，去重
                 if meaning_rows:
+                    # 按关键词在释义中的位置排序（越靠前越可能是定义，靠后是例句）
+                    meaning_rows.sort(key=lambda r: str(r.get("meaning") or "").lower().find(qq.lower()))
                     wr_words = {str(r.get("word") or "").strip() for r in rows}
                     for r in meaning_rows:
                         w = str(r.get("word") or "").strip()
