@@ -3253,7 +3253,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", qq))
         enable_contains = len(qq) >= 3 or chinese_chars >= 2
         enable_meaning = (not has_kana) and chinese_chars >= 1
-        fetch_limit = max(int(limit) * 8, 80)
+        fetch_limit = max(int(limit) * 5, 50)
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             # 第一阶段：word/reading（无 meaning 分支，始终快）
             try:
@@ -3388,7 +3388,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
             if enable_meaning:
                 try:
                     with conn.transaction():
-                        cur.execute("SET LOCAL statement_timeout = '4s'")
+                        cur.execute("SET LOCAL statement_timeout = '2s'")
                         cur.execute(
                             """
                             SELECT id, level, word, reading, meaning, mp3,
@@ -3402,7 +3402,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                             {
                                 "q": qq,
                                 "like_any": like_any,
-                                "meaning_limit": min(int(limit) * 4, 120),
+                                "meaning_limit": min(int(limit) * 2, 40),
                             },
                         )
                     meaning_rows = cur.fetchall() or []
