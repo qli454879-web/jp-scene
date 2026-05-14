@@ -3329,17 +3329,25 @@ async function startLearning() {
                         appendChat(data.answer || '（无返回）');
                     }
                 } else {
-                    try {
-                        const ctl = new AbortController();
-                        const t = setTimeout(() => ctl.abort(), 15000);
-                        const res = await fetch(`/api/library/search?q=${encodeURIComponent(query)}&limit=30`, { signal: ctl.signal });
-                        clearTimeout(t);
-                        const arr = await res.json().catch(() => null);
-                        if (!res.ok) throw new Error((arr && (arr.detail || arr.error)) || 'LIBRARY_SEARCH_FAILED');
-                        if (!Array.isArray(arr) || arr.length === 0) {
-                            alert('未在词库中找到匹配项');
-                            return;
+                    // 自动重试：Render 免费 tier 休眠时第一次请求会慢，重试可扛过唤醒期
+                    let arr = null;
+                    let lastErr = null;
+                    for (let attempt = 0; attempt < 3; attempt++) {
+                        try {
+                            const timeout = attempt === 0 ? 8000 : (attempt === 1 ? 10000 : 12000);
+                            const ctl = new AbortController();
+                            const t = setTimeout(() => ctl.abort(), timeout);
+                            const res = await fetch(`/api/library/search?q=${encodeURIComponent(query)}&limit=30`, { signal: ctl.signal });
+                            clearTimeout(t);
+                            arr = await res.json().catch(() => null);
+                            if (!res.ok) throw new Error((arr && (arr.detail || arr.error)) || 'LIBRARY_SEARCH_FAILED');
+                            break;
+                        } catch (e) {
+                            lastErr = e;
+                            if (attempt < 2) await new Promise(r => setTimeout(r, 500));
                         }
+                    }
+                    if (arr && Array.isArray(arr) && arr.length > 0) {
                         if (arr.length === 1) {
                             window.location.href = `/word/${encodeURIComponent(arr[0].id)}`;
                             return;
@@ -3352,12 +3360,13 @@ async function startLearning() {
                         }
                         showSuggest(query, arr);
                         return;
-                    } catch (e) {
+                    }
+                    if (!arr || !Array.isArray(arr) || arr.length === 0) {
                         try { await loadData(query); } catch (e2) {}
                         searchHero.classList.add('active');
                         contentView.style.display = 'block';
                         window.scrollTo({ top: 0, behavior: 'smooth' });
-                        alert('词库搜索暂不可用，已切换到简易解析模式。');
+                        alert(arr && Array.isArray(arr) ? '未在词库中找到匹配项' : '词库搜索暂不可用，已切换到简易解析模式。');
                         return;
                     }
                 }
