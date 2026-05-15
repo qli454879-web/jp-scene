@@ -1048,7 +1048,7 @@
     </main>
 
     <!-- Loading Overlay -->
-    <div id="globalLoading" class="fixed inset-0 bg-white/95 z-[300] hidden flex flex-col items-center justify-center">
+    <div id="globalLoading" class="fixed inset-0 bg-white/95 z-[300] hidden flex-col items-center justify-center">
         <div class="w-16 h-16 border-4 border-gray-800 border-t-green-500 animate-spin mb-6"></div>
         <p class="pixel-font text-xl tracking-widest mb-2">ANALYZING SCENE...</p>
         <p id="loadingStatus" class="text-xs text-gray-400 animate-pulse">AI 正在调取日本社会文化语料库...</p>
@@ -1099,6 +1099,35 @@
         const vocabView = document.getElementById('vocabView');
         const globalLoading = document.getElementById('globalLoading');
         const loadingStatus = document.getElementById('loadingStatus');
+
+        // bfcache restoration: when the browser restores the page from back-forward cache,
+        // globalLoading might be stuck visible; reset page state to avoid white screen
+        window.addEventListener('pageshow', (e) => {
+            if (e.persisted) {
+                if (globalLoading) {
+                    globalLoading.classList.add('hidden');
+                    globalLoading.classList.remove('flex');
+                }
+                if (searchHero && searchHero.style.display === 'none') {
+                    searchHero.style.display = 'flex';
+                    searchHero.classList.remove('active');
+                }
+                const suggestBox = document.getElementById('searchSuggest');
+                if (suggestBox) suggestBox.classList.add('hidden');
+            }
+        });
+        window.addEventListener('error', () => {
+            if (globalLoading) {
+                globalLoading.classList.add('hidden');
+                globalLoading.classList.remove('flex');
+            }
+        });
+        window.addEventListener('unhandledrejection', () => {
+            if (globalLoading) {
+                globalLoading.classList.add('hidden');
+                globalLoading.classList.remove('flex');
+            }
+        });
 
         // Vocab State Management
         let currentVocabLevel = 'N5';
@@ -3349,12 +3378,16 @@ async function startLearning() {
                     }
                     if (arr && Array.isArray(arr) && arr.length > 0) {
                         if (arr.length === 1) {
+                            globalLoading.classList.add('hidden');
+                            globalLoading.classList.remove('flex');
                             window.location.href = `/word/${encodeURIComponent(arr[0].id)}`;
                             return;
                         }
                         const r0 = arr[0] || {};
                         const r1 = arr[1] || {};
                         if ((r0.match_rank === 0 || r0.match_rank === 1) && (r1.match_rank > 1 || r1.match_rank === undefined)) {
+                            globalLoading.classList.add('hidden');
+                            globalLoading.classList.remove('flex');
                             window.location.href = `/word/${encodeURIComponent(r0.id)}`;
                             return;
                         }
@@ -3557,6 +3590,8 @@ async function startLearning() {
                 `;
                 item.onclick = () => {
                     hideSuggest();
+                    globalLoading.classList.add('hidden');
+                    globalLoading.classList.remove('flex');
                     window.location.href = `/word/${encodeURIComponent(r.id)}`;
                 };
                 list.appendChild(item);
