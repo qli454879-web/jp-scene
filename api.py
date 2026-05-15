@@ -65,6 +65,10 @@ _search_cache: Dict[Tuple[str, int], Tuple[float, list]] = {}
 _SEARCH_CACHE_TTL = 120  # seconds
 _SEARCH_CACHE_MAX = 500
 
+# ── 本地持久化缓存（SQLite），重启/关机后秒级恢复，不用重新从 Supabase 加载 20 万条 ──
+_VOCAB_SNAPSHOT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vocab_snapshot.db")
+_VOCAB_SNAPSHOT_TTL = 86400  # 24 小时内有效，超时则从 Supabase 刷新
+
 # ── 内存词库缓存 + 索引（轻量版：不存 meaning/mp3/image_url）──
 class _VF:
     ID = 0; LEVEL = 1; WORD = 2; READING = 3; POS = 4
@@ -153,21 +157,99 @@ def _fetch_details(ids: List[str]) -> Dict[str, dict]:
     return result
 
 
-def _ensure_vocab_cache():
-    """加载词库到内存并构建索引（仅轻量字段，省 ~100MB+ 释义文本）。
-    并发安全：若已有线程在加载，等待其完成（最多 30s），而不是直接返回空。"""
-    global _vocab_cache, _vocab_cache_loaded_at, _vocab_cache_loading
+def _load_local_snapshot() -> Optional[List[tuple]]:
+    """从本地 SQLite 读取词库快照，若有效则返回 rows，否则返回 None。"""
+    if not os.path.exists(_VOCAB_SNAPSHOT_DB):
+        return None
+    try:
+        lite = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
+        cur = lite.cursor()
+        cur.execute("SELECT value FROM snapshot_meta WHERE key='loaded_at'")
+        row = cur.fetchone()
+        if not row:
+            lite.close()
+            return None
+        loaded_at = float(row[0])
+        if time.time() - loaded_at > _VOCAB_SNAPSHOT_TTL:
+            lite.close()
+            return None
+        cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no FROM vocab_snapshot ORDER BY rowid")
+        rows = [tuple(r) for r in cur.fetchall()]
+        lite.close()
+        if rows:
+            return rows
+        return None
+    except Exception:
+        return None
+
+
+def _save_local_snapshot(rows: list):
+    """将词库写入本地 SQLite 快照。"""
+    try:
+        lite = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
+        cur = lite.cursor()
+        cur.execute("DROP TABLE IF EXISTS vocab_snapshot")
+        cur.execute("DROP TABLE IF EXISTS snapshot_meta")
+        cur.execute("""CREATE TABLE vocab_snapshot (
+            id TEXT, level TEXT, word TEXT, reading TEXT, pos TEXT,
+            frequency INTEGER, examples_count INTEGER, insight_len INTEGER,
+            is_ai_enriched INTEGER, order_no INTEGER
+        )""")
+        cur.execute("CREATE TABLE snapshot_meta (key TEXT PRIMARY KEY, value TEXT)")
+        cur.execute("INSERT INTO snapshot_meta VALUES ('loaded_at', ?)", (str(time.time()),))
+        cur.execute("INSERT INTO snapshot_meta VALUES ('row_count', ?)", (str(len(rows)),))
+        cur.executemany(
+            "INSERT INTO vocab_snapshot VALUES (?,?,?,?,?,?,?,?,?,?)",
+            rows
+        )
+        lite.commit()
+        lite.close()
+    except Exception:
+        pass
+
+
+def _build_indexes(rows: list, now_s: float):
+    """从 rows 构建内存索引。"""
+    global _vocab_cache, _vocab_cache_loaded_at
     global _word_exact, _reading_exact, _word_prefix_sorted, _reading_prefix_sorted
+    entries = []
+    we: Dict[str, List[int]] = {}
+    re: Dict[str, List[int]] = {}
+    wp: list = []
+    rp: list = []
+    for i, row in enumerate(rows):
+        wl = (row[2] or "").lower()
+        rl = (row[3] or "").lower()
+        entries.append(row if isinstance(row, tuple) else tuple(row))
+        we.setdefault(wl, []).append(i)
+        re.setdefault(rl, []).append(i)
+        if wl:
+            wp.append((wl, i))
+        if rl:
+            rp.append((rl, i))
+    wp.sort(key=lambda x: x[0])
+    rp.sort(key=lambda x: x[0])
+    _vocab_cache = entries
+    _word_exact = we
+    _reading_exact = re
+    _word_prefix_sorted = wp
+    _reading_prefix_sorted = rp
+    _vocab_cache_loaded_at = now_s
+
+
+def _ensure_vocab_cache():
+    """加载词库到内存并构建索引。
+    优先从本地 SQLite 快照加载（< 1s），无效则从 Supabase 拉取并持久化。
+    并发安全：若已有线程在加载，短暂等待（2s），未完成则走 DB 直查 fallback。"""
+    global _vocab_cache, _vocab_cache_loaded_at, _vocab_cache_loading
     now_s = time.time()
     if _vocab_cache and (now_s - _vocab_cache_loaded_at) < _VOCAB_CACHE_TTL:
         return
     if _vocab_cache_loading:
-        # 缓存正在加载中，短暂等待（2s），未完成则走 DB 直查 fallback
         waited = _vocab_cache_ready.wait(timeout=2)
         if not waited or not _vocab_cache:
             return
     with _vocab_cache_lock:
-        # 双重检查：拿到锁后再次确认状态
         now_s = time.time()
         if _vocab_cache and (now_s - _vocab_cache_loaded_at) < _VOCAB_CACHE_TTL:
             return
@@ -176,6 +258,13 @@ def _ensure_vocab_cache():
         _vocab_cache_ready.clear()
         _vocab_cache_loading = True
         try:
+            # Tier 1：本地 SQLite 快照（秒级恢复）
+            local_rows = _load_local_snapshot()
+            if local_rows:
+                _build_indexes(local_rows, now_s)
+                return
+
+            # Tier 2：从 Supabase 加载并保存快照
             try:
                 conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
             except Exception:
@@ -192,29 +281,10 @@ def _ensure_vocab_cache():
                     )
                     rows = cur.fetchall()
                     if rows:
-                        entries = []
-                        we: Dict[str, List[int]] = {}
-                        re: Dict[str, List[int]] = {}
-                        wp: list = []
-                        rp: list = []
-                        for i, row in enumerate(rows):
-                            wl = (row[2] or "").lower()
-                            rl = (row[3] or "").lower()
-                            entries.append(tuple(row))
-                            we.setdefault(wl, []).append(i)
-                            re.setdefault(rl, []).append(i)
-                            if wl:
-                                wp.append((wl, i))
-                            if rl:
-                                rp.append((rl, i))
-                        wp.sort(key=lambda x: x[0])
-                        rp.sort(key=lambda x: x[0])
-                        _vocab_cache = entries
-                        _word_exact = we
-                        _reading_exact = re
-                        _word_prefix_sorted = wp
-                        _reading_prefix_sorted = rp
-                        _vocab_cache_loaded_at = now_s
+                        _build_indexes(rows, now_s)
+                        # 异步写本地快照（不阻塞当前请求）
+                        _rows_copy = [tuple(r) for r in rows]
+                        threading.Thread(target=_save_local_snapshot, args=(_rows_copy,), daemon=True).start()
             except Exception:
                 pass
             finally:
