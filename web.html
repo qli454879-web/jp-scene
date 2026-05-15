@@ -358,7 +358,7 @@
         <nav class="flex gap-8 bg-white/80 backdrop-blur px-6 py-3 border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
             <span class="nav-link" onclick="resetToHome()">搜索</span>
             <span class="nav-link" onclick="openVocabMode()">背单词</span>
-            <span class="nav-link" onclick="openListView()">单词表</span>
+            <span class="nav-link" onclick="openListView()">自制单词表</span>
             <div id="userArea" class="flex gap-4">
                 <span class="nav-link" onclick="toggleAuthModal()">登录/注册</span>
             </div>
@@ -1098,7 +1098,8 @@
             </div>
             <!-- 分类卡片网格 -->
             <div id="listCategoriesView">
-                <h3 class="pixel-font text-xl mb-6">单词表 / WORD LISTS</h3>
+                <h3 class="pixel-font text-2xl mb-2">自制单词表 / CUSTOM WORD LISTS</h3>
+                <p class="text-[11px] text-gray-500 mb-6 leading-relaxed">这里主要收集一些大家感兴趣的领域的一些词汇，专门写一个板块，便于大家查阅。</p>
                 <div id="listCategoriesGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
             </div>
             <!-- 某分类下的单词列表 -->
@@ -3727,27 +3728,52 @@ async function startLearning() {
         function renderListCategories(tags) {
             var grid = document.getElementById('listCategoriesGrid');
             if (!grid) return;
-            // 优先展示几个重点分类
-            var priority = ['jlpt_n5','jlpt_n4','jlpt_n3','jlpt_n2','jlpt_n1',
-                           'slang','slang_young','gaming_lol','gaming_valorant',
-                           'swear','onomatopoeia','proverb','business','四字熟语'];
-            var prioSet = {};
-            priority.forEach(function(t,i) { prioSet[t] = i; });
+            // 分类中文名 & 图标映射
+            var metaMap = {
+                'jlpt_n5': {cn:'N5 入门', icon:'fa-seedling', color:'#10B981', desc:'JLPT N5 基础词汇'},
+                'jlpt_n4': {cn:'N4 基础', icon:'fa-leaf', color:'#22C55E', desc:'JLPT N4 基础词汇'},
+                'jlpt_n3': {cn:'N3 进阶', icon:'fa-tree', color:'#3B82F6', desc:'JLPT N3 进阶词汇'},
+                'jlpt_n2': {cn:'N2 上级', icon:'fa-mountain', color:'#8B5CF6', desc:'JLPT N2 高级词汇'},
+                'jlpt_n1': {cn:'N1 精通', icon:'fa-crown', color:'#F59E0B', desc:'JLPT N1 精通词汇'},
+                'slang': {cn:'日语流行语', icon:'fa-fire', color:'#EF4444', desc:'SNS·若者言葉·网络梗'},
+                'slang_young': {cn:'若者言葉', icon:'fa-comment-dots', color:'#EC4899', desc:'日本年轻人常用表达'},
+                'gaming_lol': {cn:'英雄联盟', icon:'fa-gamepad', color:'#06B6D4', desc:'LoL 日服游戏术语'},
+                'gaming_valorant': {cn:'瓦罗兰特', icon:'fa-crosshairs', color:'#F97316', desc:'VALORANT 日服术语'},
+                'onomatopoeia': {cn:'拟声拟态词', icon:'fa-music', color:'#A855F7', desc:'日语拟声语·拟态语'},
+                'yoji_jukugo': {cn:'四字熟语', icon:'fa-feather', color:'#78716C', desc:'四字汉字熟语'},
+                'loanword': {cn:'片假名外来语', icon:'fa-globe', color:'#14B8A6', desc:'片假名外来语词汇'},
+                'proverb': {cn:'谚语·惯用句', icon:'fa-quote-right', color:'#84CC16', desc:'日本谚语与惯用表达'},
+                'business': {cn:'商务用语', icon:'fa-briefcase', color:'#6366F1', desc:'日本职场·商务日语'},
+                'kaoyan': {cn:'考研词汇', icon:'fa-graduation-cap', color:'#0F766E', desc:'日语考研必备词汇'},
+            };
+            var priorityOrder = ['jlpt_n5','jlpt_n4','jlpt_n3','jlpt_n2','jlpt_n1',
+                                'slang','gaming_lol','gaming_valorant',
+                                'yoji_jukugo','loanword','onomatopoeia',
+                                'kaoyan','business','proverb'];
+            var prioMap = {};
+            priorityOrder.forEach(function(t,i) { prioMap[t] = i; });
             var sorted = tags.slice().sort(function(a,b) {
-                var ai = prioSet[a.name] != null ? prioSet[a.name] : 999;
-                var bi = prioSet[b.name] != null ? prioSet[b.name] : 999;
+                var ai = prioMap[a.name] != null ? prioMap[a.name] : 999;
+                var bi = prioMap[b.name] != null ? prioMap[b.name] : 999;
                 if (ai !== bi) return ai - bi;
                 return b.count - a.count;
             });
             var html = '';
-            var colors = ['#10B981','#3B82F6','#F59E0B','#EF4444','#8B5CF6','#EC4899','#06B6D4','#84CC16'];
             sorted.forEach(function(t, i) {
-                var name = t.name.replace(/_/g, ' ').toUpperCase();
-                var color = colors[i % colors.length];
-                html += '<div class="list-cat-card border-2 border-gray-800 p-4 cursor-pointer hover:shadow-[4px_4px_0px_#333] transition bg-white" onclick="openListWords(\'' + t.name.replace(/'/g, "\\'") + '\')" style="border-left:4px solid ' + color + '">' +
-                    '<div class="text-[10px] font-bold text-gray-500 mb-1">' + name + '</div>' +
-                    '<div class="text-2xl font-bold pixel-font">' + t.count + '</div>' +
-                    '<div class="text-[9px] text-gray-400">个单词</div>' +
+                var meta = metaMap[t.name] || {cn: t.name.replace(/_/g, ' '), icon:'fa-tag', color:'#6B7280', desc:''};
+                var nameCN = meta.cn;
+                var icon = meta.icon;
+                var color = meta.color;
+                var desc = meta.desc;
+                html += '<div class="cat-card border-2 border-gray-800 bg-white p-5 cursor-pointer hover:shadow-[4px_4px_0px_#333] hover:-translate-x-[2px] hover:-translate-y-[2px] transition-all group" onclick="openListWords(\'' + t.name.replace(/'/g, "\\'") + '\')">' +
+                    '<div class="flex items-start justify-between mb-3">' +
+                        '<div class="w-11 h-11 flex items-center justify-center border-2 border-gray-800 group-hover:bg-gray-50 transition-colors" style="background:' + color + '15">' +
+                            '<i class="fa-solid ' + icon + ' text-lg" style="color:' + color + '"></i>' +
+                        '</div>' +
+                        '<span class="text-2xl font-bold pixel-font" style="color:' + color + '">' + t.count + '</span>' +
+                    '</div>' +
+                    '<div class="text-xs font-bold mb-1">' + nameCN + '</div>' +
+                    '<div class="text-[9px] text-gray-400 uppercase tracking-wide">' + (desc || t.name) + '</div>' +
                 '</div>';
             });
             grid.innerHTML = html || '<p class="text-gray-400 col-span-full text-center py-12">暂无分类数据，请先给词库打标签</p>';
@@ -3760,8 +3786,16 @@ async function startLearning() {
             var wordView = document.getElementById('listWordsView');
             if (catView) catView.style.display = 'none';
             if (wordView) wordView.style.display = 'block';
+            // 显示中文名标题
+            var metaMap = {
+                'jlpt_n5':'N5 入门', 'jlpt_n4':'N4 基础', 'jlpt_n3':'N3 进阶', 'jlpt_n2':'N2 上级', 'jlpt_n1':'N1 精通',
+                'slang':'日语流行语', 'slang_young':'若者言葉', 'gaming_lol':'英雄联盟', 'gaming_valorant':'瓦罗兰特',
+                'onomatopoeia':'拟声拟态词', 'yoji_jukugo':'四字熟语', 'loanword':'片假名外来语', 'proverb':'谚语·惯用句',
+                'business':'商务用语', 'kaoyan':'考研词汇'
+            };
+            var displayName = metaMap[tag] || tag.replace(/_/g, ' ').toUpperCase();
             var title = document.getElementById('listWordsTitle');
-            if (title) title.textContent = tag.replace(/_/g, ' ').toUpperCase();
+            if (title) title.textContent = displayName + ' / ' + tag.replace(/_/g, ' ').toUpperCase();
             var container = document.getElementById('listWordsContainer');
             if (container) container.innerHTML = '<p class="text-gray-400 text-center py-8">加载中...</p>';
             fetchListWords(tag, 0);
@@ -3801,19 +3835,22 @@ async function startLearning() {
                 var freq = parseInt(w.frequency) || 0;
                 for (var s = 0; s < Math.min(freq, 5); s++) stars += '★';
                 for (var s = freq; s < 5; s++) stars += '☆';
-                var meaning = (w.meaning || '').substring(0, 60);
-                html += '<div class="flex items-center gap-3 border border-gray-200 p-3 hover:bg-gray-50 cursor-pointer" onclick="window.open(\'/word/' + encodeURIComponent(w.id) + '\', \'_blank\')">' +
+                var meaning = (w.meaning || '').substring(0, 80);
+                var levelIcon = (w.level || '—');
+                html += '<div class="word-list-item flex items-center gap-3 border-2 border-gray-200 bg-white p-3 hover:border-gray-400 hover:shadow-[3px_3px_0px_#ddd] cursor-pointer transition-all group" onclick="window.open(\'/word/' + encodeURIComponent(w.id) + '\', \'_blank\')">' +
+                    '<div class="w-9 h-9 flex-shrink-0 border-2 border-gray-300 flex items-center justify-center text-[10px] font-bold text-gray-500 bg-gray-50 group-hover:bg-green-50 group-hover:border-green-400 group-hover:text-green-700 transition-colors">' + levelIcon + '</div>' +
                     '<div class="flex-1 min-w-0">' +
-                        '<div class="flex items-center gap-2">' +
+                        '<div class="flex items-center gap-2 mb-0.5">' +
                             '<span class="font-bold text-sm">' + w.word + '</span>' +
                             '<span class="text-[10px] text-gray-400">' + (w.reading || '') + '</span>' +
-                            '<span class="text-[9px] px-1 border border-gray-300 text-gray-500">' + (w.pos || '') + '</span>' +
-                            '<span class="text-[9px] px-1 bg-gray-100 text-gray-600">' + (w.level || '') + '</span>' +
                         '</div>' +
-                        '<div class="text-[10px] text-gray-600 mt-1 truncate clamp-2">' + meaning + '</div>' +
+                        '<div class="text-[10px] text-gray-500 truncate clamp-2">' + meaning + '</div>' +
                     '</div>' +
-                    '<div class="text-[9px] text-yellow-500 flex-shrink-0">' + stars + '</div>' +
-                    '<i class="fa-solid fa-chevron-right text-gray-300 text-[10px] flex-shrink-0"></i>' +
+                    '<div class="flex items-center gap-2 flex-shrink-0">' +
+                        '<span class="text-[9px] text-yellow-500 whitespace-nowrap">' + stars + '</span>' +
+                        '<span class="text-[9px] px-1.5 py-0.5 border border-gray-300 text-gray-500">' + (w.pos || '') + '</span>' +
+                        '<i class="fa-solid fa-chevron-right text-gray-300 text-[10px]"></i>' +
+                    '</div>' +
                 '</div>';
             });
             if (isFirstPage) {

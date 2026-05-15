@@ -85,7 +85,7 @@ class _VF:
     ID = 0; LEVEL = 1; WORD = 2; READING = 3; POS = 4
     FREQUENCY = 5; EXAMPLES_COUNT = 6; INSIGHT_LEN = 7
     IS_AI_ENRICHED = 8; ORDER_NO = 9
-    MEANING = 10; MP3 = 11; IMAGE_URL = 12; MEANING_LOWER = 13; TAGS = 14
+    MEANING = 10; MP3 = 11; IMAGE_URL = 12; TAGS_DB = 13; MEANING_LOWER = 14; TAGS = 15
 
 _vocab_cache: list = []  # List[Tuple] — 每行 10 字段
 _vocab_cache_loaded_at: float = 0
@@ -367,8 +367,8 @@ def _build_indexes(rows: list, now_s: float):
         rl = (row[3] or "").lower()
         t = row if isinstance(row, tuple) else tuple(row)
         meaning_lower = (t[10] or "").lower() if len(t) > 10 else ""
-        # tags 在列索引 14（若存在），否则空列表
-        tags_raw = list(t[14]) if len(t) > 14 and t[14] else []
+        # tags 在列索引 13（若存在），否则空列表
+        tags_raw = list(t[13]) if len(t) > 13 and t[13] else []
         entries.append(t + (meaning_lower, tags_raw))
         if wl:
             wi.append(i)
