@@ -55,50 +55,71 @@ _search_cache: Dict[Tuple[str, int], Tuple[float, list]] = {}
 _SEARCH_CACHE_TTL = 120  # seconds
 _SEARCH_CACHE_MAX = 500
 
-# ── 内存词库缓存 + 索引（200K 级，tuple 存储节省内存）──
-# 每条记录用 tuple，字段位置见 _VF（约节省 60MB dict 开销 / 200K 条）
+# ── 内存词库缓存 + 索引（轻量版：不存 meaning/mp3/image_url）──
 class _VF:
-    ID = 0; LEVEL = 1; WORD = 2; READING = 3; MEANING = 4
-    MP3 = 5; POS = 6; FREQUENCY = 7; EXAMPLES_COUNT = 8
-    INSIGHT_LEN = 9; IMAGE_URL = 10; IS_AI_ENRICHED = 11; ORDER_NO = 12
-    # 共 13 个字段；小写形式存于索引中，不在 tuple 里重复存储
+    ID = 0; LEVEL = 1; WORD = 2; READING = 3; POS = 4
+    FREQUENCY = 5; EXAMPLES_COUNT = 6; INSIGHT_LEN = 7
+    IS_AI_ENRICHED = 8; ORDER_NO = 9
+    # 只有 10 个轻量字段；大字段(meaning/mp3/image_url)通过 DB 批量查
 
-_vocab_cache: list = []  # List[Tuple] — 16 个字段的 tuple
+_vocab_cache: list = []  # List[Tuple] — 每行 10 字段
 _vocab_cache_loaded_at: float = 0
 _vocab_cache_loading: bool = False
-_VOCAB_CACHE_TTL = 300  # 5 分钟自动刷新
+_VOCAB_CACHE_TTL = 300
 
-# 搜索索引（存 _vocab_cache 的下标）
+# 搜索索引
 _word_exact: Dict[str, List[int]] = {}
 _reading_exact: Dict[str, List[int]] = {}
-_word_prefix_sorted: list = []   # [(word_lower, idx), ...] 排序
-_reading_prefix_sorted: list = []  # [(reading_lower, idx), ...] 排序
+_word_prefix_sorted: list = []   # [(word_lower, idx), ...]
+_reading_prefix_sorted: list = []  # [(reading_lower, idx), ...]
+_id_to_idx: Dict[str, int] = {}  # id → cache index（释义扫描用）
 
 
 def _row_to_dict(idx: int) -> dict:
-    """将一行 tuple 转为前端期望的 dict。"""
+    """将一行 tuple 转为前端 dict（不含 meaning/mp3/image_url）。"""
     r = _vocab_cache[idx]
     return {
         "id": r[_VF.ID],
         "level": r[_VF.LEVEL],
         "word": r[_VF.WORD],
         "reading": r[_VF.READING],
-        "meaning": r[_VF.MEANING],
-        "mp3": r[_VF.MP3],
         "pos": r[_VF.POS],
         "frequency": r[_VF.FREQUENCY],
         "examples_count": r[_VF.EXAMPLES_COUNT],
         "insight_len": r[_VF.INSIGHT_LEN],
-        "image_url": r[_VF.IMAGE_URL],
         "is_ai_enriched": r[_VF.IS_AI_ENRICHED],
         "order_no": r[_VF.ORDER_NO],
     }
 
 
+def _fetch_details(ids: List[str]) -> Dict[str, dict]:
+    """批量从 DB 查 meaning/mp3/image_url。"""
+    if not ids:
+        return {}
+    try:
+        conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=3)
+    except Exception:
+        return {}
+    try:
+        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(
+                "SELECT id::text, meaning, mp3, image_url FROM vocab_library WHERE id::text = ANY(%s)",
+                (ids,)
+            )
+            return {str(r["id"]): {"meaning": r.get("meaning") or "", "mp3": r.get("mp3") or "", "image_url": r.get("image_url") or ""} for r in cur.fetchall()}
+    except Exception:
+        return {}
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def _ensure_vocab_cache():
-    """加载词库到内存并构建索引（tuple 存储 + 精确 dict + 前缀二分）。"""
+    """加载词库到内存并构建索引（仅轻量字段，省 ~100MB+ 释义文本）。"""
     global _vocab_cache, _vocab_cache_loaded_at, _vocab_cache_loading
-    global _word_exact, _reading_exact, _word_prefix_sorted, _reading_prefix_sorted
+    global _word_exact, _reading_exact, _word_prefix_sorted, _reading_prefix_sorted, _id_to_idx
     now_s = time.time()
     if _vocab_cache and (now_s - _vocab_cache_loaded_at) < _VOCAB_CACHE_TTL:
         return
@@ -113,11 +134,10 @@ def _ensure_vocab_cache():
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    """SELECT id::text, level, word, reading, meaning, mp3,
-                              pos, frequency,
+                    """SELECT id::text, level, word, reading, pos, frequency,
                               COALESCE(jsonb_array_length(examples), 0),
                               COALESCE(length(insight_text), 0),
-                              image_url, is_ai_enriched, order_no
+                              is_ai_enriched, order_no
                        FROM vocab_library"""
                 )
                 rows = cur.fetchall()
@@ -127,10 +147,13 @@ def _ensure_vocab_cache():
                     re: Dict[str, List[int]] = {}
                     wp: list = []
                     rp: list = []
+                    id2idx: Dict[str, int] = {}
                     for i, row in enumerate(rows):
                         wl = (row[2] or "").lower()
                         rl = (row[3] or "").lower()
-                        entries.append(tuple(row))  # 只存原始 13 字段，小写不重复存
+                        rid = str(row[0])
+                        entries.append(tuple(row))
+                        id2idx[rid] = i
                         we.setdefault(wl, []).append(i)
                         re.setdefault(rl, []).append(i)
                         if wl:
@@ -144,6 +167,7 @@ def _ensure_vocab_cache():
                     _reading_exact = re
                     _word_prefix_sorted = wp
                     _reading_prefix_sorted = rp
+                    _id_to_idx = id2idx
                     _vocab_cache_loaded_at = now_s
         except Exception:
             pass
@@ -157,12 +181,13 @@ def _ensure_vocab_cache():
 
 
 def _invalidate_vocab_cache():
-    global _vocab_cache, _word_exact, _reading_exact, _word_prefix_sorted, _reading_prefix_sorted
+    global _vocab_cache, _word_exact, _reading_exact, _word_prefix_sorted, _reading_prefix_sorted, _id_to_idx
     _vocab_cache = []
     _word_exact = {}
     _reading_exact = {}
     _word_prefix_sorted = []
     _reading_prefix_sorted = []
+    _id_to_idx = {}
 
 
 def _prefix_matches(sorted_list: list, prefix: str):
@@ -3487,36 +3512,47 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
             if len(results) >= _scan_limit:
                 break
 
-    # Tier 4: 释义匹配 — 只在前面几层结果都不足时才扫描
+    # Tier 4: 释义匹配 — DB 查询（meaning 不在内存缓存中）
     if enable_meaning and len(results) < _NEED_SCAN:
         _scan_limit = int(limit) * 5
-        for idx in range(len(_vocab_cache)):
-            if idx in seen:
-                continue
-            ml = (_vocab_cache[idx][_VF.MEANING] or "").lower()
-            pos = ml.find(qq_lower)
-            if pos >= 0:
-                if pos <= 2:
-                    rank = 20
-                elif pos <= 10:
-                    rank = 21 + pos // 3
-                else:
-                    rank = 26 + min(pos // 20, 4)
-                _add(idx, rank, "meaning_match", pos)
-                if len(results) >= _scan_limit:
-                    break
-            elif has_jp_variant:
-                pos = ml.find(qq_j_lower)
-                if pos >= 0:
-                    if pos <= 2:
-                        rank = 20
-                    elif pos <= 10:
-                        rank = 21 + pos // 3
-                    else:
-                        rank = 26 + min(pos // 20, 4)
-                    _add(idx, rank, "meaning_match", pos)
-                    if len(results) >= _scan_limit:
-                        break
+        try:
+            _mc = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=3)
+            try:
+                with _mc.cursor() as _mcur:
+                    _mcur.execute("SET LOCAL statement_timeout = '3s'")
+                    _search_terms = [qq_lower]
+                    _sql = "SELECT id::text, meaning FROM vocab_library WHERE meaning ILIKE %s"
+                    if has_jp_variant:
+                        _sql += " OR meaning ILIKE %s"
+                        _search_terms.append(qq_j_lower)
+                    _sql += " LIMIT %s"
+                    _search_terms.append(_scan_limit * 2)
+                    _mcur.execute(_sql, [f"%{t}%" if i < len(_search_terms) - 1 else t for i, t in enumerate(_search_terms)])
+                    for row_id, meaning_text in _mcur.fetchall():
+                        idx = _id_to_idx.get(str(row_id))
+                        if idx is None or idx in seen:
+                            continue
+                        ml = (meaning_text or "").lower()
+                        pos = ml.find(qq_lower)
+                        if pos < 0 and has_jp_variant:
+                            pos = ml.find(qq_j_lower)
+                        if pos >= 0:
+                            if pos <= 2:
+                                rank = 20
+                            elif pos <= 10:
+                                rank = 21 + pos // 3
+                            else:
+                                rank = 26 + min(pos // 20, 4)
+                            _add(idx, rank, "meaning_match", pos)
+                            if len(results) >= _scan_limit:
+                                break
+            finally:
+                try:
+                    _mc.close()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     t_match = time.time() - t0
 
@@ -3560,6 +3596,15 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
     combined.sort(key=_sort_key)
 
     out = combined[:int(limit)]
+
+    # 从 DB 补充 meaning/mp3/image_url（内存缓存中已移除这些大字段）
+    if out:
+        _det = _fetch_details([d["id"] for d in out])
+        for d in out:
+            _dd = _det.get(d["id"], {})
+            d["meaning"] = _dd.get("meaning", "")
+            d["mp3"] = _dd.get("mp3", "")
+            d["image_url"] = _dd.get("image_url", "")
 
     for d in out:
         d.pop("scene_deep_dive", None)
@@ -3680,6 +3725,16 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
         ))
 
     out = out[:int(limit)]
+
+    # 从 DB 补充 meaning/mp3/image_url
+    if out:
+        _det = _fetch_details([d["id"] for d in out])
+        for d in out:
+            _dd = _det.get(d["id"], {})
+            d["meaning"] = _dd.get("meaning", "")
+            d["mp3"] = _dd.get("mp3", "")
+            d["image_url"] = _dd.get("image_url", "")
+
     for d in out:
         d.pop("insight_len", None)
         d.pop("is_ai_enriched", None)
