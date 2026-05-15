@@ -55,21 +55,48 @@ _search_cache: Dict[Tuple[str, int], Tuple[float, list]] = {}
 _SEARCH_CACHE_TTL = 120  # seconds
 _SEARCH_CACHE_MAX = 500
 
-# ── 内存词库缓存 + 索引（200K 级数据量优化）──
-_vocab_cache: list = []  # List[Dict] — 预计算了小写字段 _wl/_rl/_ml
+# ── 内存词库缓存 + 索引（200K 级，tuple 存储节省内存）──
+# 每条记录用 tuple，字段位置见 _VF（约节省 60MB dict 开销 / 200K 条）
+class _VF:
+    ID = 0; LEVEL = 1; WORD = 2; READING = 3; MEANING = 4
+    MP3 = 5; POS = 6; FREQUENCY = 7; EXAMPLES_COUNT = 8
+    INSIGHT_LEN = 9; IMAGE_URL = 10; IS_AI_ENRICHED = 11; ORDER_NO = 12
+    WL = 13; RL = 14; ML = 15
+
+_vocab_cache: list = []  # List[Tuple] — 16 个字段的 tuple
 _vocab_cache_loaded_at: float = 0
 _vocab_cache_loading: bool = False
 _VOCAB_CACHE_TTL = 300  # 5 分钟自动刷新
 
 # 搜索索引（存 _vocab_cache 的下标）
-_word_exact: Dict[str, List[int]] = {}     # word_lower → [idx, ...]
-_reading_exact: Dict[str, List[int]] = {}  # reading_lower → [idx, ...]
-_word_prefix_sorted: list = []   # [(word_lower, idx), ...] 按 word_lower 排序
+_word_exact: Dict[str, List[int]] = {}
+_reading_exact: Dict[str, List[int]] = {}
+_word_prefix_sorted: list = []   # [(word_lower, idx), ...] 排序
 _reading_prefix_sorted: list = []  # [(reading_lower, idx), ...] 排序
 
 
+def _row_to_dict(idx: int) -> dict:
+    """将一行 tuple 转为前端期望的 dict。"""
+    r = _vocab_cache[idx]
+    return {
+        "id": r[_VF.ID],
+        "level": r[_VF.LEVEL],
+        "word": r[_VF.WORD],
+        "reading": r[_VF.READING],
+        "meaning": r[_VF.MEANING],
+        "mp3": r[_VF.MP3],
+        "pos": r[_VF.POS],
+        "frequency": r[_VF.FREQUENCY],
+        "examples_count": r[_VF.EXAMPLES_COUNT],
+        "insight_len": r[_VF.INSIGHT_LEN],
+        "image_url": r[_VF.IMAGE_URL],
+        "is_ai_enriched": r[_VF.IS_AI_ENRICHED],
+        "order_no": r[_VF.ORDER_NO],
+    }
+
+
 def _ensure_vocab_cache():
-    """加载词库到内存并构建索引（精确 dict + 前缀二分）。"""
+    """加载词库到内存并构建索引（tuple 存储 + 精确 dict + 前缀二分）。"""
     global _vocab_cache, _vocab_cache_loaded_at, _vocab_cache_loading
     global _word_exact, _reading_exact, _word_prefix_sorted, _reading_prefix_sorted
     now_s = time.time()
@@ -84,36 +111,30 @@ def _ensure_vocab_cache():
         except Exception:
             return
         try:
-            with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            with conn.cursor() as cur:
                 cur.execute(
-                    """SELECT id, level, word, reading, meaning, mp3,
+                    """SELECT id::text, level, word, reading, meaning, mp3,
                               pos, frequency,
-                              COALESCE(jsonb_array_length(examples), 0) AS examples_count,
-                              COALESCE(length(insight_text), 0) AS insight_len,
+                              COALESCE(jsonb_array_length(examples), 0),
+                              COALESCE(length(insight_text), 0),
                               image_url, is_ai_enriched, order_no
                        FROM vocab_library"""
                 )
                 rows = cur.fetchall()
                 if rows:
-                    # 预计算小写字段，避免每次搜索重复转换
                     entries = []
                     we: Dict[str, List[int]] = {}
                     re: Dict[str, List[int]] = {}
                     wp: list = []
                     rp: list = []
                     for i, row in enumerate(rows):
-                        d = dict(row)
-                        d["id"] = str(d.get("id"))
-                        d["_wl"] = str(d.get("word") or "").lower()
-                        d["_rl"] = str(d.get("reading") or "").lower()
-                        d["_ml"] = str(d.get("meaning") or "").lower()
-                        entries.append(d)
-                        # 精确索引
-                        wl = d["_wl"]
-                        rl = d["_rl"]
+                        wl = (row[2] or "").lower()  # word -> lower
+                        rl = (row[3] or "").lower()  # reading -> lower
+                        ml = (row[4] or "").lower()  # meaning -> lower
+                        # tuple: append lowercase fields
+                        entries.append(tuple(row) + (wl, rl, ml))
                         we.setdefault(wl, []).append(i)
                         re.setdefault(rl, []).append(i)
-                        # 前缀二分列表
                         if wl:
                             wp.append((wl, i))
                         if rl:
@@ -3374,10 +3395,8 @@ async def get_library_word(slug: str = Query(...)):
 @app.get("/api/library/search")
 async def search_library(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=50), _debug: int = Query(0, ge=0, le=1)):
     """
-    词库搜索（索引加速，200K 级数据量适用）：
-    - 精确匹配：dict 查找 O(1)
-    - 前缀匹配：二分查找 O(log n)
-    - 包含/释义：只对未命中条目做全扫描
+    词库搜索（索引加速 + tuple 存储，200K 级适用）：
+    - 精确匹配：dict O(1) / 前缀：二分 O(log n) / 包含/释义：扫描跳过已命中
     """
     if not SUPABASE_DB_ENABLED:
         raise HTTPException(status_code=500, detail="SUPABASE_DB_URL is not configured")
@@ -3399,7 +3418,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
     t_load = time.time() - t0
 
     if not _vocab_cache:
-        return []  # 词库未加载
+        return []
 
     qq_lower = qq.lower()
     is_kana_only = _is_kana_only(qq)
@@ -3411,29 +3430,26 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
     has_jp_variant = qq_j != qq
     qq_j_lower = qq_j.lower()
 
-    # ── 用索引快速收集候选 ──
-    seen: set = set()       # 已命中的下标
+    seen: set = set()
     results: List[Dict[str, Any]] = []
 
     def _add(idx: int, rank: int, kind: str, kw_pos: int = 9999):
         if idx in seen:
             return
         seen.add(idx)
-        d = dict(_vocab_cache[idx])
+        d = _row_to_dict(idx)
         d["match_rank"] = rank
         d["match_kind"] = kind
         if kw_pos < 9999:
             d["_kw_pos"] = kw_pos
         results.append(d)
 
-    # Tier 1: 词精确匹配 (dict lookup, O(1))
+    # Tier 1: 精确匹配 (dict lookup, O(1))
     for idx in _word_exact.get(qq_lower, ()):
         _add(idx, 0, "word_exact")
     if has_jp_variant:
         for idx in _word_exact.get(qq_j_lower, ()):
             _add(idx, 1, "word_exact_jp")
-
-    # 读音精确
     for idx in _reading_exact.get(qq_lower, ()):
         _add(idx, 10, "reading_exact")
     if has_jp_variant:
@@ -3442,24 +3458,24 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
 
     # Tier 2: 前缀匹配 (bisect, O(log n))
     for wl, idx in _prefix_matches(_word_prefix_sorted, qq_j_lower if has_jp_variant else qq_lower):
-        if has_jp_variant and wl.startswith(qq_j_lower):
-            _add(idx, 2, "word_prefix_jp")
-    for wl, idx in _prefix_matches(_word_prefix_sorted, qq_lower):
-        _add(idx, 3, "word_prefix")
-
+        _add(idx, 2 if has_jp_variant else 3, "word_prefix" + ("_jp" if has_jp_variant else ""))
+    if has_jp_variant:
+        for wl, idx in _prefix_matches(_word_prefix_sorted, qq_lower):
+            _add(idx, 3, "word_prefix")
     for rl, idx in _prefix_matches(_reading_prefix_sorted, qq_j_lower if has_jp_variant else qq_lower):
-        if has_jp_variant and rl.startswith(qq_j_lower):
-            _add(idx, 12, "reading_prefix_jp")
-    for rl, idx in _prefix_matches(_reading_prefix_sorted, qq_lower):
-        _add(idx, 13, "reading_prefix")
+        _add(idx, 12 if has_jp_variant else 13, "reading_prefix" + ("_jp" if has_jp_variant else ""))
+    if has_jp_variant:
+        for rl, idx in _prefix_matches(_reading_prefix_sorted, qq_lower):
+            _add(idx, 13, "reading_prefix")
 
     # Tier 3: 包含匹配 (扫描未命中条目)
     if enable_contains:
-        for idx, d in enumerate(_vocab_cache):
+        for idx in range(len(_vocab_cache)):
             if idx in seen:
                 continue
-            wl = d["_wl"]
-            rl = d["_rl"]
+            r = _vocab_cache[idx]
+            wl = r[_VF.WL]
+            rl = r[_VF.RL]
             if has_jp_variant and qq_j_lower in wl:
                 _add(idx, 4, "word_partial_jp")
             elif qq_lower in wl:
@@ -3471,10 +3487,10 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
 
     # Tier 4: 释义匹配 (扫描未命中条目)
     if enable_meaning:
-        for idx, d in enumerate(_vocab_cache):
+        for idx in range(len(_vocab_cache)):
             if idx in seen:
                 continue
-            ml = d["_ml"]
+            ml = _vocab_cache[idx][_VF.ML]
             pos = ml.find(qq_lower)
             if pos >= 0:
                 if pos <= 2:
@@ -3497,7 +3513,6 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
 
     t_match = time.time() - t0
 
-    # ── 排序：词/读永远优先 ──
     def _lv_rank(lv: str) -> int:
         m = {"N5": 1, "N4": 2, "N3": 3, "N2": 4, "N1": 5}
         return m.get((lv or "").upper(), 0)
@@ -3513,7 +3528,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
 
     results.sort(key=_sort_key)
 
-    # ── 去重 ──
+    # 去重
     def _score(d):
         return (
             int(d.get("insight_len") or 0),
@@ -3531,7 +3546,6 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         if prev is None or _score(d) > _score(prev):
             by_word[wkey] = d
 
-    # 词/读匹配和释义匹配分开，释义最多取 10 条
     word_reading = [d for d in by_word.values() if d["match_rank"] < 20]
     meaning_only = [d for d in by_word.values() if d["match_rank"] >= 20]
     meaning_only.sort(key=_sort_key)
@@ -3544,9 +3558,6 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         d.pop("scene_deep_dive", None)
         d.pop("insight_len", None)
         d.pop("_kw_pos", None)
-        d.pop("_wl", None)
-        d.pop("_rl", None)
-        d.pop("_ml", None)
 
     if _debug:
         return {
@@ -3571,7 +3582,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
 @app.get("/api/library/suggest")
 async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(10, ge=1, le=30)):
     """
-    实时联想（索引加速，纯前缀匹配）。
+    实时联想（索引加速 + tuple 存储，纯前缀匹配）。
     """
     if not SUPABASE_DB_ENABLED:
         raise HTTPException(status_code=500, detail="SUPABASE_DB_URL is not configured")
@@ -3596,35 +3607,32 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
         if idx in seen:
             return
         seen.add(idx)
-        d = dict(_vocab_cache[idx])
+        d = _row_to_dict(idx)
         d["_rank"] = rank
         matched.append(d)
 
-    # 精确匹配
     for idx in _word_exact.get(qq_lower, ()):
         _add(idx, 0)
     if has_jp_variant:
         for idx in _word_exact.get(qq_j_lower, ()):
             _add(idx, 0)
-
     for idx in _reading_exact.get(qq_lower, ()):
         _add(idx, 3)
     if has_jp_variant:
         for idx in _reading_exact.get(qq_j_lower, ()):
             _add(idx, 3)
 
-    # 前缀匹配
     for wl, idx in _prefix_matches(_word_prefix_sorted, qq_j_lower if has_jp_variant else qq_lower):
         _add(idx, 1)
-    for wl, idx in _prefix_matches(_word_prefix_sorted, qq_lower):
-        _add(idx, 1)
-
+    if has_jp_variant:
+        for wl, idx in _prefix_matches(_word_prefix_sorted, qq_lower):
+            _add(idx, 1)
     for rl, idx in _prefix_matches(_reading_prefix_sorted, qq_j_lower if has_jp_variant else qq_lower):
         _add(idx, 2)
-    for rl, idx in _prefix_matches(_reading_prefix_sorted, qq_lower):
-        _add(idx, 2)
+    if has_jp_variant:
+        for rl, idx in _prefix_matches(_reading_prefix_sorted, qq_lower):
+            _add(idx, 2)
 
-    # 去重
     def _lv_rank(lv: str) -> int:
         m = {"N5": 1, "N4": 2, "N3": 3, "N2": 4, "N1": 5}
         return m.get((lv or "").upper(), 0)
@@ -3670,9 +3678,6 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
         d.pop("is_ai_enriched", None)
         d.pop("_rank", None)
         d.pop("examples_count", None)
-        d.pop("_wl", None)
-        d.pop("_rl", None)
-        d.pop("_ml", None)
     return out
 
 @app.get("/api/library/replacements")
