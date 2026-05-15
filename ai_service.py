@@ -295,7 +295,52 @@ class AIService:
                 t = t.split("```json", 1)[1].split("```", 1)[0].strip()
             elif "```" in t:
                 t = t.split("```", 1)[1].split("```", 1)[0].strip()
-            return json.loads(t)
+            try:
+                return json.loads(t)
+            except json.JSONDecodeError:
+                pass
+            # Fallback: sanitize control characters inside JSON strings
+            def _sanitize_json(s):
+                result = []
+                in_string = False
+                escape_next = False
+                for ch in s:
+                    if escape_next:
+                        result.append(ch)
+                        escape_next = False
+                        continue
+                    if ch == '\\':
+                        result.append(ch)
+                        escape_next = True
+                        continue
+                    if ch == '"':
+                        in_string = not in_string
+                        result.append(ch)
+                        continue
+                    if in_string:
+                        if ch == '\n':
+                            result.append('\\n')
+                        elif ch == '\r':
+                            result.append('\\r')
+                        elif ch == '\t':
+                            result.append('\\t')
+                        elif ord(ch) < 32:
+                            result.append(' ')
+                        else:
+                            result.append(ch)
+                    else:
+                        result.append(ch)
+                return ''.join(result)
+            try:
+                return json.loads(_sanitize_json(t))
+            except json.JSONDecodeError:
+                pass
+            try:
+                decoder = json.JSONDecoder()
+                obj, _ = decoder.raw_decode(t)
+                return obj
+            except json.JSONDecodeError:
+                raise
 
         def _norm_str_list(v: Any, max_n: int) -> List[str]:
             if v is None:
@@ -373,42 +418,22 @@ class AIService:
         reading: str = "",
         meaning: str = "",
         level: str = "N2",
+        category: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         For vocab_library: generate social_context (JSON), heatmap_data (JSON), insight_text (TEXT).
-        image_url is intentionally handled outside and kept empty.
+        category: None (default), 'slang', 'gaming_lol', 'gaming_valorant' — changes prompt.
         """
         if self.provider == "mock":
             return None
 
-        prompt = f"""
-你是东京本地日语老师，专门教中文母语者地道日语。请只输出一个 JSON 对象，不要解释，不要 markdown。
-
-单词: {word}
-读音: {reading}
-释义: {meaning}
-
-输出字段（严格 JSON）：
-1) social_context: 对应 3 个社交场景，allowed 为布尔，reason 为 15~40 字中文解释，要具体到这个词的实际使用语境，不要泛泛而谈：
-{{
-  "casual": {{"label_ja":"カジュアル","label_zh":"友人・同僚","allowed":true,"reason":"..."}},
-  "business": {{"label_ja":"ビジネス","label_zh":"上司・目上","allowed":false,"reason":"..."}},
-  "formal": {{"label_ja":"フォーマル","label_zh":"店員・陌生人","allowed":false,"reason":"..."}}
-}}
-2) heatmap_data: 该词最常出现的 3 个具体场景及真实使用频率（整数 0~100，每个场景独立打分，不要求和为100）。场景名要具体（如 居酒屋、便利店、Line群聊、公司会议、约会、跟邻居唠嗑），不要泛泛的"一般生活"：
-{{"具体场景A": 85, "具体场景B": 60, "具体场景C": 30}}
-3) insight_text: 中文 100~200字，一段自然的深度解析。像跟朋友聊天一样讲这个词怎么用。只从以下角度挑1-2个展开（别全写，别列清单）：发音是否容易读错、跟近义词的语感差异、背后反映的日本思维习惯、容易闹笑话的坑。不要写"该词""学习者""本词"这类翻译腔，不要在里面写频率和例句（频率和例句已用独立字段输出）。也不用加【】标签，直接写正文段落。
-
-4) frequency_stars: 整数 1~5，代表该词在日常会话中的使用频率（1=几乎不用/冷僻，3=偶尔用到，5=天天挂在嘴边）。
-
-5) examples: 三个地道例句的 JSON 数组 [{{ "cn":"中文翻译1","jp":"日语例句1" }}, ...]。例句必须是日本人真实对话中会说的，不要教科书例句，三个覆盖不同场景。
-
-6) meaning_cn: 将原文释义翻译成地道中文，10~80字。原文即使是英文也必须翻译为中文，禁止返回英文或日文。如果单词是片假名外来语，请在释义末尾用括号标注原词来源（如「蛋糕（cake）」「电脑（computer）」）。
-
-7) pos_cn: 中文词性，从以下选一个最合适的：名词、他动词、自动词、自他动词、形容词（い形）、形容动词（な形）、副词、连体词、接续词、感叹词、助词、助动词、接尾词、接头词、惯用表达。
-
-8) pitch: 日语声调核位置，一个整数。0=平板型（第一个音低，之后全高，无下降），1=头高型（第一个音高，之后全低），2=中高型第2拍后下降，依此类推。参考读音拍数判断。
-"""
+        if category == "slang":
+            prompt = self._slang_prompt(word, reading, meaning)
+        elif category in ("gaming_lol", "gaming_valorant"):
+            game_name = "英雄联盟（League of Legends）" if category == "gaming_lol" else "瓦罗兰特（VALORANT）"
+            prompt = self._gaming_prompt(word, reading, meaning, game_name)
+        else:
+            prompt = self._default_prompt(word, reading, meaning)
 
         def _parse_json_text(text: str) -> Dict[str, Any]:
             t = (text or "").strip()
@@ -416,7 +441,52 @@ class AIService:
                 t = t.split("```json", 1)[1].split("```", 1)[0].strip()
             elif "```" in t:
                 t = t.split("```", 1)[1].split("```", 1)[0].strip()
-            return json.loads(t)
+            try:
+                return json.loads(t)
+            except json.JSONDecodeError:
+                pass
+            # Fallback: sanitize control characters inside JSON strings
+            def _sanitize_json(s):
+                result = []
+                in_string = False
+                escape_next = False
+                for ch in s:
+                    if escape_next:
+                        result.append(ch)
+                        escape_next = False
+                        continue
+                    if ch == '\\':
+                        result.append(ch)
+                        escape_next = True
+                        continue
+                    if ch == '"':
+                        in_string = not in_string
+                        result.append(ch)
+                        continue
+                    if in_string:
+                        if ch == '\n':
+                            result.append('\\n')
+                        elif ch == '\r':
+                            result.append('\\r')
+                        elif ch == '\t':
+                            result.append('\\t')
+                        elif ord(ch) < 32:
+                            result.append(' ')
+                        else:
+                            result.append(ch)
+                    else:
+                        result.append(ch)
+                return ''.join(result)
+            try:
+                return json.loads(_sanitize_json(t))
+            except json.JSONDecodeError:
+                pass
+            try:
+                decoder = json.JSONDecoder()
+                obj, _ = decoder.raw_decode(t)
+                return obj
+            except json.JSONDecodeError:
+                raise
 
         def _clamp_pct(v: Any) -> int:
             try:
@@ -517,6 +587,99 @@ class AIService:
         except Exception as e:
             print(f"!!! enrich_library_entry ({self.provider}): {type(e).__name__} - {e}")
             return None
+
+    def _default_prompt(self, word: str, reading: str, meaning: str) -> str:
+        return f"""你是东京本地日语老师，专门教中文母语者地道日语。请只输出一个 JSON 对象，不要解释，不要 markdown。
+
+单词: {word}
+读音: {reading}
+释义: {meaning}
+
+输出字段（严格 JSON）：
+1) social_context: 对应 3 个社交场景，allowed 为布尔，reason 为 15~40 字中文解释，要具体到这个词的实际使用语境，不要泛泛而谈：
+{{
+  "casual": {{"label_ja":"カジュアル","label_zh":"友人・同僚","allowed":true,"reason":"..."}},
+  "business": {{"label_ja":"ビジネス","label_zh":"上司・目上","allowed":false,"reason":"..."}},
+  "formal": {{"label_ja":"フォーマル","label_zh":"店員・陌生人","allowed":false,"reason":"..."}}
+}}
+2) heatmap_data: 该词最常出现的 3 个具体场景及真实使用频率（整数 0~100，每个场景独立打分，不要求和为100）。场景名要具体（如 居酒屋、便利店、Line群聊、公司会议、约会、跟邻居唠嗑），不要泛泛的"一般生活"：
+{{"具体场景A": 85, "具体场景B": 60, "具体场景C": 30}}
+3) insight_text: 中文 100~200字，一段自然的深度解析。像跟朋友聊天一样讲这个词怎么用。只从以下角度挑1-2个展开（别全写，别列清单）：发音是否容易读错、跟近义词的语感差异、背后反映的日本思维习惯、容易闹笑话的坑。不要写"该词""学习者""本词"这类翻译腔，不要在里面写频率和例句（频率和例句已用独立字段输出）。也不用加【】标签，直接写正文段落。
+
+4) frequency_stars: 整数 1~5，代表该词在日常会话中的使用频率（1=几乎不用/冷僻，3=偶尔用到，5=天天挂在嘴边）。
+
+5) examples: 三个地道例句的 JSON 数组 [{{ "cn":"中文翻译1","jp":"日语例句1" }}, ...]。例句必须是日本人真实对话中会说的，不要教科书例句，三个覆盖不同场景。
+
+6) meaning_cn: 将原文释义翻译成地道中文，10~80字。原文即使是英文也必须翻译为中文，禁止返回英文或日文。如果单词是片假名外来语，请在释义末尾用括号标注原词来源（如「蛋糕（cake）」「电脑（computer）」）。
+
+7) pos_cn: 中文词性，从以下选一个最合适的：名词、他动词、自动词、自他动词、形容词（い形）、形容动词（な形）、副词、连体词、接续词、感叹词、助词、助动词、接尾词、接头词、惯用表达。
+
+8) pitch: 日语声调核位置，一个整数。0=平板型（第一个音低，之后全高，无下降），1=头高型（第一个音高，之后全低），2=中高型第2拍后下降，依此类推。参考读音拍数判断。
+"""
+
+    def _slang_prompt(self, word: str, reading: str, meaning: str) -> str:
+        return f"""你是东京年轻人（20代），深度了解日本网络文化和流行语。请只输出一个 JSON 对象，不要解释，不要 markdown。
+
+流行语: {word}
+读音: {reading}
+原意: {meaning}
+
+输出字段（严格 JSON）：
+1) social_context: 对应 3 个社交场景，allowed 为布尔，reason 为 15~40 字中文解释。流行语通常 casual 为 true，business/formal 为 false：
+{{
+  "casual": {{"label_ja":"カジュアル","label_zh":"友人・同僚","allowed":true,"reason":"..."}},
+  "business": {{"label_ja":"ビジネス","label_zh":"上司・目上","allowed":false,"reason":"..."}},
+  "formal": {{"label_ja":"フォーマル","label_zh":"店員・陌生人","allowed":false,"reason":"..."}}
+}}
+2) heatmap_data: 该词最常出现的 3 个具体场景及真实使用频率（整数 0~100，每个场景独立打分，不要求和为100）。场景名要具体到流行语的使用场景（如 Twitter/X、Instagram、Line群聊、TikTok评论、大学校园、渋谷聚会、居酒屋、バイト先闲聊）：
+{{"具体场景A": 85, "具体场景B": 60, "具体场景C": 30}}
+3) insight_text: 中文 150~300字，深度解析这个流行语。必须包含两部分：
+【原意】30~80字，该词原本在日语中的意思。
+【流行语用法】80~200字，作为流行语的具体用法，包括在什么场景/人群中使用、表达什么情绪或态度、近一两年在日本社交网络上的使用趋势。不要写"该词""学习者""本词"这类翻译腔，像跟朋友科普流行梗一样自然地写。
+
+4) frequency_stars: 整数 1~5，代表该词在日本年轻人日常会话中的使用频率。
+
+5) examples: 三个地道例句的 JSON 数组 [{{ "cn":"中文翻译1","jp":"日语例句1" }}, ...]。第一个例句展示传统/原意用法，后两个例句展示流行语用法。例句必须是日本人真实对话中会说的，三个覆盖不同场景。
+
+6) meaning_cn: 将该流行语翻译成地道中文，10~80字。要体现流行语的语感，不要死板直译。
+
+7) pos_cn: 中文词性，从以下选一个最合适的：名词、他动词、自动词、自他动词、形容词（い形）、形容动词（な形）、副词、连体词、接续词、感叹词、助词、助动词、接尾词、接头词、惯用表达。
+
+8) pitch: 日语声调核位置，一个整数。0=平板型（第一个音低，之后全高，无下降），1=头高型（第一个音高，之后全低），2=中高型第2拍后下降，依此类推。参考读音拍数判断。
+"""
+
+    def _gaming_prompt(self, word: str, reading: str, meaning: str, game_name: str) -> str:
+        return f"""你是日本电竞玩家，深度了解{game_name}的日服术语和中文服术语。请只输出一个 JSON 对象，不要解释，不要 markdown。
+
+游戏术语: {word}
+读音: {reading}
+英文原词/原意: {meaning}
+
+输出字段（严格 JSON）：
+1) social_context: 对应 3 个社交场景，allowed 为布尔，reason 为 15~40 字中文解释。游戏术语 casual/formal 根据实际判断：
+{{
+  "casual": {{"label_ja":"カジュアル","label_zh":"友人・同僚","allowed":true,"reason":"..."}},
+  "business": {{"label_ja":"ビジネス","label_zh":"上司・目上","allowed":false,"reason":"..."}},
+  "formal": {{"label_ja":"フォーマル","label_zh":"店員・陌生人","allowed":false,"reason":"..."}}
+}}
+2) heatmap_data: 该术语最常出现的 3 个具体场景及真实使用频率（整数 0~100，每个场景独立打分，不要求和为100）。场景名要具体（如 游戏语音、Discord群、Twitch直播弹幕、YouTube游戏实况、游戏内聊天、电竞比赛解说）：
+{{"具体场景A": 85, "具体场景B": 60, "具体场景C": 30}}
+3) insight_text: 中文 150~300字，深度解析这个游戏术语。必须包含以下四部分：
+【原意】30~80字，该词在英语/日语中的原本含义。
+【游戏中含义】80~150字，在{game_name}中的具体含义，包括在游戏的什么系统/机制中使用、具体指什么。
+【游戏中使用方式】50~100字，日本玩家怎么用这个词交流，在什么情境下会说。
+【对应中文术语】20~50字，中国玩家对应的叫法是什么（这个很重要，必须准确）。
+
+4) frequency_stars: 整数 1~5，代表该术语在{game_name}玩家中的使用频率。
+
+5) examples: 三个地道例句的 JSON 数组 [{{ "cn":"中文翻译1","jp":"日语例句1" }}, ...]。第一个例句展示日常/普通用法，后两个例句展示游戏对局中的实际用法。例句必须是日本玩家真实对局中会说的话。
+
+6) meaning_cn: 将术语翻译成地道中文，10~80字。必须反映在中文{game_name}中的实际叫法。
+
+7) pos_cn: 中文词性，从以下选一个最合适的：名词、他动词、自动词、自他动词、形容词（い形）、形容动词（な形）、副词、连体词、接续词、感叹词、助词、助动词、接尾词、接头词、惯用表达。
+
+8) pitch: 日语声调核位置，一个整数。0=平板型（第一个音低，之后全高，无下降），1=头高型（第一个音高，之后全低），2=中高型第2拍后下降，依此类推。参考读音拍数判断。
+"""
 
     def _get_mock_analysis(self, word: str, dict_info: Optional[Dict] = None) -> Dict[str, Any]:
         kana = dict_info.get("kana", "読み方") if dict_info else "読み方"

@@ -46,6 +46,7 @@
       <div class="flex items-center gap-2">
         <button id="reportBtnTop" class="badge-pixel px-3 py-1 bg-amber-50 text-[10px] font-bold hover:bg-amber-100">报错</button>
         <div id="levelBadge" class="badge-pixel px-3 py-1 bg-white text-[10px] font-bold">JLPT</div>
+        <div id="gamingHint" class="badge-pixel px-2 py-1 bg-purple-50 text-[9px] font-bold text-purple-700 hidden" title="游戏术语"><i class="fa-solid fa-gamepad mr-1"></i><span id="gamingHintLabel"></span></div>
         <div id="tagsBadge" class="flex flex-wrap gap-1"></div>
       </div>
     </div>
@@ -408,6 +409,19 @@
           var name = t.replace(/_/g, ' ').toUpperCase();
           return '<span class="text-[8px] px-1 border border-gray-300 text-gray-500 bg-gray-50">' + name + '</span>';
         }).join('');
+      }
+      // 游戏术语提示
+      var gamingHint = document.getElementById('gamingHint');
+      var gamingLabel = document.getElementById('gamingHintLabel');
+      if (gamingHint && gamingLabel) {
+        var gamingTags = tags.filter(function(t) { return t.indexOf('gaming_') === 0; });
+        if (gamingTags.length > 0) {
+          var name = gamingTags[0].replace('gaming_', '').toUpperCase();
+          gamingLabel.innerText = name + '术语';
+          gamingHint.classList.remove('hidden');
+        } else {
+          gamingHint.classList.add('hidden');
+        }
       }
       document.getElementById('wordTitle').innerText = data.word || '---';
       document.getElementById('wordReading').innerText = data.reading || '—';
