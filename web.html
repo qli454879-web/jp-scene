@@ -3394,17 +3394,38 @@ async function startLearning() {
                         showSuggest(query, arr);
                         return;
                     }
-                    // 搜索失败或无结果：自动降级到 AI 解析模式
+                    // 搜索失败或无结果：自动降级到 AI 解析模式（带超时，避免卡死）
                     if (searchFailed || !arr || !Array.isArray(arr) || arr.length === 0) {
                         let analyzeOk = false;
-                        try { await loadData(query); analyzeOk = true; } catch (e2) {}
-                        searchHero.classList.add('active');
-                        contentView.style.display = 'block';
-                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                        if (searchFailed && !analyzeOk) {
+                        const analyzeCtl = new AbortController();
+                        const analyzeTimer = setTimeout(() => analyzeCtl.abort(), 12000);
+                        try {
+                            await Promise.race([
+                                loadData(query, analyzeCtl.signal),
+                                new Promise((_, reject) =>
+                                    setTimeout(() => reject(new Error('TIMEOUT')), 12000)
+                                )
+                            ]);
+                            clearTimeout(analyzeTimer);
+                            analyzeOk = true;
+                        } catch (e2) {
+                            clearTimeout(analyzeTimer);
+                            analyzeCtl.abort();
+                            if (e2 && e2.message === 'TIMEOUT') {
+                                globalLoading.classList.add('hidden');
+                                globalLoading.classList.remove('flex');
+                            }
+                        }
+                        if (analyzeOk) {
+                            searchHero.classList.add('active');
+                            contentView.style.display = 'block';
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                        } else if (!analyzeOk && (searchFailed || !arr || !Array.isArray(arr) || arr.length === 0)) {
+                            searchHero.classList.add('active');
+                            contentView.style.display = 'block';
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
                             alert('词库搜索和 AI 解析均暂不可用，请稍后重试。');
                         }
-                        // 解析成功时不弹窗打扰用户
                         return;
                     }
                 }
@@ -3422,8 +3443,12 @@ async function startLearning() {
             }
         }
 
-        async function loadData(word) {
-            const res = await fetch(`/api/analyze?word=${encodeURIComponent(word)}`);
+        async function loadData(word, signal) {
+            const res = await fetch(`/api/analyze?word=${encodeURIComponent(word)}`, signal ? { signal } : {});
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error((errData && errData.detail) || 'AI 解析服务暂不可用');
+            }
             const data = await res.json();
             currentReportContext = Object.assign({}, data, { query_word: word });
             currentSearchAudioFn = '';

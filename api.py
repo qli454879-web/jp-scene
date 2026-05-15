@@ -3631,6 +3631,15 @@ def _search_db_direct(qq: str, limit: int) -> list:
             where_parts.append("reading ILIKE %s")
             where_params.append("%" + p + "%")
 
+        # 释义搜索：中文查询或较长的非日语查询（低优先级，仅出现在词/读匹配不足时）
+        has_kana = bool(re.search(r"[぀-ゟ゠-ヿー]", qq))
+        chinese_chars = len(re.findall(r"[一-鿿]", qq))
+        need_meaning = chinese_chars >= 1 or (not has_kana and len(qq) >= 2)
+        if need_meaning:
+            for p in patterns:
+                where_parts.append("meaning ILIKE %s")
+                where_params.append("%" + p + "%")
+
         limit_val = int(limit)
         query_sql = f"""
             SELECT id::text, level, word, reading, pos, frequency,
@@ -3685,8 +3694,6 @@ def _suggest_db_direct(qq: str, limit: int) -> list:
         conn = _get_db_conn()
         if conn is None:
             return []
-    except Exception:
-        return []
     except Exception:
         return []
     try:
@@ -3850,6 +3857,24 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
             if len(results) >= _scan_limit:
                 break
 
+    # Tier 3b: 释义搜索 — 对中文查询/无日语字符时，扫描 meaning 列（低优先级，避免噪音）
+    # 仅在 Tier1-3 结果不足时启用
+    _need_meaning = chinese_chars >= 1 or (not has_kana and len(qq) >= 2)
+    if _need_meaning and len(results) < _NEED_SCAN:
+        _meaning_scan_limit = int(limit) * 3
+        _meaning_rank = 30
+        for idx in range(len(_vocab_cache)):
+            if idx in seen:
+                continue
+            r = _vocab_cache[idx]
+            ml = (r[_VF.MEANING] or "").lower()
+            if qq_lower in ml:
+                _add(idx, _meaning_rank, "meaning_partial")
+            elif has_jp_variant and qq_j_lower in ml:
+                _add(idx, _meaning_rank + 1, "meaning_partial_jp")
+            if len(results) >= _meaning_scan_limit:
+                break
+
     t_match = time.time() - t0
 
     def _lv_rank(lv: str) -> int:
@@ -3969,6 +3994,22 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
     if has_jp_variant:
         for rl, idx in _prefix_matches(_reading_prefix_sorted, qq_lower):
             _add(idx, 2)
+
+    # 释义联想：中文查询且前缀匹配不足时，扫描 meaning（低优先级，限 8 条避免噪音）
+    chinese_chars = len(re.findall(r"[一-鿿]", qq))
+    if chinese_chars >= 1 and len(matched) < 3:
+        _meaning_limit = min(int(limit), 8)
+        for idx in range(len(_vocab_cache)):
+            if idx in seen:
+                continue
+            r = _vocab_cache[idx]
+            ml = (r[_VF.MEANING] or "").lower()
+            if qq_lower in ml:
+                _add(idx, 10)
+            elif has_jp_variant and qq_j_lower in ml:
+                _add(idx, 10)
+            if len(matched) >= _meaning_limit:
+                break
 
     def _lv_rank(lv: str) -> int:
         m = {"N5": 1, "N4": 2, "N3": 3, "N2": 4, "N1": 5}
