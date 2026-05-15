@@ -69,12 +69,12 @@ _SEARCH_CACHE_MAX = 500
 _VOCAB_SNAPSHOT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vocab_snapshot.db")
 _VOCAB_SNAPSHOT_TTL = 86400  # 24 小时内有效，超时则从 Supabase 刷新
 
-# ── 内存词库缓存 + 索引（轻量版：不存 meaning/mp3/image_url）──
+# ── 内存词库缓存 + 索引（含 meaning/mp3/image_url，避免每次搜索都开新 DB 连接）──
 class _VF:
     ID = 0; LEVEL = 1; WORD = 2; READING = 3; POS = 4
     FREQUENCY = 5; EXAMPLES_COUNT = 6; INSIGHT_LEN = 7
     IS_AI_ENRICHED = 8; ORDER_NO = 9
-    # 只有 10 个轻量字段；大字段(meaning/mp3/image_url)通过 DB 批量查
+    MEANING = 10; MP3 = 11; IMAGE_URL = 12
 
 _vocab_cache: list = []  # List[Tuple] — 每行 10 字段
 _vocab_cache_loaded_at: float = 0
@@ -91,7 +91,6 @@ _reading_prefix_sorted: list = []  # [(reading_lower, idx), ...]
 
 
 def _row_to_dict(idx: int) -> dict:
-    """将一行 tuple 转为前端 dict（不含 meaning/mp3/image_url）。"""
     r = _vocab_cache[idx]
     return {
         "id": r[_VF.ID],
@@ -104,6 +103,9 @@ def _row_to_dict(idx: int) -> dict:
         "insight_len": r[_VF.INSIGHT_LEN],
         "is_ai_enriched": r[_VF.IS_AI_ENRICHED],
         "order_no": r[_VF.ORDER_NO],
+        "meaning": r[_VF.MEANING] if len(r) > _VF.MEANING else "",
+        "mp3": r[_VF.MP3] if len(r) > _VF.MP3 else "",
+        "image_url": r[_VF.IMAGE_URL] if len(r) > _VF.IMAGE_URL else "",
     }
 
 
@@ -173,7 +175,7 @@ def _load_local_snapshot() -> Optional[List[tuple]]:
         if time.time() - loaded_at > _VOCAB_SNAPSHOT_TTL:
             lite.close()
             return None
-        cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no FROM vocab_snapshot ORDER BY rowid")
+        cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, mp3, image_url FROM vocab_snapshot ORDER BY rowid")
         rows = [tuple(r) for r in cur.fetchall()]
         lite.close()
         if rows:
@@ -193,13 +195,14 @@ def _save_local_snapshot(rows: list):
         cur.execute("""CREATE TABLE vocab_snapshot (
             id TEXT, level TEXT, word TEXT, reading TEXT, pos TEXT,
             frequency INTEGER, examples_count INTEGER, insight_len INTEGER,
-            is_ai_enriched INTEGER, order_no INTEGER
+            is_ai_enriched INTEGER, order_no INTEGER,
+            meaning TEXT, mp3 TEXT, image_url TEXT
         )""")
         cur.execute("CREATE TABLE snapshot_meta (key TEXT PRIMARY KEY, value TEXT)")
         cur.execute("INSERT INTO snapshot_meta VALUES ('loaded_at', ?)", (str(time.time()),))
         cur.execute("INSERT INTO snapshot_meta VALUES ('row_count', ?)", (str(len(rows)),))
         cur.executemany(
-            "INSERT INTO vocab_snapshot VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO vocab_snapshot VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             rows
         )
         lite.commit()
@@ -246,9 +249,7 @@ def _ensure_vocab_cache():
     if _vocab_cache and (now_s - _vocab_cache_loaded_at) < _VOCAB_CACHE_TTL:
         return
     if _vocab_cache_loading:
-        waited = _vocab_cache_ready.wait(timeout=2)
-        if not waited or not _vocab_cache:
-            return
+        return
     with _vocab_cache_lock:
         now_s = time.time()
         if _vocab_cache and (now_s - _vocab_cache_loaded_at) < _VOCAB_CACHE_TTL:
@@ -276,7 +277,8 @@ def _ensure_vocab_cache():
                         """SELECT id::text, level, word, reading, pos, frequency,
                                   COALESCE(jsonb_array_length(examples), 0),
                                   COALESCE(length(insight_text), 0),
-                                  is_ai_enriched, order_no
+                                  is_ai_enriched, order_no,
+                                  COALESCE(meaning, ''), COALESCE(mp3, ''), COALESCE(image_url, '')
                            FROM vocab_library"""
                     )
                     rows = cur.fetchall()
@@ -3537,39 +3539,39 @@ def _search_db_direct(qq: str, limit: int) -> list:
     except Exception:
         return []
     try:
-        q_lower = qq.lower()
         q_j = _map_s2j(qq)
         has_jp = q_j != qq
         patterns = [qq]
         if has_jp:
             patterns.append(q_j)
-        # 精确匹配优先，参数按顺序排列
-        params = []
+
         where_parts = []
+        where_params = []
         rank_parts = []
+        rank_params = []
 
         for p in patterns:
             where_parts.append("word = %s")
-            params.append(p)
-            rank_parts.append(f"word = %s")
-            params.append(p)
+            where_params.append(p)
+            rank_parts.append("word = %s")
+            rank_params.append(p)
 
             where_parts.append("reading = %s")
-            params.append(p)
-            rank_parts.append(f"reading = %s")
-            params.append(p)
+            where_params.append(p)
+            rank_parts.append("reading = %s")
+            rank_params.append(p)
 
         for p in patterns:
             where_parts.append("word ILIKE %s")
-            params.append(p + "%")
+            where_params.append(p + "%")
             where_parts.append("reading ILIKE %s")
-            params.append(p + "%")
+            where_params.append(p + "%")
 
         for p in patterns:
             where_parts.append("word ILIKE %s")
-            params.append("%" + p + "%")
+            where_params.append("%" + p + "%")
             where_parts.append("reading ILIKE %s")
-            params.append("%" + p + "%")
+            where_params.append("%" + p + "%")
 
         limit_val = int(limit)
         query_sql = f"""
@@ -3588,6 +3590,7 @@ def _search_db_direct(qq: str, limit: int) -> list:
                 frequency DESC NULLS LAST
             LIMIT {limit_val}
         """
+        params = where_params + rank_params
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(query_sql, params)
             rows = cur.fetchall()
@@ -3834,14 +3837,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
     out.sort(key=_sort_key)
     out = out[:int(limit)]
 
-    # 从 DB 补充 meaning/mp3/image_url（内存缓存中已移除这些大字段）
-    if out:
-        _det = _fetch_details([d["id"] for d in out])
-        for d in out:
-            _dd = _det.get(d["id"], {})
-            d["meaning"] = _dd.get("meaning", "")
-            d["mp3"] = _dd.get("mp3", "")
-            d["image_url"] = _dd.get("image_url", "")
+    # meaning/mp3/image_url 已在内存缓存中，无需额外 DB 查询
 
     for d in out:
         d.pop("scene_deep_dive", None)
@@ -3962,15 +3958,6 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
         ))
 
     out = out[:int(limit)]
-
-    # 从 DB 补充 meaning/mp3/image_url
-    if out:
-        _det = _fetch_details([d["id"] for d in out])
-        for d in out:
-            _dd = _det.get(d["id"], {})
-            d["meaning"] = _dd.get("meaning", "")
-            d["mp3"] = _dd.get("mp3", "")
-            d["image_url"] = _dd.get("image_url", "")
 
     for d in out:
         d.pop("insight_len", None)
