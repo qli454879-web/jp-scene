@@ -430,18 +430,13 @@ def save_to_cache(word, result):
     conn.commit()
     conn.close()
 
-from contextlib import asynccontextmanager
+app = FastAPI()
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # 启动时在后台线程预加载词库缓存，避免第一个搜索请求触发慢加载
+# 启动后后台预加载词库缓存（不阻塞启动，失败不影响服务）
+@app.on_event("startup")
+def _preload_vocab_cache():
     if SUPABASE_DB_ENABLED:
-        def _preload():
-            _ensure_vocab_cache()
-        threading.Thread(target=_preload, daemon=True).start()
-    yield
-
-app = FastAPI(lifespan=lifespan)
+        threading.Thread(target=_ensure_vocab_cache, daemon=True).start()
 
 # Enable CORS
 _cors_origins_raw = (os.getenv("CORS_ALLOW_ORIGINS") or "").strip()
