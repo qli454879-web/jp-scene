@@ -270,13 +270,15 @@ def _load_local_snapshot() -> Optional[List[tuple]]:
         if time.time() - loaded_at > _VOCAB_SNAPSHOT_TTL:
             lite.close()
             return None
-        # 兼容旧快照（13/14列，无 tags）
+        # 兼容旧快照格式（曾有无 tags / 有 meaning_lower 等变体）
         cur.execute("PRAGMA table_info(vocab_snapshot)")
         cols = [ci[1] for ci in cur.fetchall()]
         has_tags = "tags" in cols
         has_ml = "meaning_lower" in cols
         if has_ml and has_tags:
             cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, mp3, image_url, meaning_lower, tags FROM vocab_snapshot ORDER BY rowid")
+        elif has_tags:
+            cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, mp3, image_url, tags FROM vocab_snapshot ORDER BY rowid")
         elif has_ml:
             cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, mp3, image_url, meaning_lower FROM vocab_snapshot ORDER BY rowid")
         else:
@@ -285,22 +287,31 @@ def _load_local_snapshot() -> Optional[List[tuple]]:
         import json as _json
         for r in cur.fetchall():
             t = tuple(r)
-            if len(t) < 14:
-                t = t + ((t[10] or "").lower() if len(t) > 10 else "",)
-            if len(t) < 15:
-                t = t + ([],)
-            else:
-                # tags 从 JSON 字符串还原为 list
+            # 统一还原为原始 14 列 DB 格式：tags 始终在 index 13
+            if len(t) > 14:
+                # 15+ 列旧格式：最后两列为 (meaning_lower, tags_str)
+                # tags 是 JSON 字符串 → 还原为 list 放在 index 13
                 tags_raw = t[14]
                 if isinstance(tags_raw, str) and tags_raw.strip():
                     try:
-                        t_list = list(t)
-                        t_list[14] = _json.loads(tags_raw)
-                        t = tuple(t_list)
+                        tags_raw = _json.loads(tags_raw)
                     except Exception:
-                        t_list = list(t)
-                        t_list[14] = []
-                        t = tuple(t_list)
+                        tags_raw = []
+                else:
+                    tags_raw = []
+                t = t[:13] + (tags_raw,)
+            elif len(t) == 14:
+                # 14 列且最后一列是 JSON 字符串 → 旧格式，tags 是序列化的
+                if isinstance(t[13], str) and t[13].strip():
+                    try:
+                        t = t[:13] + (_json.loads(t[13]),)
+                    except Exception:
+                        t = t[:13] + ([],)
+                else:
+                    t = t[:13] + ([],)
+            elif len(t) == 13:
+                t = t + ([],)
+            # else: < 13 columns — 不带 tags
             rows.append(t)
         lite.close()
         if rows:
@@ -311,7 +322,7 @@ def _load_local_snapshot() -> Optional[List[tuple]]:
 
 
 def _save_local_snapshot(rows: list):
-    """将词库写入本地 SQLite 快照。"""
+    """将词库原始 DB 行（14 列）写入本地 SQLite 快照。tags 列序列化为 JSON。"""
     try:
         lite = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
         cur = lite.cursor()
@@ -321,31 +332,29 @@ def _save_local_snapshot(rows: list):
             id TEXT, level TEXT, word TEXT, reading TEXT, pos TEXT,
             frequency INTEGER, examples_count INTEGER, insight_len INTEGER,
             is_ai_enriched INTEGER, order_no INTEGER,
-            meaning TEXT, mp3 TEXT, image_url TEXT, meaning_lower TEXT,
-            tags TEXT
+            meaning TEXT, mp3 TEXT, image_url TEXT, tags TEXT
         )""")
         cur.execute("CREATE TABLE snapshot_meta (key TEXT PRIMARY KEY, value TEXT)")
         cur.execute("INSERT INTO snapshot_meta VALUES ('loaded_at', ?)", (str(time.time()),))
         cur.execute("INSERT INTO snapshot_meta VALUES ('row_count', ?)", (str(len(rows)),))
-        # 兼容不同字段数：自动补齐 meaning_lower 和 tags
         import json as _json
         padded = []
         for r in rows:
             t = tuple(r) if not isinstance(r, tuple) else r
-            if len(t) < 14:
-                t = t + ((t[10] or "").lower() if len(t) > 10 else "",)
-            if len(t) < 15:
-                t = t + ("[]",)
+            if len(t) > 14:
+                # 来自 _build_indexes 增强条目：去掉多余字段，只保留原始 14 列
+                tags_val = t[13]  # tags 在原始行 index 13
+                t = t[:13] + (tags_val,)
+            # 序列化 tags 为 JSON 字符串
+            tags_val = t[13] if len(t) > 13 else []
+            if isinstance(tags_val, list):
+                tags_val = _json.dumps(tags_val, ensure_ascii=False)
             else:
-                # tags 字段可能是 list，转为 JSON 字符串存储
-                tags_val = t[14]
-                if isinstance(tags_val, list):
-                    t_list = list(t)
-                    t_list[14] = _json.dumps(tags_val, ensure_ascii=False)
-                    t = tuple(t_list)
-            padded.append(t)
+                tags_val = str(tags_val)
+            t_list = list(t[:13]) + [tags_val]
+            padded.append(tuple(t_list))
         cur.executemany(
-            "INSERT INTO vocab_snapshot VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO vocab_snapshot VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             padded
         )
         lite.commit()
