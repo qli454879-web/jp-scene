@@ -79,14 +79,15 @@ _html_file_cache: Dict[str, str] = {}
 # ── 本地持久化缓存（SQLite），重启/关机后秒级恢复，不用重新从 Supabase 加载 20 万条 ──
 _VOCAB_SNAPSHOT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vocab_snapshot.db")
 _VOCAB_SNAPSHOT_TTL = 86400  # 24 小时内有效，超时则从 Supabase 刷新
-_VOCAB_SNAPSHOT_VERSION = 2  # 递增版本号强制废弃旧快照（列布局变更时）
+_VOCAB_SNAPSHOT_VERSION = 3  # v3: 精简 14 列格式，移除 meaning_lower/tags_raw 冗余副本
 
 # ── 内存词库缓存 + 索引（含 meaning/mp3/image_url，避免每次搜索都开新 DB 连接）──
 class _VF:
     ID = 0; LEVEL = 1; WORD = 2; READING = 3; POS = 4
     FREQUENCY = 5; EXAMPLES_COUNT = 6; INSIGHT_LEN = 7
     IS_AI_ENRICHED = 8; ORDER_NO = 9
-    MEANING = 10; MP3 = 11; IMAGE_URL = 12; TAGS_DB = 13; MEANING_LOWER = 14; TAGS = 15
+    MEANING = 10; MP3 = 11; IMAGE_URL = 12; TAGS = 13
+    # _vocab_cache 仅存原始 14 列，不附加冗余副本节省内存
 
 _vocab_cache: list = []  # List[Tuple] — 每行 10 字段
 _vocab_cache_loaded_at: float = 0
@@ -382,16 +383,14 @@ def _build_indexes(rows: list, now_s: float):
     for i, row in enumerate(rows):
         wl = (row[2] or "").lower()
         rl = (row[3] or "").lower()
+        # 直接存原始 14 列，不断加冗余字段（节省 ~40MB 内存）
         t = row if isinstance(row, tuple) else tuple(row)
-        meaning_lower = (t[10] or "").lower() if len(t) > 10 else ""
-        # tags 在列索引 13（若存在），否则空列表
-        tags_raw = list(t[13]) if len(t) > 13 and t[13] else []
-        entries.append(t + (meaning_lower, tags_raw))
+        entries.append(t)
         if wl:
             wi.append(i)
         if rl:
             ri.append(i)
-        for tag in tags_raw:
+        for tag in (list(t[13]) if len(t) > 13 and t[13] else []):
             tag = tag.strip()
             if tag:
                 ti.setdefault(tag, []).append(i)
@@ -4010,7 +4009,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
 
             # Sub-pass B: 释义匹配（同一轮迭代，仅在词/读未命中时）
             if _need_meaning and idx not in seen:
-                ml = r[_VF.MEANING_LOWER] if len(r) > _VF.MEANING_LOWER else (r[_VF.MEANING] or "").lower()
+                ml = (r[_VF.MEANING] or "").lower() if len(r) > _VF.MEANING else ""
                 if qq_lower in ml:
                     _add(idx, 30, "meaning_partial")
                 elif has_jp_variant and qq_j_lower in ml:
@@ -4147,7 +4146,7 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
             if idx in seen:
                 continue
             r = _vocab_cache[idx]
-            ml = r[_VF.MEANING_LOWER] if len(r) > _VF.MEANING_LOWER else (r[_VF.MEANING] or "").lower()
+            ml = (r[_VF.MEANING] or "").lower() if len(r) > _VF.MEANING else ""
             if qq_lower in ml:
                 _add(idx, 10)
             elif has_jp_variant and qq_j_lower in ml:

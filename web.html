@@ -3683,36 +3683,17 @@ async function startLearning() {
         // 0=groups, 1=subs, 2=words
         var _listLevel = 0;
 
-        // 大分类定义（tag 名 → 大分类的归属）
+        // 大分类定义（只保留游戏术语 & 流行语，其余词可通过搜索查）
         var CATEGORY_GROUPS = [
-            { id:'jlpt', name:'JLPT 等级考试', icon:'fa-graduation-cap', color:'#10B981', desc:'日本语能力测试各等级核心词汇',
-              tags:['jlpt_n5','jlpt_n4','jlpt_n3','jlpt_n2','jlpt_n1'] },
-            { id:'gaming', name:'游戏术语', icon:'fa-gamepad', color:'#06B6D4', desc:'日服热门游戏的常用术语与黑话',
-              tags:['gaming_lol','gaming_valorant'] },
-            { id:'slang', name:'日语流行语', icon:'fa-fire', color:'#EF4444', desc:'日本 SNS·年轻人·网络流行表达',
-              tags:['slang'] },
-            { id:'culture', name:'日语文化', icon:'fa-torii-gate', color:'#8B5CF6', desc:'四字熟語·外来語·拟声拟态等文化词汇',
-              tags:['yoji_jukugo','loanword','onomatopoeia'] },
-            { id:'exam', name:'考试专区', icon:'fa-file-alt', color:'#F59E0B', desc:'考研·JLPT 等考试核心词汇',
-              tags:['kaoyan'] },
-            { id:'other', name:'其他', icon:'fa-ellipsis', color:'#6B7280', desc:'其他未归类的词汇标签',
-              tags:[] }  // 兜底，动态填充
+            { id:'gaming', name:'游戏术语', tags:['gaming_lol','gaming_valorant'] },
+            { id:'slang', name:'日语流行语', tags:['slang'] },
         ];
 
-        // 子分类的 meta 信息（中文名、图标、颜色、描述）
+        // 子分类名映射
         var TAG_META = {
-            'jlpt_n5': {cn:'N5 入门', icon:'fa-seedling', color:'#10B981', desc:'JLPT N5 基础词汇'},
-            'jlpt_n4': {cn:'N4 基础', icon:'fa-leaf', color:'#22C55E', desc:'JLPT N4 基础词汇'},
-            'jlpt_n3': {cn:'N3 进阶', icon:'fa-tree', color:'#3B82F6', desc:'JLPT N3 进阶词汇'},
-            'jlpt_n2': {cn:'N2 上级', icon:'fa-mountain', color:'#8B5CF6', desc:'JLPT N2 高级词汇'},
-            'jlpt_n1': {cn:'N1 精通', icon:'fa-crown', color:'#F59E0B', desc:'JLPT N1 精通词汇'},
-            'slang': {cn:'网络·若者言葉', icon:'fa-fire', color:'#EF4444', desc:'SNS·流行语·网络梗'},
-            'gaming_lol': {cn:'英雄联盟', icon:'fa-gamepad', color:'#06B6D4', desc:'LoL 日服游戏术语'},
-            'gaming_valorant': {cn:'瓦罗兰特', icon:'fa-crosshairs', color:'#F97316', desc:'VALORANT 日服术语'},
-            'onomatopoeia': {cn:'拟声拟态词', icon:'fa-music', color:'#A855F7', desc:'日语拟声语·拟态语'},
-            'yoji_jukugo': {cn:'四字熟语', icon:'fa-feather', color:'#78716C', desc:'四字汉字熟语'},
-            'loanword': {cn:'片假名外来语', icon:'fa-globe', color:'#14B8A6', desc:'片假名外来语词汇'},
-            'kaoyan': {cn:'考研词汇', icon:'fa-graduation-cap', color:'#0F766E', desc:'日语考研必备词汇'},
+            'gaming_lol': {cn:'英雄联盟'},
+            'gaming_valorant': {cn:'瓦罗兰特'},
+            'slang': {cn:'网络·若者言葉'},
         };
 
         // ── 视图切换辅助 ──
@@ -3764,61 +3745,23 @@ async function startLearning() {
             if (!grid) return;
             _showListViewLevel(0);
 
-            // 构建 tag→count 映射
             var countMap = {};
             tags.forEach(function(t) { countMap[t.name] = t.count; });
 
-            // 标记哪些 tag 已被归入前5个分组
-            var assigned = {};
-            CATEGORY_GROUPS.forEach(function(g) {
-                if (g.id === 'other') return;
-                g.tags.forEach(function(tn) { assigned[tn] = true; });
-            });
-
-            // 填充「其他」分组
-            var otherGroup = CATEGORY_GROUPS.find(function(g) { return g.id === 'other'; });
-            if (otherGroup) {
-                otherGroup.tags = [];
-                tags.forEach(function(t) {
-                    if (!assigned[t.name] && t.count > 0) {
-                        otherGroup.tags.push(t.name);
-                    }
-                });
-            }
-
             var html = '';
             CATEGORY_GROUPS.forEach(function(g) {
-                if (g.id === 'other' && g.tags.length === 0) return;
-                // 计算该分组的总词数和子分类数
                 var totalWords = 0;
-                var subCount = 0;
                 g.tags.forEach(function(tn) {
-                    if (countMap[tn] > 0) {
-                        totalWords += countMap[tn];
-                        subCount++;
-                    }
+                    totalWords += countMap[tn] || 0;
                 });
-                if (subCount === 0 && g.id !== 'other') {
-                    // 没有实际 tag 的分组仍然显示（占位），但不显示词数
-                }
-                html += '<div class="group-card border-2 border-gray-800 bg-white p-6 cursor-pointer hover:shadow-[4px_4px_0px_#333] hover:-translate-x-[2px] hover:-translate-y-[2px] transition-all group" onclick="openGroup(\'' + g.id + '\')">' +
-                    '<div class="flex items-start gap-4 mb-4">' +
-                        '<div class="w-14 h-14 flex-shrink-0 border-2 border-gray-800 flex items-center justify-center group-hover:scale-110 transition-transform" style="background:' + g.color + '18">' +
-                            '<i class="fa-solid ' + g.icon + ' text-2xl" style="color:' + g.color + '"></i>' +
-                        '</div>' +
-                        '<div class="flex-1 min-w-0">' +
-                            '<div class="text-base font-bold pixel-font mb-1">' + g.name + '</div>' +
-                            '<div class="text-[10px] text-gray-500 leading-relaxed">' + g.desc + '</div>' +
-                        '</div>' +
-                    '</div>' +
-                    '<div class="flex items-center gap-4 text-[10px] text-gray-400 border-t-2 border-gray-100 pt-3">' +
-                        '<span><i class="fa-solid fa-layer-group mr-1" style="color:' + g.color + '"></i>' + subCount + ' 个子分类</span>' +
-                        '<span><i class="fa-solid fa-book mr-1" style="color:' + g.color + '"></i>' + totalWords.toLocaleString() + ' 个单词</span>' +
-                        '<span class="ml-auto"><i class="fa-solid fa-chevron-right text-gray-300"></i></span>' +
+                html += '<div class="border-2 border-gray-800 bg-white p-4 cursor-pointer hover:shadow-[3px_3px_0px_#333] hover:-translate-x-[1px] hover:-translate-y-[1px] transition-all" onclick="openGroup(\'' + g.id + '\')">' +
+                    '<div class="flex items-center justify-between">' +
+                        '<span class="text-sm font-bold">' + g.name + '</span>' +
+                        '<span class="text-[10px] text-gray-400">' + totalWords.toLocaleString() + ' 词 <i class="fa-solid fa-chevron-right ml-1"></i></span>' +
                     '</div>' +
                 '</div>';
             });
-            grid.innerHTML = html || '<p class="text-gray-400 col-span-full text-center py-12">暂无分类数据，请先给词库打标签</p>';
+            grid.innerHTML = html || '<p class="text-gray-400 text-center py-12">暂无分类数据</p>';
         }
 
         // ── 第2层：子分类列表 ──
@@ -3851,26 +3794,22 @@ async function startLearning() {
             var desc = document.getElementById('listSubsDesc');
             var grid = document.getElementById('listSubsGrid');
             if (title) title.textContent = group.name;
-            if (desc) desc.textContent = group.desc;
+            if (desc) desc.textContent = '';
 
             _showListViewLevel(1);
 
             var html = '';
             group.tags.forEach(function(tn) {
-                var meta = TAG_META[tn] || {cn: tn.replace(/_/g, ' '), icon:'fa-tag', color:'#6B7280', desc:''};
+                var meta = TAG_META[tn] || {cn: tn.replace(/_/g, ' ')};
                 var count = countMap[tn] || 0;
-                html += '<div class="sub-card border-2 border-gray-800 bg-white p-5 cursor-pointer hover:shadow-[4px_4px_0px_#333] hover:-translate-x-[2px] hover:-translate-y-[2px] transition-all group" onclick="openListWords(\'' + tn + '\')">' +
-                    '<div class="flex items-start justify-between mb-3">' +
-                        '<div class="w-11 h-11 flex items-center justify-center border-2 border-gray-800 group-hover:bg-gray-50 transition-colors" style="background:' + meta.color + '15">' +
-                            '<i class="fa-solid ' + meta.icon + ' text-lg" style="color:' + meta.color + '"></i>' +
-                        '</div>' +
-                        '<span class="text-2xl font-bold pixel-font" style="color:' + meta.color + '">' + count.toLocaleString() + '</span>' +
+                html += '<div class="border-2 border-gray-800 bg-white p-4 cursor-pointer hover:shadow-[3px_3px_0px_#333] hover:-translate-x-[1px] hover:-translate-y-[1px] transition-all" onclick="openListWords(\'' + tn + '\')">' +
+                    '<div class="flex items-center justify-between">' +
+                        '<span class="text-sm font-bold">' + meta.cn + '</span>' +
+                        '<span class="text-[10px] text-gray-400">' + count.toLocaleString() + ' 词 <i class="fa-solid fa-chevron-right ml-1"></i></span>' +
                     '</div>' +
-                    '<div class="text-xs font-bold mb-1">' + meta.cn + '</div>' +
-                    '<div class="text-[9px] text-gray-400 uppercase tracking-wide">' + (meta.desc || tn) + '</div>' +
                 '</div>';
             });
-            grid.innerHTML = html || '<p class="text-gray-400 col-span-full text-center py-8">该分类暂无子分类</p>';
+            grid.innerHTML = html || '<p class="text-gray-400 text-center py-8">暂无子分类</p>';
         }
 
         // ── 第3层：单词列表 ──
@@ -3879,9 +3818,9 @@ async function startLearning() {
             _listOffset = 0;
             _showListViewLevel(2);
 
-            var meta = TAG_META[tag] || {cn: tag.replace(/_/g, ' ').toUpperCase()};
+            var meta = TAG_META[tag] || {cn: tag.replace(/_/g, ' ')};
             var title = document.getElementById('listWordsTitle');
-            if (title) title.textContent = meta.cn + ' / ' + tag.replace(/_/g, ' ').toUpperCase();
+            if (title) title.textContent = meta.cn;
             var container = document.getElementById('listWordsContainer');
             if (container) container.innerHTML = '<p class="text-gray-400 text-center py-8">加载中...</p>';
             fetchListWords(tag, 0);
