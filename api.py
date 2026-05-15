@@ -3553,6 +3553,81 @@ def _search_db_direct(qq: str, limit: int) -> list:
             pass
 
 
+def _suggest_db_direct(qq: str, limit: int) -> list:
+    """联想接口的 DB 直查 fallback — 仅前缀匹配，< 1s 返回。"""
+    try:
+        conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+    except Exception:
+        return []
+    try:
+        q_lower = qq.lower()
+        q_j = _map_s2j(qq)
+        patterns = [qq]
+        if q_j != qq:
+            patterns.append(q_j)
+
+        params = []
+        exact_parts = []
+        for p in patterns:
+            exact_parts.append("word = %s")
+            params.append(p)
+            exact_parts.append("reading = %s")
+            params.append(p)
+
+        prefix_parts = []
+        for p in patterns:
+            prefix_parts.append("word ILIKE %s")
+            params.append(p + "%")
+            prefix_parts.append("reading ILIKE %s")
+            params.append(p + "%")
+
+        rank_parts = exact_parts.copy()
+        rank_params = list(params[:len(exact_parts)])
+        params.extend(rank_params)
+
+        limit_val = int(limit)
+        query_sql = f"""
+            SELECT id::text, level, word, reading, pos, frequency,
+                   COALESCE(length(insight_text), 0) AS il,
+                   is_ai_enriched, meaning, mp3, image_url
+            FROM vocab_library
+            WHERE {" OR ".join(exact_parts + prefix_parts)}
+            ORDER BY
+                CASE WHEN {" OR ".join(rank_parts)} THEN 0 ELSE 1 END,
+                frequency DESC NULLS LAST
+            LIMIT {limit_val}
+        """
+        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(query_sql, params)
+            rows = cur.fetchall()
+        out = []
+        seen = set()
+        for r in rows:
+            w = (r.get("word") or "").strip()
+            if w in seen:
+                continue
+            seen.add(w)
+            out.append({
+                "id": str(r["id"]),
+                "level": r.get("level") or "",
+                "word": w,
+                "reading": r.get("reading") or "",
+                "pos": r.get("pos") or "",
+                "frequency": r.get("frequency") or 0,
+                "meaning": r.get("meaning") or "",
+                "mp3": r.get("mp3") or "",
+                "image_url": r.get("image_url") or "",
+            })
+        return out
+    except Exception:
+        return []
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 @app.get("/api/library/search")
 async def search_library(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=50), _debug: int = Query(0, ge=0, le=1)):
     """
@@ -3736,7 +3811,7 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
 
     _ensure_vocab_cache()
     if not _vocab_cache:
-        return []
+        return _suggest_db_direct(qq, int(limit))
 
     qq_lower = qq.lower()
     qq_j = _map_s2j(qq)

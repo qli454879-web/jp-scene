@@ -3601,7 +3601,9 @@ async function startLearning() {
 
                 if (suggestAbort) suggestAbort.abort();
                 suggestAbort = new AbortController();
+                const t = setTimeout(() => suggestAbort.abort(), 5000);
                 const res = await fetch(`/api/library/suggest?q=${encodeURIComponent(query)}&limit=12`, { signal: suggestAbort.signal });
+                clearTimeout(t);
                 const arr = await res.json();
                 // 防止乱序：只渲染最新一次输入对应的返回
                 if (query !== lastSuggestQ) return;
