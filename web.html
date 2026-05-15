@@ -1101,32 +1101,42 @@
         const loadingStatus = document.getElementById('loadingStatus');
 
         // bfcache restoration: when the browser restores the page from back-forward cache,
-        // globalLoading might be stuck visible; reset page state to avoid white screen
-        window.addEventListener('pageshow', (e) => {
-            if (e.persisted) {
-                if (globalLoading) {
-                    globalLoading.classList.add('hidden');
-                    globalLoading.classList.remove('flex');
-                }
-                if (searchHero && searchHero.style.display === 'none') {
-                    searchHero.style.display = 'flex';
-                    searchHero.classList.remove('active');
-                }
-                const suggestBox = document.getElementById('searchSuggest');
-                if (suggestBox) suggestBox.classList.add('hidden');
-            }
+        // delegate full state reset to resetToHome() so all views/variables are clean
+        window.addEventListener('pageshow', function(e) {
+            if (e.persisted) resetToHome();
         });
-        window.addEventListener('error', () => {
+
+        // Freeze state before the browser puts this page into bfcache.
+        // Hide loading so the spinner isn't frozen mid-animation and re-shown on restore;
+        // abort pending suggests so no stale fetch completes after restore.
+        window.addEventListener('pagehide', function() {
             if (globalLoading) {
                 globalLoading.classList.add('hidden');
                 globalLoading.classList.remove('flex');
             }
+            if (typeof suggestAbort !== 'undefined' && suggestAbort) {
+                try { suggestAbort.abort(); } catch (_) {}
+                suggestAbort = null;
+            }
+            if (typeof suggestTimer !== 'undefined' && suggestTimer) {
+                clearTimeout(suggestTimer);
+                suggestTimer = null;
+            }
         });
-        window.addEventListener('unhandledrejection', () => {
+
+        window.addEventListener('error', function() {
             if (globalLoading) {
                 globalLoading.classList.add('hidden');
                 globalLoading.classList.remove('flex');
             }
+            try { resetToHome(); } catch (_) {}
+        });
+        window.addEventListener('unhandledrejection', function() {
+            if (globalLoading) {
+                globalLoading.classList.add('hidden');
+                globalLoading.classList.remove('flex');
+            }
+            try { resetToHome(); } catch (_) {}
         });
 
         // Vocab State Management
@@ -3308,9 +3318,11 @@ async function startLearning() {
             });
             
             // Animation feedback
-            const btn = document.querySelector('.audio-btn i');
-            btn.classList.add('text-green-500');
-            setTimeout(() => btn.classList.remove('text-green-500'), 1000);
+            var btn = document.querySelector('.audio-btn i');
+            if (btn) {
+                btn.classList.add('text-green-500');
+                setTimeout(function() { btn.classList.remove('text-green-500'); }, 1000);
+            }
         }
 
         async function performSearch(query) {
@@ -3549,12 +3561,35 @@ async function startLearning() {
         }
 
         function resetToHome() {
-            searchHero.style.display = 'flex';
-            searchHero.classList.remove('active');
-            contentView.style.display = 'none';
-            vocabView.style.display = 'none';
-            mainInput.value = '';
-            document.getElementById('chatBox').innerHTML = '<div class="p-3 bg-gray-50 border-2 border-gray-100 rounded-lg text-gray-500">有什么想深入了解的吗？</div>';
+            if (searchHero) {
+                searchHero.style.display = 'flex';
+                searchHero.classList.remove('active');
+            }
+            if (contentView) contentView.style.display = 'none';
+            if (vocabView) vocabView.style.display = 'none';
+            if (mainInput) mainInput.value = '';
+            var chatBox = document.getElementById('chatBox');
+            if (chatBox) {
+                chatBox.innerHTML = '<div class="p-3 bg-gray-50 border-2 border-gray-100 rounded-lg text-gray-500">有什么想深入了解的吗？</div>';
+            }
+            currentReportContext = null;
+            currentSearchAudioFn = '';
+            if (globalLoading) {
+                globalLoading.classList.add('hidden');
+                globalLoading.classList.remove('flex');
+            }
+            if (loadingStatus && loadingMessages && loadingMessages.length > 0) {
+                loadingStatus.innerText = loadingMessages[0];
+            }
+            hideSuggest();
+            if (typeof suggestAbort !== 'undefined' && suggestAbort) {
+                try { suggestAbort.abort(); } catch (_) {}
+                suggestAbort = null;
+            }
+            if (typeof suggestTimer !== 'undefined' && suggestTimer) {
+                clearTimeout(suggestTimer);
+                suggestTimer = null;
+            }
         }
 
         function appendChat(text, isUser = false) {
