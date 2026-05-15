@@ -79,15 +79,15 @@ _html_file_cache: Dict[str, str] = {}
 # ── 本地持久化缓存（SQLite），重启/关机后秒级恢复，不用重新从 Supabase 加载 20 万条 ──
 _VOCAB_SNAPSHOT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vocab_snapshot.db")
 _VOCAB_SNAPSHOT_TTL = 86400  # 24 小时内有效，超时则从 Supabase 刷新
-_VOCAB_SNAPSHOT_VERSION = 3  # v3: 精简 14 列格式，移除 meaning_lower/tags_raw 冗余副本
+_VOCAB_SNAPSHOT_VERSION = 4  # v4: 12 列格式，去掉 mp3/image_url 省 ~20MB
 
 # ── 内存词库缓存 + 索引（含 meaning/mp3/image_url，避免每次搜索都开新 DB 连接）──
 class _VF:
     ID = 0; LEVEL = 1; WORD = 2; READING = 3; POS = 4
     FREQUENCY = 5; EXAMPLES_COUNT = 6; INSIGHT_LEN = 7
     IS_AI_ENRICHED = 8; ORDER_NO = 9
-    MEANING = 10; MP3 = 11; IMAGE_URL = 12; TAGS = 13
-    # _vocab_cache 仅存原始 14 列，不附加冗余副本节省内存
+    MEANING = 10; TAGS = 11
+    # _vocab_cache 仅存原始 12 列（去掉 mp3/image_url 省 ~20MB），这两项按需从 _detail_cache 获取
 
 _vocab_cache: list = []  # List[Tuple] — 每行 10 字段
 _vocab_cache_loaded_at: float = 0
@@ -102,8 +102,15 @@ _db_pool_lock = threading.Lock()
 _db_pool_create_failed_at: float = 0  # 建池失败时间戳，30s 内不重试
 
 def _check_pool_conn(conn):
-    """轻量活性探测 — 防止池回收已被 Render/Supabase 杀掉的死连接。"""
+    """轻量活性探测 + 事务清理 — 防止池回收已被 Render/Supabase 杀掉的死连接。"""
     try:
+        # 回滚残留事务，避免 INTRANS 错误
+        if conn.info and conn.info.transaction_status != 0:  # 0=IDLE
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute("SELECT 1")
     except Exception:
@@ -111,26 +118,31 @@ def _check_pool_conn(conn):
 
 def _get_db_conn():
     global _db_pool, _db_pool_create_failed_at
+
+    def _configure(conn):
+        conn.autocommit = True
+        return conn
+
     # 快速路径：池已存在 → 取一次，失败立即回退直连（避免两次 getconn 等 20s+）
     if _db_pool is not None:
         try:
-            return _db_pool.getconn()
+            return _configure(_db_pool.getconn())
         except Exception:
-            return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
-                                   connect_timeout=5)
+            return _configure(psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
+                                   connect_timeout=5))
 
     # 池模块不可用或 DB 未配置 → 直连
     if ConnectionPool is None or not SUPABASE_DB_ENABLED:
-        return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
-                               connect_timeout=5)
+        return _configure(psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
+                               connect_timeout=5))
 
     # 池尚未创建 → 加锁创建（带退避：失败 30s 内不重试）
     with _db_pool_lock:
         if _db_pool is None:
             now_s = time.time()
             if now_s - _db_pool_create_failed_at < 30:
-                return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
-                                       connect_timeout=5)
+                return _configure(psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
+                                       connect_timeout=5))
             try:
                 _db_pool = ConnectionPool(
                     SUPABASE_DB_URL, min_size=2, max_size=12, timeout=8,
@@ -139,13 +151,13 @@ def _get_db_conn():
                 _db_pool_create_failed_at = 0
             except Exception:
                 _db_pool_create_failed_at = time.time()
-                return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
-                                       connect_timeout=5)
+                return _configure(psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
+                                       connect_timeout=5))
     try:
-        return _db_pool.getconn()
+        return _configure(_db_pool.getconn())
     except Exception:
-        return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
-                               connect_timeout=5)
+        return _configure(psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
+                               connect_timeout=5))
 
 def _return_db_conn(conn):
     global _db_pool
@@ -182,9 +194,16 @@ def _build_audio_url(mp3: str) -> str:
 
 def _row_to_dict(idx: int) -> dict:
     r = _vocab_cache[idx]
-    mp3 = r[_VF.MP3] if len(r) > _VF.MP3 else ""
+    rid = r[_VF.ID]
+    # mp3/image_url 从详情缓存获取（无则留空，不额外查 DB）
+    detail = _detail_cache.get(rid)
+    mp3 = ""
+    img = ""
+    if detail is not None and time.time() < detail[0]:
+        mp3 = detail[1].get("mp3") or ""
+        img = detail[1].get("image_url") or ""
     return {
-        "id": r[_VF.ID],
+        "id": rid,
         "level": r[_VF.LEVEL],
         "word": r[_VF.WORD],
         "reading": r[_VF.READING],
@@ -197,7 +216,7 @@ def _row_to_dict(idx: int) -> dict:
         "meaning": r[_VF.MEANING] if len(r) > _VF.MEANING else "",
         "mp3": mp3,
         "audio_url": _build_audio_url(mp3),
-        "image_url": r[_VF.IMAGE_URL] if len(r) > _VF.IMAGE_URL else "",
+        "image_url": img,
         "tags": list(r[_VF.TAGS]) if len(r) > _VF.TAGS and r[_VF.TAGS] else [],
     }
 
@@ -278,48 +297,20 @@ def _load_local_snapshot() -> Optional[List[tuple]]:
         if not ver_row or int(ver_row[0]) != _VOCAB_SNAPSHOT_VERSION:
             lite.close()
             return None
-        # 兼容旧快照格式（曾有无 tags / 有 meaning_lower 等变体）
-        cur.execute("PRAGMA table_info(vocab_snapshot)")
-        cols = [ci[1] for ci in cur.fetchall()]
-        has_tags = "tags" in cols
-        has_ml = "meaning_lower" in cols
-        if has_ml and has_tags:
-            cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, mp3, image_url, meaning_lower, tags FROM vocab_snapshot ORDER BY rowid")
-        elif has_tags:
-            cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, mp3, image_url, tags FROM vocab_snapshot ORDER BY rowid")
-        elif has_ml:
-            cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, mp3, image_url, meaning_lower FROM vocab_snapshot ORDER BY rowid")
-        else:
-            cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, mp3, image_url FROM vocab_snapshot ORDER BY rowid")
+        # v4 格式：12 列 (id,level,word,reading,pos,freq,examples,insight,enriched,order,meaning,tags)
+        cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, tags FROM vocab_snapshot ORDER BY rowid")
         rows = []
         import json as _json
         for r in cur.fetchall():
             t = tuple(r)
-            # 统一还原为原始 14 列 DB 格式：tags 始终在 index 13
-            if len(t) > 14:
-                # 15+ 列旧格式：最后两列为 (meaning_lower, tags_str)
-                # tags 是 JSON 字符串 → 还原为 list 放在 index 13
-                tags_raw = t[14]
-                if isinstance(tags_raw, str) and tags_raw.strip():
-                    try:
-                        tags_raw = _json.loads(tags_raw)
-                    except Exception:
-                        tags_raw = []
-                else:
-                    tags_raw = []
-                t = t[:13] + (tags_raw,)
-            elif len(t) == 14:
-                # 14 列且最后一列是 JSON 字符串 → 旧格式，tags 是序列化的
-                if isinstance(t[13], str) and t[13].strip():
-                    try:
-                        t = t[:13] + (_json.loads(t[13]),)
-                    except Exception:
-                        t = t[:13] + ([],)
-                else:
-                    t = t[:13] + ([],)
-            elif len(t) == 13:
-                t = t + ([],)
-            # else: < 13 columns — 不带 tags
+            # tags 在 index 11，反序列化 JSON
+            if len(t) >= 12 and isinstance(t[11], str) and t[11].strip():
+                try:
+                    t = t[:11] + (_json.loads(t[11]),)
+                except Exception:
+                    t = t[:11] + ([],)
+            elif len(t) < 12:
+                t = t + tuple([[]] * max(0, 12 - len(t)))
             rows.append(t)
         lite.close()
         if rows:
@@ -330,7 +321,8 @@ def _load_local_snapshot() -> Optional[List[tuple]]:
 
 
 def _save_local_snapshot(rows: list):
-    """将词库原始 DB 行（14 列）写入本地 SQLite 快照。tags 列序列化为 JSON。"""
+    """将词库原始 DB 行（12 列）写入本地 SQLite 快照。tags 列序列化为 JSON。
+    使用生成器避免 padded 副本额外占用内存。"""
     try:
         lite = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
         cur = lite.cursor()
@@ -340,31 +332,30 @@ def _save_local_snapshot(rows: list):
             id TEXT, level TEXT, word TEXT, reading TEXT, pos TEXT,
             frequency INTEGER, examples_count INTEGER, insight_len INTEGER,
             is_ai_enriched INTEGER, order_no INTEGER,
-            meaning TEXT, mp3 TEXT, image_url TEXT, tags TEXT
+            meaning TEXT, tags TEXT
         )""")
         cur.execute("CREATE TABLE snapshot_meta (key TEXT PRIMARY KEY, value TEXT)")
         cur.execute("INSERT INTO snapshot_meta VALUES ('loaded_at', ?)", (str(time.time()),))
         cur.execute("INSERT INTO snapshot_meta VALUES ('row_count', ?)", (str(len(rows)),))
         cur.execute("INSERT INTO snapshot_meta VALUES ('version', ?)", (str(_VOCAB_SNAPSHOT_VERSION),))
         import json as _json
-        padded = []
-        for r in rows:
-            t = tuple(r) if not isinstance(r, tuple) else r
-            if len(t) > 14:
-                # 来自 _build_indexes 增强条目：去掉多余字段，只保留原始 14 列
-                tags_val = t[13]  # tags 在原始行 index 13
-                t = t[:13] + (tags_val,)
-            # 序列化 tags 为 JSON 字符串
-            tags_val = t[13] if len(t) > 13 else []
-            if isinstance(tags_val, list):
-                tags_val = _json.dumps(tags_val, ensure_ascii=False)
-            else:
-                tags_val = str(tags_val)
-            t_list = list(t[:13]) + [tags_val]
-            padded.append(tuple(t_list))
+
+        def _gen():
+            for r in rows:
+                t = tuple(r) if not isinstance(r, tuple) else r
+                # 统一为 12 列
+                if len(t) > 12:
+                    t = t[:12]
+                tags_val = t[11] if len(t) > 11 else []
+                if isinstance(tags_val, list):
+                    tags_val = _json.dumps(tags_val, ensure_ascii=False)
+                else:
+                    tags_val = str(tags_val)
+                yield tuple(list(t[:11]) + [tags_val])
+
         cur.executemany(
-            "INSERT INTO vocab_snapshot VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            padded
+            "INSERT INTO vocab_snapshot VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            _gen()
         )
         lite.commit()
         lite.close()
@@ -383,14 +374,14 @@ def _build_indexes(rows: list, now_s: float):
     for i, row in enumerate(rows):
         wl = (row[2] or "").lower()
         rl = (row[3] or "").lower()
-        # 直接存原始 14 列，不断加冗余字段（节省 ~40MB 内存）
+        # 直接存原始 12 列，不附加冗余字段（节省 ~60MB 内存）
         t = row if isinstance(row, tuple) else tuple(row)
         entries.append(t)
         if wl:
             wi.append(i)
         if rl:
             ri.append(i)
-        for tag in (list(t[13]) if len(t) > 13 and t[13] else []):
+        for tag in (list(t[_VF.TAGS]) if len(t) > _VF.TAGS and t[_VF.TAGS] else []):
             tag = tag.strip()
             if tag:
                 ti.setdefault(tag, []).append(i)
@@ -442,16 +433,18 @@ def _ensure_vocab_cache():
                                        THEN jsonb_array_length(examples) ELSE 0 END,
                                   COALESCE(length(insight_text), 0),
                                   is_ai_enriched, order_no,
-                                  COALESCE(meaning, ''), COALESCE(mp3, ''), COALESCE(image_url, ''),
+                                  COALESCE(meaning, ''),
                                   COALESCE(tags, '{}'::text[])
                            FROM vocab_library"""
                     )
                     rows = cur.fetchall()
                     if rows:
                         _build_indexes(rows, now_s)
-                        # 异步写本地快照（不阻塞当前请求）
-                        _rows_copy = [tuple(r) for r in rows]
-                        threading.Thread(target=_save_local_snapshot, args=(_rows_copy,), daemon=True).start()
+                        # 同步写本地快照（避免 _rows_copy 额外占用 ~80MB 导致 OOM）
+                        try:
+                            _save_local_snapshot(rows)
+                        except Exception:
+                            pass
             except Exception:
                 pass
             finally:
@@ -3784,7 +3777,8 @@ def _search_db_direct(qq: str, limit: int) -> list:
         limit_val = int(limit)
         query_sql = f"""
             SELECT id::text, level, word, reading, pos, frequency,
-                   COALESCE(jsonb_array_length(examples), 0) AS ec,
+                   CASE WHEN jsonb_typeof(examples) = 'array'
+                        THEN jsonb_array_length(examples) ELSE 0 END AS ec,
                    COALESCE(length(insight_text), 0) AS il,
                    is_ai_enriched, order_no,
                    meaning, mp3, image_url,

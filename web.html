@@ -3816,6 +3816,7 @@ async function startLearning() {
         function openListWords(tag) {
             _listCurrentTag = tag;
             _listOffset = 0;
+            _listWordsCache = {};
             _showListViewLevel(2);
 
             var meta = TAG_META[tag] || {cn: tag.replace(/_/g, ' ')};
@@ -3836,6 +3837,7 @@ async function startLearning() {
                         // 单词列表 → 回到子分类列表
                         _listCurrentTag = '';
                         _listOffset = 0;
+                        _listWordsCache = {};
                         openGroup(CATEGORY_GROUPS.find(function(g) { return g.name === _listCurrentGroup; })?.id || '');
                     } else if (_listLevel === 1) {
                         // 子分类列表 → 回到大分类列表
@@ -3858,13 +3860,22 @@ async function startLearning() {
                 renderListWords(_listWordsCache[cacheKey], offset === 0);
                 return;
             }
+            var loadBtn = document.getElementById('listWordsLoadBtn');
+            if (loadBtn) { loadBtn.disabled = true; loadBtn.textContent = '加载中...'; }
             try {
                 var res = await fetch('/api/library/words/by-tag?tag=' + encodeURIComponent(tag) + '&offset=' + offset + '&limit=50');
-                if (!res.ok) return;
+                if (!res.ok) throw new Error('HTTP ' + res.status);
                 var data = await res.json();
                 _listWordsCache[cacheKey] = data;
                 renderListWords(data, offset === 0);
-            } catch (_) {}
+            } catch (_) {
+                if (offset === 0) {
+                    var container = document.getElementById('listWordsContainer');
+                    if (container) container.innerHTML = '<p class="text-red-500 text-center py-8">加载失败，请稍后重试</p>';
+                }
+            } finally {
+                if (loadBtn) { loadBtn.disabled = false; loadBtn.textContent = '加载更多'; }
+            }
         }
 
         function renderListWords(data, isFirstPage) {
@@ -3913,7 +3924,7 @@ async function startLearning() {
             if (data.offset + words.length < data.total) {
                 if (loadMore) loadMore.classList.remove('hidden');
                 if (loadBtn) loadBtn.onclick = function() {
-                    _listOffset += 50;
+                    _listOffset = data.offset + words.length;
                     fetchListWords(_listCurrentTag, _listOffset);
                 };
             } else {
