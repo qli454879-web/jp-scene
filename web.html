@@ -1102,15 +1102,29 @@
 
         // bfcache restoration: when the browser restores the page from back-forward cache,
         // delegate full state reset to resetToHome() so all views/variables are clean.
-        // Use a micro-delay to let the browser finish restoring the rendering surface.
+        // Use requestAnimationFrame to ensure the rendering surface is fully restored first.
+        var _pageDidHide = false;
         window.addEventListener('pageshow', function(e) {
             if (e.persisted) {
+                _pageDidHide = false;
+                // 双重保障：先立即 reset，再在下一帧确认
                 try { resetToHome(); } catch (_) {}
+                try {
+                    requestAnimationFrame(function() {
+                        try { resetToHome(); } catch (_) {}
+                    });
+                } catch (_) {}
             }
         });
 
         // Freeze state before the browser puts this page into bfcache.
         window.addEventListener('pagehide', function() {
+            _pageDidHide = true;
+            // 暂停音频
+            try {
+                var a = window.__jpAudio;
+                if (a) { try { a.pause(); } catch (_) {} }
+            } catch (_) {}
             try {
                 if (globalLoading) {
                     globalLoading.classList.add('hidden');
