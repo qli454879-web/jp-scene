@@ -439,7 +439,8 @@ def _ensure_vocab_cache():
                 with conn.cursor() as cur:
                     cur.execute(
                         """SELECT id::text, level, word, reading, pos, frequency,
-                                  COALESCE(jsonb_array_length(examples), 0),
+                                  CASE WHEN jsonb_typeof(examples) = 'array'
+                                       THEN jsonb_array_length(examples) ELSE 0 END,
                                   COALESCE(length(insight_text), 0),
                                   is_ai_enriched, order_no,
                                   COALESCE(meaning, ''), COALESCE(mp3, ''), COALESCE(image_url, ''),
