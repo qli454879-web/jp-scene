@@ -163,8 +163,23 @@ _word_index: List[int] = []   # indices sorted by (word_lower, idx)
 _reading_index: List[int] = []  # indices sorted by (reading_lower, idx)
 
 
+def _build_audio_url(mp3: str) -> str:
+    """返回音频的 Supabase Storage 公开 URL（若mp3已是完整URL则直接返回）。"""
+    mp3 = (mp3 or "").strip()
+    if not mp3:
+        return ""
+    # mp3 字段中存的有可能是完整URL
+    if mp3.startswith("http"):
+        return mp3
+    if not SUPABASE_URL or not VOCAB_AUDIO_BUCKET:
+        return mp3
+    obj_path = f"{VOCAB_AUDIO_PREFIX}/{mp3}" if VOCAB_AUDIO_PREFIX else mp3
+    return f"{SUPABASE_URL}/storage/v1/object/public/{VOCAB_AUDIO_BUCKET}/{obj_path}"
+
+
 def _row_to_dict(idx: int) -> dict:
     r = _vocab_cache[idx]
+    mp3 = r[_VF.MP3] if len(r) > _VF.MP3 else ""
     return {
         "id": r[_VF.ID],
         "level": r[_VF.LEVEL],
@@ -177,7 +192,8 @@ def _row_to_dict(idx: int) -> dict:
         "is_ai_enriched": r[_VF.IS_AI_ENRICHED],
         "order_no": r[_VF.ORDER_NO],
         "meaning": r[_VF.MEANING] if len(r) > _VF.MEANING else "",
-        "mp3": r[_VF.MP3] if len(r) > _VF.MP3 else "",
+        "mp3": mp3,
+        "audio_url": _build_audio_url(mp3),
         "image_url": r[_VF.IMAGE_URL] if len(r) > _VF.IMAGE_URL else "",
     }
 
@@ -3634,13 +3650,15 @@ async def get_library_word(slug: str = Query(...)):
         if not row:
             raise HTTPException(status_code=404, detail="Word not found in vocab_library")
         # Ensure JSON serializable
+        mp3_val = row.get("mp3") or ""
         payload = {
             "id": str(row.get("id")),
             "level": row.get("level") or "",
             "word": row.get("word") or "",
             "reading": row.get("reading") or "",
             "meaning": row.get("meaning") or "",
-            "mp3": row.get("mp3") or "",
+            "mp3": mp3_val,
+            "audio_url": _build_audio_url(mp3_val),
             "pos": row.get("pos") or "",
             "frequency": row.get("frequency") or None,
             "examples": row.get("examples") or None,
@@ -3735,6 +3753,7 @@ def _search_db_direct(qq: str, limit: int) -> list:
             if w in seen_words:
                 continue
             seen_words.add(w)
+            mp3_val = r.get("mp3") or ""
             out.append({
                 "id": str(r["id"]),
                 "level": r.get("level") or "",
@@ -3747,7 +3766,8 @@ def _search_db_direct(qq: str, limit: int) -> list:
                 "is_ai_enriched": bool(r.get("is_ai_enriched") or False),
                 "order_no": r.get("order_no") or 0,
                 "meaning": r.get("meaning") or "",
-                "mp3": r.get("mp3") or "",
+                "mp3": mp3_val,
+                "audio_url": _build_audio_url(mp3_val),
                 "image_url": r.get("image_url") or "",
             })
         return out
@@ -3811,6 +3831,7 @@ def _suggest_db_direct(qq: str, limit: int) -> list:
             if w in seen:
                 continue
             seen.add(w)
+            mp3_val = r.get("mp3") or ""
             out.append({
                 "id": str(r["id"]),
                 "level": r.get("level") or "",
@@ -3819,7 +3840,8 @@ def _suggest_db_direct(qq: str, limit: int) -> list:
                 "pos": r.get("pos") or "",
                 "frequency": r.get("frequency") or 0,
                 "meaning": r.get("meaning") or "",
-                "mp3": r.get("mp3") or "",
+                "mp3": mp3_val,
+                "audio_url": _build_audio_url(mp3_val),
                 "image_url": r.get("image_url") or "",
             })
         return out
@@ -4132,6 +4154,18 @@ async def get_replacements(word: str = Query(...), level: str = Query(""), limit
     if not w:
         return []
 
+    # 缓存加速（与 synonyms 相同模式，10 分钟 TTL）
+    cache_key = ("repl", w, (level or "").strip(), int(limit))
+    now_s = time.time()
+    entry = _search_cache.get(cache_key)
+    if entry is not None:
+        expires, cached = entry
+        if now_s < expires:
+            return cached
+        del _search_cache[cache_key]
+
+    _cache_repl = []
+
     # 社交语境定义
     CTX_MAP = {
         "casual": {"key": "casual", "label_zh": "朋友/同僚", "label": "随意场合"},
@@ -4248,12 +4282,19 @@ async def get_replacements(word: str = Query(...), level: str = Query(""), limit
                     seen.add(item["word"])
                     unique.append(item)
             unique.sort(key=lambda x: (-(x.get("frequency") or 0), -len(x.get("shared_scenes") or [])))
-            return {
+            _cache_repl = {
                 "items": unique[:int(limit)],
                 "denied": [d["label_zh"] for d in denied_contexts],
             }
     finally:
         _return_db_conn(conn)
+    if _cache_repl:
+        _search_cache[cache_key] = (now_s + 600, _cache_repl)
+        if len(_search_cache) > _SEARCH_CACHE_MAX:
+            stale = [k for k, (exp, _) in _search_cache.items() if now_s >= exp]
+            for k in stale:
+                _search_cache.pop(k, None)
+    return _cache_repl
 
 
 @app.get("/api/library/synonyms")
@@ -4398,6 +4439,7 @@ async def enrich_library_word(slug: str = Body(..., embed=True)):
         if not row:
             raise HTTPException(status_code=404, detail="Word not found in vocab_library")
         if bool(row.get("is_ai_enriched") or False):
+            mp3_val = row.get("mp3") or ""
             return {
                 "status": "ok",
                 "data": {
@@ -4406,7 +4448,8 @@ async def enrich_library_word(slug: str = Body(..., embed=True)):
                     "word": row.get("word") or "",
                     "reading": row.get("reading") or "",
                     "meaning": row.get("meaning") or "",
-                    "mp3": row.get("mp3") or "",
+                    "mp3": mp3_val,
+                    "audio_url": _build_audio_url(mp3_val),
                     "pos": row.get("pos") or "",
                     "frequency": row.get("frequency") or None,
                     "examples": row.get("examples") or None,

@@ -472,10 +472,21 @@
       fetchSynonyms(data.word, lv);
     }
 
+    // 同义词/替代前端缓存（5分钟TTL）
+    const _wSynCache = new Map();
+    const _wReplCache = new Map();
+    const _WCACHE_TTL = 300000;
+
     async function fetchSynonyms(word, level) {
       const sec = document.getElementById('synonymSection');
       const list = document.getElementById('synonymList');
       if (!sec || !list) return;
+      const cached = _wSynCache.get(word);
+      if (cached && Date.now() - cached.ts < _WCACHE_TTL) {
+        sec.classList.remove('hidden');
+        renderWSyn(list, cached.data);
+        return;
+      }
       sec.classList.remove('hidden');
       list.innerHTML = '<div class="text-[12px] text-gray-400 italic">加载中…</div>';
       try {
@@ -484,32 +495,42 @@
         const res = await fetch('/api/library/synonyms?' + params.toString());
         if (!res.ok) { list.innerHTML = '<div class="text-[12px] text-gray-400">暂时无法获取同义词</div>'; return; }
         const items = await res.json();
-        if (!items || !items.length) {
-          sec.classList.remove('hidden');
-          list.innerHTML = '<div class="text-[12px] text-gray-500">暂无同义词推荐</div>';
-          return;
-        }
-        list.innerHTML = '';
-        items.forEach((it, idx) => {
-          try {
-            const a = document.createElement('a');
-            a.href = '/word/' + encodeURIComponent(it.word || '');
-            a.className = 'inline-block px-3 py-2 bg-white border-2 border-gray-800 hover:border-green-500 hover:bg-green-50 hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all no-underline';
-            a.style.boxShadow = '3px 3px 0px #333';
-            a.innerHTML =
-              '<span class="text-sm font-bold text-gray-800">' + (it.word || '') + '</span>' +
-              (it.reading ? '<span class="text-[10px] text-gray-400">' + it.reading + '</span>' : '') +
-              '<span class="text-[10px] text-gray-500 mt-0.5">' + ((it.meaning || '').slice(0, 25)) + '</span>';
-            list.appendChild(a);
-          } catch(e) { console.error('synonym card error idx=' + idx, e, it); }
-        });
+        _wSynCache.set(word, { ts: Date.now(), data: items });
+        renderWSyn(list, items);
       } catch (e) { list.innerHTML = '<div class="text-[12px] text-gray-400">暂时无法获取同义词</div>'; }
+    }
+
+    function renderWSyn(list, items) {
+      if (!items || !items.length) {
+        list.innerHTML = '<div class="text-[12px] text-gray-500">暂无同义词推荐</div>';
+        return;
+      }
+      list.innerHTML = '';
+      items.forEach((it, idx) => {
+        try {
+          const a = document.createElement('a');
+          a.href = '/word/' + encodeURIComponent(it.word || '');
+          a.className = 'inline-block px-3 py-2 bg-white border-2 border-gray-800 hover:border-green-500 hover:bg-green-50 hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all no-underline';
+          a.style.boxShadow = '3px 3px 0px #333';
+          a.innerHTML =
+            '<span class="text-sm font-bold text-gray-800">' + (it.word || '') + '</span>' +
+            (it.reading ? '<span class="text-[10px] text-gray-400">' + it.reading + '</span>' : '') +
+            '<span class="text-[10px] text-gray-500 mt-0.5">' + ((it.meaning || '').slice(0, 25)) + '</span>';
+          list.appendChild(a);
+        } catch(e) { console.error('synonym card error idx=' + idx, e, it); }
+      });
     }
 
     async function fetchReplacements(word, level) {
       const sec = document.getElementById('replaceSection');
       const list = document.getElementById('replaceList');
       if (!sec || !list) return;
+      const cached = _wReplCache.get(word);
+      if (cached && Date.now() - cached.ts < _WCACHE_TTL) {
+        sec.classList.remove('hidden');
+        renderWRepl(list, cached.data.items || [], cached.data.denied || []);
+        return;
+      }
       sec.classList.remove('hidden');
       list.innerHTML = '<div class="text-[12px] text-gray-400 italic">加载中…</div>';
       try {
@@ -518,31 +539,33 @@
         const res = await fetch('/api/library/replacements?' + params.toString());
         if (!res.ok) { list.innerHTML = '<div class="text-[12px] text-gray-400">暂时无法获取替代表达</div>'; return; }
         const data = await res.json();
-        const items = data.items || [];
-        const denied = data.denied || [];
-        if (!items.length) {
-          sec.classList.remove('hidden');
-          if (denied.length > 0) {
-            list.innerHTML = '<div class="text-[12px] text-gray-500">暂未找到适合对 ' + denied.join('、') + ' 使用的替代表达</div>';
-          } else {
-            list.innerHTML = '<div class="text-[12px] text-gray-500">该词在所有社交场合均适用，无需替换</div>';
-          }
-          return;
-        }
-        list.innerHTML = '';
-        items.forEach(it => {
-          const a = document.createElement('a');
-          a.href = '/word/' + encodeURIComponent(it.word);
-          a.className = 'inline-flex flex-col px-3 py-2 bg-white border-2 border-gray-800 hover:border-green-500 hover:bg-green-50 hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all no-underline';
-          a.style.boxShadow = '3px 3px 0px #333';
-          const label = it.replace_for ? '<span class="text-[9px] font-bold text-white bg-gray-800 px-1.5 py-0.5 border border-gray-800">适合' + it.replace_for + '</span>' : '';
-          a.innerHTML = label +
-            '<span class="text-sm font-bold text-gray-800 mt-1">' + it.word + '</span>' +
-            (it.reading ? '<span class="text-[10px] text-gray-400">' + it.reading + '</span>' : '') +
-            '<span class="text-[10px] text-gray-500 mt-0.5">' + (it.meaning || '').slice(0, 20) + '</span>';
-          list.appendChild(a);
-        });
+        _wReplCache.set(word, { ts: Date.now(), data: data });
+        renderWRepl(list, data.items || [], data.denied || []);
       } catch (e) { list.innerHTML = '<div class="text-[12px] text-gray-400">暂时无法获取替代表达</div>'; }
+    }
+
+    function renderWRepl(list, items, denied) {
+      if (!items.length) {
+        if (denied.length > 0) {
+          list.innerHTML = '<div class="text-[12px] text-gray-500">暂未找到适合对 ' + denied.join('、') + ' 使用的替代表达</div>';
+        } else {
+          list.innerHTML = '<div class="text-[12px] text-gray-500">该词在所有社交场合均适用，无需替换</div>';
+        }
+        return;
+      }
+      list.innerHTML = '';
+      items.forEach(it => {
+        const a = document.createElement('a');
+        a.href = '/word/' + encodeURIComponent(it.word);
+        a.className = 'inline-flex flex-col px-3 py-2 bg-white border-2 border-gray-800 hover:border-green-500 hover:bg-green-50 hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all no-underline';
+        a.style.boxShadow = '3px 3px 0px #333';
+        const label = it.replace_for ? '<span class="text-[9px] font-bold text-white bg-gray-800 px-1.5 py-0.5 border border-gray-800">适合' + it.replace_for + '</span>' : '';
+        a.innerHTML = label +
+          '<span class="text-sm font-bold text-gray-800 mt-1">' + it.word + '</span>' +
+          (it.reading ? '<span class="text-[10px] text-gray-400">' + it.reading + '</span>' : '') +
+          '<span class="text-[10px] text-gray-500 mt-0.5">' + (it.meaning || '').slice(0, 20) + '</span>';
+        list.appendChild(a);
+      });
     }
 
     function setupAudio(data) {
@@ -557,17 +580,25 @@
         sharedAudio.volume = 1;
       } catch (e) {}
       window.__jpAudio = sharedAudio;
-      btn.onclick = () => {
-        let fn = (data.mp3 || data.audio_filename || '').trim();
-        if (!fn) return;
-        // 若是完整 URL，提取末尾文件名
+
+      // 页面加载时就预设 src（预加载），点击时只需播放
+      const audioUrl = (data.audio_url || '').trim();
+      const mp3 = (data.mp3 || data.audio_filename || '').trim();
+      if (audioUrl) {
+        sharedAudio.src = audioUrl;
+      } else if (mp3) {
+        // 兜底：若是完整 URL，提取文件名走 API
+        let fn = mp3;
         if (fn.startsWith('http')) {
           const segs = fn.split('/');
           fn = segs[segs.length - 1] || fn;
         }
-        try { sharedAudio.pause(); } catch (e) {}
         sharedAudio.src = '/api/vocab/audio/' + encodeURIComponent(fn);
-        try { sharedAudio.load(); } catch (e) {}
+      }
+
+      btn.onclick = () => {
+        if (!sharedAudio.src) return;
+        try { sharedAudio.pause(); } catch (e) {}
         try { sharedAudio.currentTime = 0; } catch (e) {}
         sharedAudio.play().catch((err) => {
           console.warn('audio play failed', err);

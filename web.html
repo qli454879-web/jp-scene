@@ -37,7 +37,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
         }
 
@@ -240,7 +240,7 @@
             position: relative;
             width: 100%;
             height: 340px;
-            transition: transform 0.6s;
+            transition: transform 0.3s;
             transform-style: preserve-3d;
             cursor: pointer;
         }
@@ -2138,11 +2138,9 @@
             const kanaText = coverConfig.kana && !isRevealed ? '？？？' : (currentVocabData.kana || '');
             const meaningText = coverConfig.meaning && !isRevealed ? '（请先回想释义）' : (currentVocabData.meaning || '');
 
-            setTimeout(() => {
-                document.getElementById('vocabWord').innerText = wordText;
-                document.getElementById('vocabKana').innerText = kanaText;
-                document.getElementById('vocabMeaning').innerText = meaningText;
-            }, 120);
+            document.getElementById('vocabWord').innerText = wordText;
+            document.getElementById('vocabKana').innerText = kanaText;
+            document.getElementById('vocabMeaning').innerText = meaningText;
         }
 
         function showCurrent() {
@@ -2587,6 +2585,10 @@
                 const tip = (data && data.tip) ? String(data.tip) : '';
                 if (tip) {
                     vocabTipCache.set(String(id), tip);
+                    if (vocabTipCache.size > 100) {
+                        const first = vocabTipCache.keys().next().value;
+                        vocabTipCache.delete(first);
+                    }
                     document.getElementById('vocabTip').innerText = tip;
                 } else {
                     document.getElementById('vocabTip').innerText = '暂时还没想到合适的记忆技巧。';
@@ -3236,7 +3238,26 @@ async function startLearning() {
                 const open = () => previewEntryById(id);
                 if (openBtn) openBtn.onclick = open;
                 if (viewBtn) viewBtn.onclick = open; // “查看”也打开大单词卡弹窗
-                if (delBtn) delBtn.onclick = () => removeFromList(kind, id);
+                if (delBtn) delBtn.onclick = () => {
+                    // 乐观移除：先隐藏DOM行，再调API
+                    row.style.display = 'none';
+                    if (kind === 'favorite') favoritesSet.delete(String(id));
+                    else wrongbookSet.delete(String(id));
+                    authFetch(`/api/v3/${kind === 'favorite' ? 'favorites' : 'wrongbook'}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+                        .then(() => {
+                            const favCount = document.getElementById('favoritesCount');
+                            const wbCount = document.getElementById('wrongbookCount');
+                            if (kind === 'favorite' && favCount) favCount.innerText = `(${favoritesSet.size})`;
+                            if (kind !== 'favorite' && wbCount) wbCount.innerText = `(${wrongbookSet.size})`;
+                        })
+                        .catch(() => {
+                            // 失败恢复
+                            row.style.display = '';
+                            if (kind === 'favorite') favoritesSet.add(String(id));
+                            else wrongbookSet.add(String(id));
+                            alert('移除失败，请稍后再试');
+                        });
+                };
                 container.appendChild(row);
             });
         }
@@ -3262,13 +3283,11 @@ async function startLearning() {
                     favoritesSet.delete(String(id));
                     const favCount = document.getElementById('favoritesCount');
                     if (favCount) favCount.innerText = `(${favoritesSet.size})`;
-                    openFavoritesModal();
                 } else {
                     await authFetch(`/api/v3/wrongbook/${encodeURIComponent(id)}`, { method: 'DELETE' });
                     wrongbookSet.delete(String(id));
                     const wbCount = document.getElementById('wrongbookCount');
                     if (wbCount) wbCount.innerText = `(${wrongbookSet.size})`;
-                    openWrongbookModal();
                 }
             } catch (e) {
                 alert('移除失败，请稍后再试');
@@ -3308,15 +3327,16 @@ async function startLearning() {
                 sharedAudio.volume = 1;
             } catch (e) {}
             window.__jpAudio = sharedAudio;
-            const url = `/api/vocab/audio/${encodeURIComponent(fn)}`;
+            // 如果是完整 URL（后端已拼接好），直接用；否则走 API 兜底
+            const isFullUrl = fn.startsWith('http');
+            const url = isFullUrl ? fn : `/api/vocab/audio/${encodeURIComponent(fn)}`;
             try { sharedAudio.pause(); } catch (e) {}
             sharedAudio.src = url;
-            try { sharedAudio.load(); } catch (e) {}
             try { sharedAudio.currentTime = 0; } catch (e) {}
             sharedAudio.play().catch((err) => {
                 console.warn('audio play failed', err);
             });
-            
+
             // Animation feedback
             var btn = document.querySelector('.audio-btn i');
             if (btn) {
@@ -3475,7 +3495,7 @@ async function startLearning() {
                 if (Array.isArray(arr2) && arr2.length) {
                     const exact = arr2.find((it) => (it?.word || '').trim() === word.trim());
                     const pick = exact || arr2[0];
-                    currentSearchAudioFn = (pick?.mp3 || '').trim();
+                    currentSearchAudioFn = (pick?.audio_url || pick?.mp3 || '').trim();
                 }
             } catch (e) {}
 
@@ -3709,6 +3729,10 @@ async function startLearning() {
                 if (query !== lastSuggestQ) return;
                 const out = Array.isArray(arr) ? arr : [];
                 suggestCache.set(query, out);
+                if (suggestCache.size > 200) {
+                    const first = suggestCache.keys().next().value;
+                    suggestCache.delete(first);
+                }
                 showSuggest(query, out);
             } catch (e) {
                 // 联想失败不影响主流程
@@ -4302,41 +4326,57 @@ async function startLearning() {
         document.getElementById('xueMiniInput')?.addEventListener('focus', () => setXueFace('typing'));
         document.getElementById('xueMiniInput')?.addEventListener('input', () => setXueFace('typing'));
 
+        // 同义词/替代前端缓存（5分钟TTL）
+        const _synCache = new Map(); // word -> { ts, data }
+        const _replCache = new Map(); // word -> { ts, data }
+        const _CACHE_TTL = 300000; // 5 min
+
         // 替代表达
         async function fetchReplacementsWeb(word) {
             const sec = document.getElementById('resReplaceSection');
             const list = document.getElementById('resReplace');
             if (!sec || !list) return;
+            // 缓存命中
+            const cached = _replCache.get(word);
+            if (cached && Date.now() - cached.ts < _CACHE_TTL) {
+                const data = cached.data;
+                sec.classList.remove('hidden');
+                renderRepl(list, data.items || [], data.denied || []);
+                return;
+            }
             sec.classList.remove('hidden');
             list.innerHTML = '<div class="text-[12px] text-gray-400 italic">加载中…</div>';
             try {
                 const res = await fetch('/api/library/replacements?word=' + encodeURIComponent(word) + '&limit=5');
                 if (!res.ok) { list.innerHTML = '<div class="text-[12px] text-gray-400">暂时无法获取替代表达</div>'; return; }
                 const data = await res.json();
-                const items = data.items || [];
-                const denied = data.denied || [];
-                if (!items.length) {
-                    if (denied.length > 0) {
-                        list.innerHTML = '<div class="text-[12px] text-gray-500">暂未找到适合对 ' + denied.join('、') + ' 使用的替代表达</div>';
-                    } else {
-                        list.innerHTML = '<div class="text-[12px] text-gray-500">该词在所有社交场合均适用，无需替换</div>';
-                    }
-                    return;
-                }
-                list.innerHTML = '';
-                items.forEach(it => {
-                    const a = document.createElement('a');
-                    a.href = '/word/' + encodeURIComponent(it.word);
-                    a.className = 'inline-flex flex-col px-3 py-2 bg-white border-2 border-gray-800 hover:border-green-500 hover:bg-green-50 hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all no-underline';
-                    a.style.boxShadow = '3px 3px 0px #333';
-                    const label = it.replace_for ? '<span class="text-[9px] font-bold text-white bg-gray-800 px-1.5 py-0.5 border border-gray-800">适合' + it.replace_for + '</span>' : '';
-                    a.innerHTML = label +
-                        '<span class="text-sm font-bold text-gray-800 mt-1">' + it.word + '</span>' +
-                        (it.reading ? '<span class="text-[10px] text-gray-400">' + it.reading + '</span>' : '') +
-                        '<span class="text-[10px] text-gray-500 mt-0.5">' + (it.meaning || '').slice(0, 20) + '</span>';
-                    list.appendChild(a);
-                });
+                _replCache.set(word, { ts: Date.now(), data: data });
+                renderRepl(list, data.items || [], data.denied || []);
             } catch (e) { list.innerHTML = '<div class="text-[12px] text-gray-400">暂时无法获取替代表达</div>'; }
+        }
+
+        function renderRepl(list, items, denied) {
+            if (!items.length) {
+                if (denied.length > 0) {
+                    list.innerHTML = '<div class="text-[12px] text-gray-500">暂未找到适合对 ' + denied.join('、') + ' 使用的替代表达</div>';
+                } else {
+                    list.innerHTML = '<div class="text-[12px] text-gray-500">该词在所有社交场合均适用，无需替换</div>';
+                }
+                return;
+            }
+            list.innerHTML = '';
+            items.forEach(it => {
+                const a = document.createElement('a');
+                a.href = '/word/' + encodeURIComponent(it.word);
+                a.className = 'inline-flex flex-col px-3 py-2 bg-white border-2 border-gray-800 hover:border-green-500 hover:bg-green-50 hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all no-underline';
+                a.style.boxShadow = '3px 3px 0px #333';
+                const label = it.replace_for ? '<span class="text-[9px] font-bold text-white bg-gray-800 px-1.5 py-0.5 border border-gray-800">适合' + it.replace_for + '</span>' : '';
+                a.innerHTML = label +
+                    '<span class="text-sm font-bold text-gray-800 mt-1">' + it.word + '</span>' +
+                    (it.reading ? '<span class="text-[10px] text-gray-400">' + it.reading + '</span>' : '') +
+                    '<span class="text-[10px] text-gray-500 mt-0.5">' + (it.meaning || '').slice(0, 20) + '</span>';
+                list.appendChild(a);
+            });
         }
 
         // 同义词
@@ -4344,26 +4384,39 @@ async function startLearning() {
             const sec = document.getElementById('resSynonymSection');
             const list = document.getElementById('resSynonym');
             if (!sec || !list) return;
+            // 缓存命中
+            const cached = _synCache.get(word);
+            if (cached && Date.now() - cached.ts < _CACHE_TTL) {
+                const items = cached.data;
+                sec.classList.remove('hidden');
+                renderSyn(list, items);
+                return;
+            }
             sec.classList.remove('hidden');
             list.innerHTML = '<div class="text-[12px] text-gray-400 italic">加载中…</div>';
             try {
                 const res = await fetch('/api/library/synonyms?word=' + encodeURIComponent(word) + '&limit=8');
                 if (!res.ok) { list.innerHTML = '<div class="text-[12px] text-gray-400">暂时无法获取同义词</div>'; return; }
                 const items = await res.json();
-                if (!items || !items.length) { list.innerHTML = '<div class="text-[12px] text-gray-500">暂无同义词推荐</div>'; return; }
-                list.innerHTML = '';
-                items.forEach(it => {
-                    const a = document.createElement('a');
-                    a.href = '/word/' + encodeURIComponent(it.word);
-                    a.className = 'inline-block px-3 py-2 bg-white border-2 border-gray-800 hover:border-green-500 hover:bg-green-50 hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all no-underline';
-                    a.style.boxShadow = '3px 3px 0px #333';
-                    a.innerHTML =
-                        '<span class="text-sm font-bold text-gray-800">' + it.word + '</span>' +
-                        (it.reading ? '<span class="text-[10px] text-gray-400 ml-1">' + it.reading + '</span>' : '') +
-                        '<span class="text-[10px] text-gray-500 block mt-0.5">' + (it.meaning || '').slice(0, 20) + '</span>';
-                    list.appendChild(a);
-                });
+                _synCache.set(word, { ts: Date.now(), data: items });
+                renderSyn(list, items);
             } catch (e) { list.innerHTML = '<div class="text-[12px] text-gray-400">暂时无法获取同义词</div>'; }
+        }
+
+        function renderSyn(list, items) {
+            if (!items || !items.length) { list.innerHTML = '<div class="text-[12px] text-gray-500">暂无同义词推荐</div>'; return; }
+            list.innerHTML = '';
+            items.forEach(it => {
+                const a = document.createElement('a');
+                a.href = '/word/' + encodeURIComponent(it.word);
+                a.className = 'inline-block px-3 py-2 bg-white border-2 border-gray-800 hover:border-green-500 hover:bg-green-50 hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all no-underline';
+                a.style.boxShadow = '3px 3px 0px #333';
+                a.innerHTML =
+                    '<span class="text-sm font-bold text-gray-800">' + it.word + '</span>' +
+                    (it.reading ? '<span class="text-[10px] text-gray-400 ml-1">' + it.reading + '</span>' : '') +
+                    '<span class="text-[10px] text-gray-500 block mt-0.5">' + (it.meaning || '').slice(0, 20) + '</span>';
+                list.appendChild(a);
+            });
         }
 
         // 拖动
