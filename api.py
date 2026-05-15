@@ -61,7 +61,7 @@ class _VF:
     ID = 0; LEVEL = 1; WORD = 2; READING = 3; MEANING = 4
     MP3 = 5; POS = 6; FREQUENCY = 7; EXAMPLES_COUNT = 8
     INSIGHT_LEN = 9; IMAGE_URL = 10; IS_AI_ENRICHED = 11; ORDER_NO = 12
-    WL = 13; RL = 14; ML = 15
+    # 共 13 个字段；小写形式存于索引中，不在 tuple 里重复存储
 
 _vocab_cache: list = []  # List[Tuple] — 16 个字段的 tuple
 _vocab_cache_loaded_at: float = 0
@@ -128,11 +128,9 @@ def _ensure_vocab_cache():
                     wp: list = []
                     rp: list = []
                     for i, row in enumerate(rows):
-                        wl = (row[2] or "").lower()  # word -> lower
-                        rl = (row[3] or "").lower()  # reading -> lower
-                        ml = (row[4] or "").lower()  # meaning -> lower
-                        # tuple: append lowercase fields
-                        entries.append(tuple(row) + (wl, rl, ml))
+                        wl = (row[2] or "").lower()
+                        rl = (row[3] or "").lower()
+                        entries.append(tuple(row))  # 只存原始 13 字段，小写不重复存
                         we.setdefault(wl, []).append(i)
                         re.setdefault(rl, []).append(i)
                         if wl:
@@ -3476,8 +3474,8 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
             if idx in seen:
                 continue
             r = _vocab_cache[idx]
-            wl = r[_VF.WL]
-            rl = r[_VF.RL]
+            wl = (r[_VF.WORD] or "").lower()
+            rl = (r[_VF.READING] or "").lower()
             if has_jp_variant and qq_j_lower in wl:
                 _add(idx, 4, "word_partial_jp")
             elif qq_lower in wl:
@@ -3495,7 +3493,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         for idx in range(len(_vocab_cache)):
             if idx in seen:
                 continue
-            ml = _vocab_cache[idx][_VF.ML]
+            ml = (_vocab_cache[idx][_VF.MEANING] or "").lower()
             pos = ml.find(qq_lower)
             if pos >= 0:
                 if pos <= 2:
