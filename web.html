@@ -1100,62 +1100,11 @@
         const globalLoading = document.getElementById('globalLoading');
         const loadingStatus = document.getElementById('loadingStatus');
 
-        // bfcache restoration: 先尝试快速 reset，如果状态不对就强制刷新保底。
-        // 这样既能利用 bfcache 的即时恢复，又有 reload 兜底，不会白屏或崩溃。
-        var _pageDidHide = false;
         window.addEventListener('pageshow', function(e) {
-            if (!e.persisted) return;
-            _pageDidHide = false;
-            var ok = true;
-            try { resetToHome(); } catch (_) { ok = false; }
-            // 下一帧再次确认（等渲染表面就绪）
-            try {
-                requestAnimationFrame(function() {
-                    try { resetToHome(); } catch (_) {}
-                    // 健康检查：searchHero 应可见，contentView/vocabView 应隐藏
-                    setTimeout(function() {
-                        var sh = document.getElementById('searchHero');
-                        var cv = document.getElementById('contentView');
-                        var vv = document.getElementById('vocabView');
-                        var shBad = sh && (sh.style.display === 'none' || sh.classList.contains('active'));
-                        var cvBad = cv && cv.style.display !== 'none';
-                        var vvBad = vv && vv.style.display !== 'none';
-                        if (!ok || shBad || cvBad || vvBad) {
-                            window.location.reload();
-                        }
-                    }, 120);
-                });
-            } catch (_) {
-                window.location.reload();
-            }
+            if (e.persisted) { window.location.reload(); return; }
         });
-
-        // Freeze state before the browser puts this page into bfcache.
         window.addEventListener('pagehide', function() {
-            _pageDidHide = true;
-            try {
-                var a = window.__jpAudio;
-                if (a) { try { a.pause(); } catch (_) {} }
-            } catch (_) {}
-            try {
-                if (globalLoading) {
-                    globalLoading.classList.add('hidden');
-                    globalLoading.classList.remove('flex');
-                }
-            } catch (_) {}
-            try {
-                if (typeof suggestAbort !== 'undefined' && suggestAbort) {
-                    try { suggestAbort.abort(); } catch (_) {}
-                    suggestAbort = null;
-                }
-            } catch (_) {}
-            try {
-                if (typeof suggestTimer !== 'undefined' && suggestTimer) {
-                    clearTimeout(suggestTimer);
-                    suggestTimer = null;
-                }
-            } catch (_) {}
-            try { hideSuggest(); } catch (_) {}
+            try { var a = window.__jpAudio; if (a) a.pause(); } catch (_) {}
         });
 
         window.addEventListener('error', function() {

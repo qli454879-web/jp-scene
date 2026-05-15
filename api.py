@@ -3630,12 +3630,7 @@ async def list_vocab_reports(limit: int = Query(50, ge=1, le=200), status: str =
 @app.get("/word/{slug}", response_class=HTMLResponse)
 async def word_detail_page(slug: str):
     try:
-        return HTMLResponse(
-            content=_read_local_file("word.html"),
-            headers={
-                "Cache-Control": "no-store, max-age=0",
-            },
-        )
+        return HTMLResponse(content=_read_local_file("word.html"))
     except Exception:
         raise HTTPException(status_code=404, detail="word.html not found")
 
@@ -4526,16 +4521,12 @@ def _read_local_file(filename: str) -> str:
 async def root():
     # Render 健康检查常用 HEAD /，若返回 405 会导致被判定不健康进而 502。
     try:
-        return HTMLResponse(
-            content=_read_local_file("web.html"),
-            headers={"Cache-Control": "no-store, max-age=0"},
-        )
+        return HTMLResponse(content=_read_local_file("web.html"))
     except FileNotFoundError:
         # 若部署时未包含 web.html，避免请求挂住/连接被重置，直接给出可诊断的 500。
         return HTMLResponse(
             content="web.html not found on server (deploy/build issue).",
             status_code=500,
-            headers={"Cache-Control": "no-store, max-age=0"},
         )
 
 @app.api_route("/web.html", methods=["GET", "HEAD"], response_class=HTMLResponse)

@@ -40,7 +40,7 @@
 <body>
   <main class="max-w-3xl mx-auto p-4 md:p-8">
     <div class="flex items-center justify-between mb-4">
-      <a href="/" class="text-[10px] font-bold text-gray-500 hover:text-gray-800">
+      <a href="/" id="backLink" class="text-[10px] font-bold text-gray-500 hover:text-gray-800" style="cursor:pointer">
         <i class="fa-solid fa-arrow-left mr-1"></i> BACK / 返回
       </a>
       <div class="flex items-center gap-2">
@@ -606,13 +606,8 @@
       };
     }
 
-    // 离开单词页时清理：暂停音频、移除全局引用，避免返回首页后残留状态
     window.addEventListener('pagehide', function() {
-      try {
-        var a = window.__jpAudio;
-        if (a) { try { a.pause(); } catch (_) {} try { a.src = ''; } catch (_) {} }
-      } catch (_) {}
-      try { if (window.__jpAudio) window.__jpAudio = null; } catch (_) {}
+      try { var a = window.__jpAudio; if (a) a.pause(); } catch (_) {}
     });
 
     // --- 收藏（单词页也可直接收藏）---
@@ -690,6 +685,24 @@
       // 初次加载后拉一次收藏状态
       refreshStatus();
     }
+
+    // 返回链接：使用 history.back() 触发 bfcache 即时恢复；无历史时兜底跳首页
+    (function bindBackLink() {
+      var link = document.getElementById('backLink');
+      if (!link) return;
+      link.addEventListener('click', function(e) {
+        e.preventDefault();
+        if (document.referrer && document.referrer.indexOf(location.origin) === 0) {
+          history.back();
+          // 兜底：如果 800ms 后还在当前页，说明 back 无效，强制跳转
+          setTimeout(function() {
+            if (document.visibilityState === 'visible') location.href = '/';
+          }, 800);
+        } else {
+          location.href = '/';
+        }
+      });
+    })();
 
     (async function main() {
       const slug = getSlug();
