@@ -547,12 +547,11 @@ app = FastAPI()
 def _preload_vocab_cache():
     if SUPABASE_DB_ENABLED:
         threading.Thread(target=_ensure_vocab_cache, daemon=True).start()
-        # 预热连接池（避免第一个请求等待 5-10s 建立连接）
+        # 预热连接池 + 触发 schema 初始化（建索引等），避免第一个用户请求等待
         def _warmup_pool():
             try:
-                conn = _get_db_conn()
-                if conn:
-                    _return_db_conn(conn)
+                conn = _pg_conn()
+                _pg_close(conn)
             except Exception:
                 pass
         threading.Thread(target=_warmup_pool, daemon=True).start()
