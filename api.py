@@ -15,6 +15,7 @@ import logging
 import secrets
 import time
 import asyncio
+import threading
 import sqlite3
 import json
 from typing import Optional, List, Dict, Any, Tuple
@@ -65,6 +66,7 @@ class _VF:
 _vocab_cache: list = []  # List[Tuple] — 每行 10 字段
 _vocab_cache_loaded_at: float = 0
 _vocab_cache_loading: bool = False
+_vocab_ready: threading.Event = threading.Event()
 _VOCAB_CACHE_TTL = 300
 
 # 搜索索引
@@ -92,14 +94,16 @@ def _row_to_dict(idx: int) -> dict:
     }
 
 
-def _fetch_details(ids: List[str]) -> Dict[str, dict]:
-    """批量从 DB 查 meaning/mp3/image_url。"""
+def _fetch_details(ids: List[str], conn=None) -> Dict[str, dict]:
+    """批量从 DB 查 meaning/mp3/image_url（可复用已有连接）。"""
     if not ids:
         return {}
-    try:
-        conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=3)
-    except Exception:
-        return {}
+    own = conn is None
+    if own:
+        try:
+            conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=3)
+        except Exception:
+            return {}
     try:
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(
@@ -110,10 +114,11 @@ def _fetch_details(ids: List[str]) -> Dict[str, dict]:
     except Exception:
         return {}
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        if own:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _ensure_vocab_cache():
@@ -124,7 +129,9 @@ def _ensure_vocab_cache():
     if _vocab_cache and (now_s - _vocab_cache_loaded_at) < _VOCAB_CACHE_TTL:
         return
     if _vocab_cache_loading:
+        _vocab_ready.wait(timeout=15)  # 等待后台线程加载完成
         return
+    _vocab_ready.clear()
     _vocab_cache_loading = True
     try:
         try:
@@ -178,6 +185,7 @@ def _ensure_vocab_cache():
                 pass
     finally:
         _vocab_cache_loading = False
+        _vocab_ready.set()
 
 
 def _invalidate_vocab_cache():
@@ -188,6 +196,7 @@ def _invalidate_vocab_cache():
     _word_prefix_sorted = []
     _reading_prefix_sorted = []
     _id_to_idx = {}
+    _vocab_ready.clear()
 
 
 def _prefix_matches(sorted_list: list, prefix: str):
@@ -386,7 +395,10 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 词库懒加载：首次搜索时加载到内存，不阻塞启动
+    # 后台预加载词库缓存（不阻塞 health check / 启动）
+    if SUPABASE_DB_ENABLED:
+        loop = asyncio.get_running_loop()
+        loop.run_in_executor(None, _ensure_vocab_cache)
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -3513,6 +3525,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 break
 
     # Tier 4: 释义匹配 — DB 查询（meaning 不在内存缓存中）
+    _reuse_conn = None  # 复用给后续 _fetch_details
     if enable_meaning and len(results) < _NEED_SCAN:
         _scan_limit = int(limit) * 5
         try:
@@ -3546,11 +3559,13 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                             _add(idx, rank, "meaning_match", pos)
                             if len(results) >= _scan_limit:
                                 break
+                _reuse_conn = _mc  # 连接留给 _fetch_details 复用
             finally:
-                try:
-                    _mc.close()
-                except Exception:
-                    pass
+                if _reuse_conn is None:  # 查询失败才关闭
+                    try:
+                        _mc.close()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -3599,12 +3614,17 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
 
     # 从 DB 补充 meaning/mp3/image_url（内存缓存中已移除这些大字段）
     if out:
-        _det = _fetch_details([d["id"] for d in out])
+        _det = _fetch_details([d["id"] for d in out], conn=_reuse_conn)
         for d in out:
             _dd = _det.get(d["id"], {})
             d["meaning"] = _dd.get("meaning", "")
             d["mp3"] = _dd.get("mp3", "")
             d["image_url"] = _dd.get("image_url", "")
+    if _reuse_conn is not None:
+        try:
+            _reuse_conn.close()
+        except Exception:
+            pass
 
     for d in out:
         d.pop("scene_deep_dive", None)
