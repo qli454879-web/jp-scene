@@ -79,6 +79,7 @@ _html_file_cache: Dict[str, str] = {}
 # ── 本地持久化缓存（SQLite），重启/关机后秒级恢复，不用重新从 Supabase 加载 20 万条 ──
 _VOCAB_SNAPSHOT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vocab_snapshot.db")
 _VOCAB_SNAPSHOT_TTL = 86400  # 24 小时内有效，超时则从 Supabase 刷新
+_VOCAB_SNAPSHOT_VERSION = 2  # 递增版本号强制废弃旧快照（列布局变更时）
 
 # ── 内存词库缓存 + 索引（含 meaning/mp3/image_url，避免每次搜索都开新 DB 连接）──
 class _VF:
@@ -270,6 +271,12 @@ def _load_local_snapshot() -> Optional[List[tuple]]:
         if time.time() - loaded_at > _VOCAB_SNAPSHOT_TTL:
             lite.close()
             return None
+        # 版本检查：代码更新后废弃旧格式快照
+        cur.execute("SELECT value FROM snapshot_meta WHERE key='version'")
+        ver_row = cur.fetchone()
+        if not ver_row or int(ver_row[0]) != _VOCAB_SNAPSHOT_VERSION:
+            lite.close()
+            return None
         # 兼容旧快照格式（曾有无 tags / 有 meaning_lower 等变体）
         cur.execute("PRAGMA table_info(vocab_snapshot)")
         cols = [ci[1] for ci in cur.fetchall()]
@@ -337,6 +344,7 @@ def _save_local_snapshot(rows: list):
         cur.execute("CREATE TABLE snapshot_meta (key TEXT PRIMARY KEY, value TEXT)")
         cur.execute("INSERT INTO snapshot_meta VALUES ('loaded_at', ?)", (str(time.time()),))
         cur.execute("INSERT INTO snapshot_meta VALUES ('row_count', ?)", (str(len(rows)),))
+        cur.execute("INSERT INTO snapshot_meta VALUES ('version', ?)", (str(_VOCAB_SNAPSHOT_VERSION),))
         import json as _json
         padded = []
         for r in rows:
