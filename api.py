@@ -56,7 +56,7 @@ SUPABASE_ENABLED = bool(SUPABASE_URL and SUPABASE_ANON_KEY)
 SUPABASE_DB_ENABLED = bool(SUPABASE_DB_URL)
 
 # 避免每次请求都重复跑 ALTER TABLE
-_VOCAB_LIBRARY_SCHEMA_OK = True  # 列已存在，跳过 ALTER TABLE 避免与批量写入抢锁
+_VOCAB_LIBRARY_SCHEMA_OK = False  # 首次部署需创建 tags 列
 # 避免每次评分/收藏都重复跑 CREATE TABLE/INDEX（会导致同步明显变慢）
 _LIBRARY_USER_LISTS_SCHEMA_OK = False
 
@@ -85,7 +85,7 @@ class _VF:
     ID = 0; LEVEL = 1; WORD = 2; READING = 3; POS = 4
     FREQUENCY = 5; EXAMPLES_COUNT = 6; INSIGHT_LEN = 7
     IS_AI_ENRICHED = 8; ORDER_NO = 9
-    MEANING = 10; MP3 = 11; IMAGE_URL = 12; MEANING_LOWER = 13
+    MEANING = 10; MP3 = 11; IMAGE_URL = 12; MEANING_LOWER = 13; TAGS = 14
 
 _vocab_cache: list = []  # List[Tuple] — 每行 10 字段
 _vocab_cache_loaded_at: float = 0
@@ -161,6 +161,7 @@ def _return_db_conn(conn):
 # 搜索索引 — 仅存整数索引，不复制字符串，查找时回查 _vocab_cache
 _word_index: List[int] = []   # indices sorted by (word_lower, idx)
 _reading_index: List[int] = []  # indices sorted by (reading_lower, idx)
+_tag_index: Dict[str, List[int]] = {}  # tag → [idx, ...] 标签反向索引
 
 
 def _build_audio_url(mp3: str) -> str:
@@ -195,6 +196,7 @@ def _row_to_dict(idx: int) -> dict:
         "mp3": mp3,
         "audio_url": _build_audio_url(mp3),
         "image_url": r[_VF.IMAGE_URL] if len(r) > _VF.IMAGE_URL else "",
+        "tags": list(r[_VF.TAGS]) if len(r) > _VF.TAGS and r[_VF.TAGS] else [],
     }
 
 
@@ -268,18 +270,37 @@ def _load_local_snapshot() -> Optional[List[tuple]]:
         if time.time() - loaded_at > _VOCAB_SNAPSHOT_TTL:
             lite.close()
             return None
-        # 兼容旧快照（13列，无 meaning_lower）
+        # 兼容旧快照（13/14列，无 tags）
         cur.execute("PRAGMA table_info(vocab_snapshot)")
         cols = [ci[1] for ci in cur.fetchall()]
-        if "meaning_lower" in cols:
+        has_tags = "tags" in cols
+        has_ml = "meaning_lower" in cols
+        if has_ml and has_tags:
+            cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, mp3, image_url, meaning_lower, tags FROM vocab_snapshot ORDER BY rowid")
+        elif has_ml:
             cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, mp3, image_url, meaning_lower FROM vocab_snapshot ORDER BY rowid")
         else:
             cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, mp3, image_url FROM vocab_snapshot ORDER BY rowid")
         rows = []
+        import json as _json
         for r in cur.fetchall():
             t = tuple(r)
             if len(t) < 14:
                 t = t + ((t[10] or "").lower() if len(t) > 10 else "",)
+            if len(t) < 15:
+                t = t + ([],)
+            else:
+                # tags 从 JSON 字符串还原为 list
+                tags_raw = t[14]
+                if isinstance(tags_raw, str) and tags_raw.strip():
+                    try:
+                        t_list = list(t)
+                        t_list[14] = _json.loads(tags_raw)
+                        t = tuple(t_list)
+                    except Exception:
+                        t_list = list(t)
+                        t_list[14] = []
+                        t = tuple(t_list)
             rows.append(t)
         lite.close()
         if rows:
@@ -300,20 +321,31 @@ def _save_local_snapshot(rows: list):
             id TEXT, level TEXT, word TEXT, reading TEXT, pos TEXT,
             frequency INTEGER, examples_count INTEGER, insight_len INTEGER,
             is_ai_enriched INTEGER, order_no INTEGER,
-            meaning TEXT, mp3 TEXT, image_url TEXT, meaning_lower TEXT
+            meaning TEXT, mp3 TEXT, image_url TEXT, meaning_lower TEXT,
+            tags TEXT
         )""")
         cur.execute("CREATE TABLE snapshot_meta (key TEXT PRIMARY KEY, value TEXT)")
         cur.execute("INSERT INTO snapshot_meta VALUES ('loaded_at', ?)", (str(time.time()),))
         cur.execute("INSERT INTO snapshot_meta VALUES ('row_count', ?)", (str(len(rows)),))
-        # 兼容 13/14 字段：自动补齐 meaning_lower
+        # 兼容不同字段数：自动补齐 meaning_lower 和 tags
+        import json as _json
         padded = []
         for r in rows:
             t = tuple(r) if not isinstance(r, tuple) else r
             if len(t) < 14:
                 t = t + ((t[10] or "").lower() if len(t) > 10 else "",)
+            if len(t) < 15:
+                t = t + ("[]",)
+            else:
+                # tags 字段可能是 list，转为 JSON 字符串存储
+                tags_val = t[14]
+                if isinstance(tags_val, list):
+                    t_list = list(t)
+                    t_list[14] = _json.dumps(tags_val, ensure_ascii=False)
+                    t = tuple(t_list)
             padded.append(t)
         cur.executemany(
-            "INSERT INTO vocab_snapshot VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO vocab_snapshot VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             padded
         )
         lite.commit()
@@ -325,25 +357,33 @@ def _save_local_snapshot(rows: list):
 def _build_indexes(rows: list, now_s: float):
     """从 rows 构建内存索引（紧凑格式 — 仅存整数索引，不回存字符串副本）。"""
     global _vocab_cache, _vocab_cache_loaded_at
-    global _word_index, _reading_index
+    global _word_index, _reading_index, _tag_index
     entries = []
     wi: List[int] = []
     ri: List[int] = []
+    ti: Dict[str, List[int]] = {}  # tag → [idx, ...]
     for i, row in enumerate(rows):
         wl = (row[2] or "").lower()
         rl = (row[3] or "").lower()
         t = row if isinstance(row, tuple) else tuple(row)
         meaning_lower = (t[10] or "").lower() if len(t) > 10 else ""
-        entries.append(t + (meaning_lower,))
+        # tags 在列索引 14（若存在），否则空列表
+        tags_raw = list(t[14]) if len(t) > 14 and t[14] else []
+        entries.append(t + (meaning_lower, tags_raw))
         if wl:
             wi.append(i)
         if rl:
             ri.append(i)
+        for tag in tags_raw:
+            tag = tag.strip()
+            if tag:
+                ti.setdefault(tag, []).append(i)
     wi.sort(key=lambda i: (entries[i][_VF.WORD] or "").lower())
     ri.sort(key=lambda i: (entries[i][_VF.READING] or "").lower())
     _vocab_cache = entries
     _word_index = wi
     _reading_index = ri
+    _tag_index = ti
     _vocab_cache_loaded_at = now_s
 
 
@@ -385,7 +425,8 @@ def _ensure_vocab_cache():
                                   COALESCE(jsonb_array_length(examples), 0),
                                   COALESCE(length(insight_text), 0),
                                   is_ai_enriched, order_no,
-                                  COALESCE(meaning, ''), COALESCE(mp3, ''), COALESCE(image_url, '')
+                                  COALESCE(meaning, ''), COALESCE(mp3, ''), COALESCE(image_url, ''),
+                                  COALESCE(tags, '{}'::text[])
                            FROM vocab_library"""
                     )
                     rows = cur.fetchall()
@@ -3329,7 +3370,8 @@ def _library_fetch_by_slug(conn, slug: str) -> Optional[Dict[str, Any]]:
                 """
                 SELECT id, level, word, reading, meaning, mp3,
                        pos, frequency, examples,
-                       social_context, heatmap_data, insight_text, image_url, is_ai_enriched, order_no
+                       social_context, heatmap_data, insight_text, image_url, is_ai_enriched, order_no,
+                       COALESCE(tags, '{}'::text[]) AS tags
                 FROM vocab_library
                 WHERE id=%s::uuid
                 """,
@@ -3342,7 +3384,8 @@ def _library_fetch_by_slug(conn, slug: str) -> Optional[Dict[str, Any]]:
                 """
                 SELECT id, level, word, reading, meaning, mp3,
                        pos, frequency, examples,
-                       social_context, heatmap_data, insight_text, image_url, is_ai_enriched, order_no
+                       social_context, heatmap_data, insight_text, image_url, is_ai_enriched, order_no,
+                       COALESCE(tags, '{}'::text[]) AS tags
                 FROM vocab_library
                 WHERE word = %(slug)s OR reading = %(slug)s OR meaning ILIKE %(like)s
                 ORDER BY
@@ -3662,6 +3705,7 @@ async def get_library_word(slug: str = Query(...)):
             "insight_text": row.get("insight_text") or "",
             "image_url": row.get("image_url") or "",
             "is_ai_enriched": bool(row.get("is_ai_enriched") or False),
+            "tags": list(row.get("tags") or []),
         }
         return payload
     finally:
@@ -3726,7 +3770,8 @@ def _search_db_direct(qq: str, limit: int) -> list:
                    COALESCE(jsonb_array_length(examples), 0) AS ec,
                    COALESCE(length(insight_text), 0) AS il,
                    is_ai_enriched, order_no,
-                   meaning, mp3, image_url
+                   meaning, mp3, image_url,
+                   COALESCE(tags, '{{}}'::text[]) AS tags
             FROM vocab_library
             WHERE {" OR ".join(where_parts)}
             ORDER BY
@@ -3764,6 +3809,7 @@ def _search_db_direct(qq: str, limit: int) -> list:
                 "mp3": mp3_val,
                 "audio_url": _build_audio_url(mp3_val),
                 "image_url": r.get("image_url") or "",
+                "tags": list(r.get("tags") or []),
             })
         return out
     finally:
@@ -3808,7 +3854,8 @@ def _suggest_db_direct(qq: str, limit: int) -> list:
         query_sql = f"""
             SELECT id::text, level, word, reading, pos, frequency,
                    COALESCE(length(insight_text), 0) AS il,
-                   is_ai_enriched, meaning, mp3, image_url
+                   is_ai_enriched, meaning, mp3, image_url,
+                   COALESCE(tags, '{{}}'::text[]) AS tags
             FROM vocab_library
             WHERE {" OR ".join(exact_parts + prefix_parts)}
             ORDER BY
@@ -3838,6 +3885,7 @@ def _suggest_db_direct(qq: str, limit: int) -> list:
                 "mp3": mp3_val,
                 "audio_url": _build_audio_url(mp3_val),
                 "image_url": r.get("image_url") or "",
+                "tags": list(r.get("tags") or []),
             })
         return out
     finally:
@@ -4136,6 +4184,32 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
         d.pop("_rank", None)
         d.pop("examples_count", None)
     return out
+
+
+@app.get("/api/library/tags")
+async def list_tags():
+    """列出所有标签及对应词数（从内存缓存，<1ms）。"""
+    _ensure_vocab_cache()
+    if not _vocab_cache:
+        return {"tags": []}
+    tags = [{"name": tag, "count": len(idxs)}
+            for tag, idxs in sorted(_tag_index.items(),
+                                     key=lambda x: -len(x[1]))]
+    return {"tags": tags}
+
+
+@app.get("/api/library/words/by-tag")
+async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100)):
+    """按标签分页取词（从内存缓存，<1ms，不占 DB 连接）。"""
+    _ensure_vocab_cache()
+    if not _tag_index:
+        return {"tag": tag, "total": 0, "offset": offset, "words": []}
+    idxs = _tag_index.get(tag.strip(), [])
+    total = len(idxs)
+    page = idxs[offset:offset + limit]
+    words = [_row_to_dict(i) for i in page]
+    return {"tag": tag, "total": total, "offset": offset, "words": words}
+
 
 @app.get("/api/library/replacements")
 async def get_replacements(word: str = Query(...), level: str = Query(""), limit: int = Query(5, ge=1, le=10)):
