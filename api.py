@@ -4164,6 +4164,17 @@ async def get_synonyms(word: str = Query(...), level: str = Query(""), limit: in
     if not w:
         return []
 
+    # 缓存加速：同义词结果 TTL 10 分钟
+    cache_key = ("syn", w, (level or "").strip(), int(limit))
+    now_s = time.time()
+    entry = _search_cache.get(cache_key)
+    if entry is not None:
+        expires, cached = entry
+        if now_s < expires:
+            return cached
+        del _search_cache[cache_key]
+
+    _cache_synonyms = []
     conn = _pg_conn()
     try:
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
@@ -4259,9 +4270,17 @@ async def get_synonyms(word: str = Query(...), level: str = Query(""), limit: in
                     has_single_char = any(len(k) == 1 for k in keywords)
                     results = _do_synonym_query(strict=False)
 
-            return results
+            # 缓存结果（finally 之后统一出口）
+            _cache_synonyms = results
     finally:
-        conn.close()
+        _pg_close(conn)
+    if _cache_synonyms:
+        _search_cache[cache_key] = (now_s + 600, _cache_synonyms)
+        if len(_search_cache) > _SEARCH_CACHE_MAX:
+            stale = [k for k, (exp, _) in _search_cache.items() if now_s >= exp]
+            for k in stale:
+                _search_cache.pop(k, None)
+    return _cache_synonyms
 
 
 @app.post("/api/library/enrich")
