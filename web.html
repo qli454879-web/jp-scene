@@ -1101,41 +1101,53 @@
         const loadingStatus = document.getElementById('loadingStatus');
 
         // bfcache restoration: when the browser restores the page from back-forward cache,
-        // delegate full state reset to resetToHome() so all views/variables are clean
+        // delegate full state reset to resetToHome() so all views/variables are clean.
+        // Use a micro-delay to let the browser finish restoring the rendering surface.
         window.addEventListener('pageshow', function(e) {
-            if (e.persisted) resetToHome();
+            if (e.persisted) {
+                try { resetToHome(); } catch (_) {}
+            }
         });
 
         // Freeze state before the browser puts this page into bfcache.
-        // Hide loading so the spinner isn't frozen mid-animation and re-shown on restore;
-        // abort pending suggests so no stale fetch completes after restore.
         window.addEventListener('pagehide', function() {
-            if (globalLoading) {
-                globalLoading.classList.add('hidden');
-                globalLoading.classList.remove('flex');
-            }
-            if (typeof suggestAbort !== 'undefined' && suggestAbort) {
-                try { suggestAbort.abort(); } catch (_) {}
-                suggestAbort = null;
-            }
-            if (typeof suggestTimer !== 'undefined' && suggestTimer) {
-                clearTimeout(suggestTimer);
-                suggestTimer = null;
-            }
+            try {
+                if (globalLoading) {
+                    globalLoading.classList.add('hidden');
+                    globalLoading.classList.remove('flex');
+                }
+            } catch (_) {}
+            try {
+                if (typeof suggestAbort !== 'undefined' && suggestAbort) {
+                    try { suggestAbort.abort(); } catch (_) {}
+                    suggestAbort = null;
+                }
+            } catch (_) {}
+            try {
+                if (typeof suggestTimer !== 'undefined' && suggestTimer) {
+                    clearTimeout(suggestTimer);
+                    suggestTimer = null;
+                }
+            } catch (_) {}
+            try { hideSuggest(); } catch (_) {}
         });
 
         window.addEventListener('error', function() {
-            if (globalLoading) {
-                globalLoading.classList.add('hidden');
-                globalLoading.classList.remove('flex');
-            }
+            try {
+                if (globalLoading) {
+                    globalLoading.classList.add('hidden');
+                    globalLoading.classList.remove('flex');
+                }
+            } catch (_) {}
             try { resetToHome(); } catch (_) {}
         });
         window.addEventListener('unhandledrejection', function() {
-            if (globalLoading) {
-                globalLoading.classList.add('hidden');
-                globalLoading.classList.remove('flex');
-            }
+            try {
+                if (globalLoading) {
+                    globalLoading.classList.add('hidden');
+                    globalLoading.classList.remove('flex');
+                }
+            } catch (_) {}
             try { resetToHome(); } catch (_) {}
         });
 
@@ -3338,11 +3350,13 @@ async function startLearning() {
             });
 
             // Animation feedback
-            var btn = document.querySelector('.audio-btn i');
-            if (btn) {
-                btn.classList.add('text-green-500');
-                setTimeout(function() { btn.classList.remove('text-green-500'); }, 1000);
-            }
+            try {
+                var btn = document.querySelector('.audio-btn i');
+                if (btn) {
+                    btn.classList.add('text-green-500');
+                    setTimeout(function() { try { btn.classList.remove('text-green-500'); } catch (_) {} }, 1000);
+                }
+            } catch (_) {}
         }
 
         async function performSearch(query) {
@@ -3581,35 +3595,55 @@ async function startLearning() {
         }
 
         function resetToHome() {
-            if (searchHero) {
-                searchHero.style.display = 'flex';
-                searchHero.classList.remove('active');
-            }
-            if (contentView) contentView.style.display = 'none';
-            if (vocabView) vocabView.style.display = 'none';
-            if (mainInput) mainInput.value = '';
-            var chatBox = document.getElementById('chatBox');
-            if (chatBox) {
-                chatBox.innerHTML = '<div class="p-3 bg-gray-50 border-2 border-gray-100 rounded-lg text-gray-500">有什么想深入了解的吗？</div>';
-            }
+            // 1. 复位视图
+            try {
+                if (searchHero) {
+                    searchHero.style.display = 'flex';
+                    searchHero.classList.remove('active');
+                }
+            } catch (_) {}
+            try { if (contentView) contentView.style.display = 'none'; } catch (_) {}
+            try { if (vocabView) vocabView.style.display = 'none'; } catch (_) {}
+            try { if (mainInput) mainInput.value = ''; } catch (_) {}
+            try {
+                var chatBox = document.getElementById('chatBox');
+                if (chatBox) {
+                    chatBox.innerHTML = '<div class="p-3 bg-gray-50 border-2 border-gray-100 rounded-lg text-gray-500">有什么想深入了解的吗？</div>';
+                }
+            } catch (_) {}
+
+            // 2. 清空搜索/解析上下文
             currentReportContext = null;
             currentSearchAudioFn = '';
-            if (globalLoading) {
-                globalLoading.classList.add('hidden');
-                globalLoading.classList.remove('flex');
-            }
-            if (loadingStatus && loadingMessages && loadingMessages.length > 0) {
-                loadingStatus.innerText = loadingMessages[0];
-            }
-            hideSuggest();
-            if (typeof suggestAbort !== 'undefined' && suggestAbort) {
-                try { suggestAbort.abort(); } catch (_) {}
-                suggestAbort = null;
-            }
-            if (typeof suggestTimer !== 'undefined' && suggestTimer) {
-                clearTimeout(suggestTimer);
-                suggestTimer = null;
-            }
+            lastSuggestQ = '';
+
+            // 3. 隐藏 loading
+            try {
+                if (globalLoading) {
+                    globalLoading.classList.add('hidden');
+                    globalLoading.classList.remove('flex');
+                }
+            } catch (_) {}
+            try {
+                if (loadingStatus && loadingMessages && loadingMessages.length > 0) {
+                    loadingStatus.innerText = loadingMessages[0];
+                }
+            } catch (_) {}
+
+            // 4. 清理联想
+            try { hideSuggest(); } catch (_) {}
+            try {
+                if (typeof suggestAbort !== 'undefined' && suggestAbort) {
+                    try { suggestAbort.abort(); } catch (_) {}
+                    suggestAbort = null;
+                }
+            } catch (_) {}
+            try {
+                if (typeof suggestTimer !== 'undefined' && suggestTimer) {
+                    clearTimeout(suggestTimer);
+                    suggestTimer = null;
+                }
+            } catch (_) {}
         }
 
         function appendChat(text, isUser = false) {
@@ -3621,8 +3655,9 @@ async function startLearning() {
             box.scrollTop = box.scrollHeight;
         }
 
-        document.getElementById('searchBtn').onclick = () => performSearch(mainInput.value.trim());
-        mainInput.onkeypress = (e) => { if (e.key === 'Enter') performSearch(mainInput.value.trim()); };
+        var _searchBtn = document.getElementById('searchBtn');
+        if (_searchBtn) _searchBtn.onclick = () => performSearch(mainInput.value.trim());
+        if (mainInput) mainInput.onkeypress = (e) => { if (e.key === 'Enter') performSearch(mainInput.value.trim()); };
 
         // --- 搜索候选：在搜索框下方内联展示（仅 >=2）---
         function stars(n) {

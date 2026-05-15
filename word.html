@@ -606,6 +606,15 @@
       };
     }
 
+    // 离开单词页时清理：暂停音频、移除全局引用，避免返回首页后残留状态
+    window.addEventListener('pagehide', function() {
+      try {
+        var a = window.__jpAudio;
+        if (a) { try { a.pause(); } catch (_) {} try { a.src = ''; } catch (_) {} }
+      } catch (_) {}
+      try { if (window.__jpAudio) window.__jpAudio = null; } catch (_) {}
+    });
+
     // --- 收藏（单词页也可直接收藏）---
     function getAuthToken() {
       try { return localStorage.getItem('authToken') || ''; } catch (e) { return ''; }
