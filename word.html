@@ -46,6 +46,7 @@
       <div class="flex items-center gap-2">
         <button id="reportBtnTop" class="badge-pixel px-3 py-1 bg-amber-50 text-[10px] font-bold hover:bg-amber-100">报错</button>
         <div id="levelBadge" class="badge-pixel px-3 py-1 bg-white text-[10px] font-bold">JLPT</div>
+        <div id="tagsBadge" class="flex flex-wrap gap-1"></div>
       </div>
     </div>
     <div class="mb-4 flex gap-2">
@@ -399,6 +400,15 @@
     function applyData(data) {
       currentWordData = data || null;
       document.getElementById('levelBadge').innerText = formatLevelLabel(data.level || '');
+      // 渲染标签
+      var tags = data.tags || [];
+      var tagsEl = document.getElementById('tagsBadge');
+      if (tagsEl) {
+        tagsEl.innerHTML = tags.map(function(t) {
+          var name = t.replace(/_/g, ' ').toUpperCase();
+          return '<span class="text-[8px] px-1 border border-gray-300 text-gray-500 bg-gray-50">' + name + '</span>';
+        }).join('');
+      }
       document.getElementById('wordTitle').innerText = data.word || '---';
       document.getElementById('wordReading').innerText = data.reading || '—';
       document.getElementById('meaningText').innerText = data.meaning || '—';
