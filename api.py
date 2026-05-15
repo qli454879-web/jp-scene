@@ -73,6 +73,9 @@ _search_cache: Dict[Tuple[str, int], Tuple[float, list]] = {}
 _SEARCH_CACHE_TTL = 120  # seconds
 _SEARCH_CACHE_MAX = 500
 
+# ── HTML 文件缓存（进程生命周期内不变，避免每次请求读磁盘）──
+_html_file_cache: Dict[str, str] = {}
+
 # ── 本地持久化缓存（SQLite），重启/关机后秒级恢复，不用重新从 Supabase 加载 20 万条 ──
 _VOCAB_SNAPSHOT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vocab_snapshot.db")
 _VOCAB_SNAPSHOT_TTL = 86400  # 24 小时内有效，超时则从 Supabase 刷新
@@ -155,11 +158,9 @@ def _return_db_conn(conn):
     except Exception:
         pass
 
-# 搜索索引
-_word_exact: Dict[str, List[int]] = {}
-_reading_exact: Dict[str, List[int]] = {}
-_word_prefix_sorted: list = []   # [(word_lower, idx), ...]
-_reading_prefix_sorted: list = []  # [(reading_lower, idx), ...]
+# 搜索索引 — 仅存整数索引，不复制字符串，查找时回查 _vocab_cache
+_word_index: List[int] = []   # indices sorted by (word_lower, idx)
+_reading_index: List[int] = []  # indices sorted by (reading_lower, idx)
 
 
 def _row_to_dict(idx: int) -> dict:
@@ -184,6 +185,7 @@ def _row_to_dict(idx: int) -> dict:
 # 详情缓存：避免每次搜索都新建 DB 连接查询 meaning/mp3/image_url
 _detail_cache: Dict[str, tuple] = {}  # id -> (expires_at, {meaning, mp3, image_url})
 _DETAIL_CACHE_TTL = 300
+_DETAIL_CACHE_MAX = 5000  # 防止无上限增长
 
 
 def _fetch_details(ids: List[str]) -> Dict[str, dict]:
@@ -223,6 +225,10 @@ def _fetch_details(ids: List[str]) -> Dict[str, dict]:
                 rid = str(r["id"])
                 result[rid] = d
                 _detail_cache[rid] = (now_s + _DETAIL_CACHE_TTL, d)
+                if len(_detail_cache) > _DETAIL_CACHE_MAX:
+                    stale = [k for k, (exp, _) in _detail_cache.items() if now_s >= exp]
+                    for k in stale:
+                        _detail_cache.pop(k, None)
     except Exception:
         pass
     finally:
@@ -301,33 +307,27 @@ def _save_local_snapshot(rows: list):
 
 
 def _build_indexes(rows: list, now_s: float):
-    """从 rows 构建内存索引。"""
+    """从 rows 构建内存索引（紧凑格式 — 仅存整数索引，不回存字符串副本）。"""
     global _vocab_cache, _vocab_cache_loaded_at
-    global _word_exact, _reading_exact, _word_prefix_sorted, _reading_prefix_sorted
+    global _word_index, _reading_index
     entries = []
-    we: Dict[str, List[int]] = {}
-    re: Dict[str, List[int]] = {}
-    wp: list = []
-    rp: list = []
+    wi: List[int] = []
+    ri: List[int] = []
     for i, row in enumerate(rows):
         wl = (row[2] or "").lower()
         rl = (row[3] or "").lower()
         t = row if isinstance(row, tuple) else tuple(row)
         meaning_lower = (t[10] or "").lower() if len(t) > 10 else ""
         entries.append(t + (meaning_lower,))
-        we.setdefault(wl, []).append(i)
-        re.setdefault(rl, []).append(i)
         if wl:
-            wp.append((wl, i))
+            wi.append(i)
         if rl:
-            rp.append((rl, i))
-    wp.sort(key=lambda x: x[0])
-    rp.sort(key=lambda x: x[0])
+            ri.append(i)
+    wi.sort(key=lambda i: (entries[i][_VF.WORD] or "").lower())
+    ri.sort(key=lambda i: (entries[i][_VF.READING] or "").lower())
     _vocab_cache = entries
-    _word_exact = we
-    _reading_exact = re
-    _word_prefix_sorted = wp
-    _reading_prefix_sorted = rp
+    _word_index = wi
+    _reading_index = ri
     _vocab_cache_loaded_at = now_s
 
 
@@ -391,23 +391,36 @@ def _ensure_vocab_cache():
 
 
 def _invalidate_vocab_cache():
-    global _vocab_cache, _word_exact, _reading_exact, _word_prefix_sorted, _reading_prefix_sorted
+    global _vocab_cache, _word_index, _reading_index
     _vocab_cache = []
-    _word_exact = {}
-    _reading_exact = {}
-    _word_prefix_sorted = []
-    _reading_prefix_sorted = []
+    _word_index = []
+    _reading_index = []
 
 
-def _prefix_matches(sorted_list: list, prefix: str):
-    """二分查找前缀匹配项，返回 [(word, idx), ...]。"""
-    import bisect
-    left = bisect.bisect_left(sorted_list, (prefix, -1))
-    right = left
-    n = len(sorted_list)
-    while right < n and sorted_list[right][0].startswith(prefix):
-        right += 1
-    return sorted_list[left:right]
+def _index_lookup(index_list: List[int], key_lower: str, field_idx: int, exact: bool = False):
+    """在索引列表中二分查找 exact 或 prefix 匹配。
+    index_list 存的是 _vocab_cache 的索引，按 field_idx 字段的 lowercase 排序。
+    返回 generator of (matched_value_lower, idx) tuples。
+    """
+    if not index_list or not key_lower:
+        return
+    lo, hi = 0, len(index_list)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        idx = index_list[mid]
+        val = (_vocab_cache[idx][field_idx] or "").lower()
+        if val < key_lower:
+            lo = mid + 1
+        else:
+            hi = mid
+    for i in range(lo, len(index_list)):
+        idx = index_list[i]
+        val = (_vocab_cache[idx][field_idx] or "").lower()
+        if exact and val != key_lower:
+            break
+        if not exact and not val.startswith(key_lower):
+            break
+        yield val, idx
 
 
 # 简体→日文常用汉字映射（可按需要持续扩充；避免引入冷门第三方库）
@@ -514,6 +527,12 @@ def _enforce_public_analyze_rate_limit(request: Request) -> None:
         raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试。")
     recent.append(now_ts)
     _PUBLIC_ANALYZE_HITS[ip_key] = recent
+    # 定期清理过期 IP 条目，防止字典无上限增长
+    if len(_PUBLIC_ANALYZE_HITS) > 2000:
+        stale = [k for k, hits in list(_PUBLIC_ANALYZE_HITS.items())
+                 if not [t for t in hits if now_ts - t <= _PUBLIC_ANALYZE_WINDOW_SECONDS]]
+        for k in stale:
+            _PUBLIC_ANALYZE_HITS.pop(k, None)
 
 
 def _is_kana_only(text: str) -> bool:
@@ -3594,16 +3613,13 @@ async def list_vocab_reports(limit: int = Query(50, ge=1, le=200), status: str =
 
 @app.get("/word/{slug}", response_class=HTMLResponse)
 async def word_detail_page(slug: str):
-    # Serve dedicated detail page (JS fetches data via /api/library/word)
     try:
-        with open("word.html", "r", encoding="utf-8") as f:
-            return HTMLResponse(
-                content=f.read(),
-                headers={
-                    # 避免 Render / 浏览器缓存旧版页面，导致"库里有字段但前端不显示"
-                    "Cache-Control": "no-store, max-age=0",
-                },
-            )
+        return HTMLResponse(
+            content=_read_local_file("word.html"),
+            headers={
+                "Cache-Control": "no-store, max-age=0",
+            },
+        )
     except Exception:
         raise HTTPException(status_code=404, detail="word.html not found")
 
@@ -3863,28 +3879,28 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
             d["_kw_pos"] = kw_pos
         results.append(d)
 
-    # Tier 1: 精确匹配 (dict lookup, O(1))
-    for idx in _word_exact.get(qq_lower, ()):
+    # Tier 1: 精确匹配 (index binary search, O(log n) — compact memory format)
+    for val, idx in _index_lookup(_word_index, qq_lower, _VF.WORD, exact=True):
         _add(idx, 0, "word_exact")
     if has_jp_variant:
-        for idx in _word_exact.get(qq_j_lower, ()):
+        for val, idx in _index_lookup(_word_index, qq_j_lower, _VF.WORD, exact=True):
             _add(idx, 1, "word_exact_jp")
-    for idx in _reading_exact.get(qq_lower, ()):
+    for val, idx in _index_lookup(_reading_index, qq_lower, _VF.READING, exact=True):
         _add(idx, 10, "reading_exact")
     if has_jp_variant:
-        for idx in _reading_exact.get(qq_j_lower, ()):
+        for val, idx in _index_lookup(_reading_index, qq_j_lower, _VF.READING, exact=True):
             _add(idx, 11, "reading_exact_jp")
 
-    # Tier 2: 前缀匹配 (bisect, O(log n))
-    for wl, idx in _prefix_matches(_word_prefix_sorted, qq_j_lower if has_jp_variant else qq_lower):
+    # Tier 2: 前缀匹配 (index binary search, O(log n + k))
+    for val, idx in _index_lookup(_word_index, qq_j_lower if has_jp_variant else qq_lower, _VF.WORD, exact=False):
         _add(idx, 2 if has_jp_variant else 3, "word_prefix" + ("_jp" if has_jp_variant else ""))
     if has_jp_variant:
-        for wl, idx in _prefix_matches(_word_prefix_sorted, qq_lower):
+        for val, idx in _index_lookup(_word_index, qq_lower, _VF.WORD, exact=False):
             _add(idx, 3, "word_prefix")
-    for rl, idx in _prefix_matches(_reading_prefix_sorted, qq_j_lower if has_jp_variant else qq_lower):
+    for val, idx in _index_lookup(_reading_index, qq_j_lower if has_jp_variant else qq_lower, _VF.READING, exact=False):
         _add(idx, 12 if has_jp_variant else 13, "reading_prefix" + ("_jp" if has_jp_variant else ""))
     if has_jp_variant:
-        for rl, idx in _prefix_matches(_reading_prefix_sorted, qq_lower):
+        for val, idx in _index_lookup(_reading_index, qq_lower, _VF.READING, exact=False):
             _add(idx, 13, "reading_prefix")
 
     # Tier 3: 包含匹配 + 释义搜索（合并为单次扫描，避免重复遍历 200K 条目）
@@ -4018,26 +4034,26 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
         d["_rank"] = rank
         matched.append(d)
 
-    for idx in _word_exact.get(qq_lower, ()):
+    for val, idx in _index_lookup(_word_index, qq_lower, _VF.WORD, exact=True):
         _add(idx, 0)
     if has_jp_variant:
-        for idx in _word_exact.get(qq_j_lower, ()):
+        for val, idx in _index_lookup(_word_index, qq_j_lower, _VF.WORD, exact=True):
             _add(idx, 0)
-    for idx in _reading_exact.get(qq_lower, ()):
+    for val, idx in _index_lookup(_reading_index, qq_lower, _VF.READING, exact=True):
         _add(idx, 3)
     if has_jp_variant:
-        for idx in _reading_exact.get(qq_j_lower, ()):
+        for val, idx in _index_lookup(_reading_index, qq_j_lower, _VF.READING, exact=True):
             _add(idx, 3)
 
-    for wl, idx in _prefix_matches(_word_prefix_sorted, qq_j_lower if has_jp_variant else qq_lower):
+    for val, idx in _index_lookup(_word_index, qq_j_lower if has_jp_variant else qq_lower, _VF.WORD, exact=False):
         _add(idx, 1)
     if has_jp_variant:
-        for wl, idx in _prefix_matches(_word_prefix_sorted, qq_lower):
+        for val, idx in _index_lookup(_word_index, qq_lower, _VF.WORD, exact=False):
             _add(idx, 1)
-    for rl, idx in _prefix_matches(_reading_prefix_sorted, qq_j_lower if has_jp_variant else qq_lower):
+    for val, idx in _index_lookup(_reading_index, qq_j_lower if has_jp_variant else qq_lower, _VF.READING, exact=False):
         _add(idx, 2)
     if has_jp_variant:
-        for rl, idx in _prefix_matches(_reading_prefix_sorted, qq_lower):
+        for val, idx in _index_lookup(_reading_index, qq_lower, _VF.READING, exact=False):
             _add(idx, 2)
 
     # 释义联想：中文查询且前缀匹配不足时，扫描 meaning（低优先级，限 8 条避免噪音）
@@ -4452,10 +4468,15 @@ async def healthz():
 
 
 def _read_local_file(filename: str) -> str:
+    cached = _html_file_cache.get(filename)
+    if cached is not None:
+        return cached
     base = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(base, filename)
     with open(path, "r", encoding="utf-8") as f:
-        return f.read()
+        content = f.read()
+    _html_file_cache[filename] = content
+    return content
 
 
 @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
