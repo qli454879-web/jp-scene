@@ -131,7 +131,7 @@ def _get_db_conn():
                                        connect_timeout=5)
             try:
                 _db_pool = ConnectionPool(
-                    SUPABASE_DB_URL, min_size=1, max_size=5, timeout=10,
+                    SUPABASE_DB_URL, min_size=2, max_size=12, timeout=8,
                     open=True, check=_check_pool_conn,
                 )
                 _db_pool_create_failed_at = 0
@@ -4590,4 +4590,5 @@ async def serve_public_file(filename: str):
 if __name__ == "__main__":
     port = int(os.getenv("PORT") or "8000")
     print(f"Starting Japanese Scene Lab Production Server on port {port}...")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port,
+                limit_concurrency=64, limit_max_requests=10000, timeout_keep_alive=30)
