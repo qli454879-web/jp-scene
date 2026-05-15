@@ -1146,6 +1146,7 @@
         let supabaseProfile = null;
         let activeInviteCode = localStorage.getItem('inviteCode') || null;
         let pendingInviteSession = null;
+        try { const _pis = sessionStorage.getItem('pendingInviteSession'); if (_pis) pendingInviteSession = JSON.parse(_pis); } catch (e) {}
         let isLearningSession = false;
 
         // 记住用户上次选择的词书，避免“进入背词又跳回 N5”
@@ -1369,6 +1370,7 @@
             activeInviteCode = null;
             localStorage.removeItem('inviteCode');
             pendingInviteSession = null;
+            try { sessionStorage.removeItem('pendingInviteSession'); } catch (e) {}
             if (supabaseClient) {
                 // 重要：邀请码登录属于“无密码匿名账号”，如果调用 signOut() 默认会撤销 refresh_token，
                 // 会导致用户退出后无法再次用同一邀请码恢复会话。
@@ -1458,6 +1460,7 @@
                         session = d?.session || null;
                     }
                     pendingInviteSession = session;
+                    try { sessionStorage.setItem('pendingInviteSession', JSON.stringify(session)); } catch (e) {}
                     if (session?.access_token) {
                         authToken = session.access_token;
                         localStorage.setItem('authToken', authToken);
@@ -1495,6 +1498,7 @@
                     activeInviteCode = code;
                     localStorage.setItem('inviteCode', code);
                     pendingInviteSession = session;
+                    try { sessionStorage.setItem('pendingInviteSession', JSON.stringify(session)); } catch (e) {}
                     authToken = session.access_token;
                     localStorage.setItem('authToken', authToken);
 
@@ -1590,7 +1594,8 @@
                     authToken = session.access_token;
                     localStorage.setItem('authToken', authToken);
                 }
-                pendingInviteSession = session;
+                pendingInviteSession = null;
+                try { sessionStorage.removeItem('pendingInviteSession'); } catch (e) {}
                 toggleCodeProfileModal(false);
                 await loadProfile();
                 updateUserUI();

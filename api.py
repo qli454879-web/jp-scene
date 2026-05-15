@@ -48,6 +48,10 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "").strip()
 SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL", "").strip()
 
+# 邀请码恢复会话密钥：优先用配置值，否则用进程随机密钥作为保底
+# 老用户的 refresh_token 被 Supabase 轮换后，仍需能通过邀请码恢复登录
+_RECOVERY_JWT_SECRET = SUPABASE_JWT_SECRET or secrets.token_hex(32)
+
 SUPABASE_ENABLED = bool(SUPABASE_URL and SUPABASE_ANON_KEY)
 SUPABASE_DB_ENABLED = bool(SUPABASE_DB_URL)
 
@@ -78,7 +82,7 @@ class _VF:
     ID = 0; LEVEL = 1; WORD = 2; READING = 3; POS = 4
     FREQUENCY = 5; EXAMPLES_COUNT = 6; INSIGHT_LEN = 7
     IS_AI_ENRICHED = 8; ORDER_NO = 9
-    MEANING = 10; MP3 = 11; IMAGE_URL = 12
+    MEANING = 10; MP3 = 11; IMAGE_URL = 12; MEANING_LOWER = 13
 
 _vocab_cache: list = []  # List[Tuple] — 每行 10 字段
 _vocab_cache_loaded_at: float = 0
@@ -90,26 +94,53 @@ _VOCAB_CACHE_TTL = 3600  # 1小时，词库数据变动不频繁，避免每5分
 # psycopg 连接池（避免每次查询都重新建立连接，Render 上 TLS 握手 5-10s）
 _db_pool = None
 _db_pool_lock = threading.Lock()
+_db_pool_create_failed_at: float = 0  # 建池失败时间戳，30s 内不重试
+
+def _check_pool_conn(conn):
+    """轻量活性探测 — 防止池回收已被 Render/Supabase 杀掉的死连接。"""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+    except Exception:
+        raise psycopg.OperationalError("connection check failed")
 
 def _get_db_conn():
-    global _db_pool
+    global _db_pool, _db_pool_create_failed_at
+    # 快速路径：池已存在 → 取一次，失败立即回退直连（避免两次 getconn 等 20s+）
     if _db_pool is not None:
         try:
             return _db_pool.getconn()
         except Exception:
-            pass
+            return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
+                                   connect_timeout=5)
+
+    # 池模块不可用或 DB 未配置 → 直连
     if ConnectionPool is None or not SUPABASE_DB_ENABLED:
-        return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+        return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
+                               connect_timeout=5)
+
+    # 池尚未创建 → 加锁创建（带退避：失败 30s 内不重试）
     with _db_pool_lock:
         if _db_pool is None:
+            now_s = time.time()
+            if now_s - _db_pool_create_failed_at < 30:
+                return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
+                                       connect_timeout=5)
             try:
-                _db_pool = ConnectionPool(SUPABASE_DB_URL, min_size=1, max_size=5, timeout=10, open=True)
+                _db_pool = ConnectionPool(
+                    SUPABASE_DB_URL, min_size=1, max_size=5, timeout=10,
+                    open=True, check=_check_pool_conn,
+                )
+                _db_pool_create_failed_at = 0
             except Exception:
-                return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+                _db_pool_create_failed_at = time.time()
+                return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
+                                       connect_timeout=5)
     try:
         return _db_pool.getconn()
     except Exception:
-        return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+        return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None,
+                               connect_timeout=5)
 
 def _return_db_conn(conn):
     global _db_pool
@@ -215,8 +246,19 @@ def _load_local_snapshot() -> Optional[List[tuple]]:
         if time.time() - loaded_at > _VOCAB_SNAPSHOT_TTL:
             lite.close()
             return None
-        cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, mp3, image_url FROM vocab_snapshot ORDER BY rowid")
-        rows = [tuple(r) for r in cur.fetchall()]
+        # 兼容旧快照（13列，无 meaning_lower）
+        cur.execute("PRAGMA table_info(vocab_snapshot)")
+        cols = [ci[1] for ci in cur.fetchall()]
+        if "meaning_lower" in cols:
+            cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, mp3, image_url, meaning_lower FROM vocab_snapshot ORDER BY rowid")
+        else:
+            cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, mp3, image_url FROM vocab_snapshot ORDER BY rowid")
+        rows = []
+        for r in cur.fetchall():
+            t = tuple(r)
+            if len(t) < 14:
+                t = t + ((t[10] or "").lower() if len(t) > 10 else "",)
+            rows.append(t)
         lite.close()
         if rows:
             return rows
@@ -236,14 +278,21 @@ def _save_local_snapshot(rows: list):
             id TEXT, level TEXT, word TEXT, reading TEXT, pos TEXT,
             frequency INTEGER, examples_count INTEGER, insight_len INTEGER,
             is_ai_enriched INTEGER, order_no INTEGER,
-            meaning TEXT, mp3 TEXT, image_url TEXT
+            meaning TEXT, mp3 TEXT, image_url TEXT, meaning_lower TEXT
         )""")
         cur.execute("CREATE TABLE snapshot_meta (key TEXT PRIMARY KEY, value TEXT)")
         cur.execute("INSERT INTO snapshot_meta VALUES ('loaded_at', ?)", (str(time.time()),))
         cur.execute("INSERT INTO snapshot_meta VALUES ('row_count', ?)", (str(len(rows)),))
+        # 兼容 13/14 字段：自动补齐 meaning_lower
+        padded = []
+        for r in rows:
+            t = tuple(r) if not isinstance(r, tuple) else r
+            if len(t) < 14:
+                t = t + ((t[10] or "").lower() if len(t) > 10 else "",)
+            padded.append(t)
         cur.executemany(
-            "INSERT INTO vocab_snapshot VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            rows
+            "INSERT INTO vocab_snapshot VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            padded
         )
         lite.commit()
         lite.close()
@@ -263,7 +312,9 @@ def _build_indexes(rows: list, now_s: float):
     for i, row in enumerate(rows):
         wl = (row[2] or "").lower()
         rl = (row[3] or "").lower()
-        entries.append(row if isinstance(row, tuple) else tuple(row))
+        t = row if isinstance(row, tuple) else tuple(row)
+        meaning_lower = (t[10] or "").lower() if len(t) > 10 else ""
+        entries.append(t + (meaning_lower,))
         we.setdefault(wl, []).append(i)
         re.setdefault(rl, []).append(i)
         if wl:
@@ -331,7 +382,7 @@ def _ensure_vocab_cache():
                 pass
             finally:
                 try:
-                    conn.close()
+                    _return_db_conn(conn)
                 except Exception:
                     pass
         finally:
@@ -515,7 +566,7 @@ def init_db():
                   updated_at REAL)''')
 
     conn.commit()
-    conn.close()
+    _return_db_conn(conn)
 
 init_db()
 
@@ -527,7 +578,7 @@ def get_cached_result(word):
     c = conn.cursor()
     c.execute("SELECT result FROM ai_cache WHERE word=?", (word,))
     row = c.fetchone()
-    conn.close()
+    _return_db_conn(conn)
     return json.loads(row[0]) if row else None
 
 def save_to_cache(word, result):
@@ -538,7 +589,7 @@ def save_to_cache(word, result):
     c.execute("INSERT OR REPLACE INTO ai_cache VALUES (?, ?, ?)", 
               (word, json.dumps(result), time.time()))
     conn.commit()
-    conn.close()
+    _return_db_conn(conn)
 
 app = FastAPI()
 
@@ -911,7 +962,7 @@ def init_supabase_schema():
             words_count = int((cur.fetchone() or [0])[0] or 0)
         conn.commit()
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 def _ensure_pg_words_extra_columns():
@@ -933,7 +984,7 @@ def _ensure_pg_words_extra_columns():
                 cur.execute(f"ALTER TABLE words ADD COLUMN IF NOT EXISTS {col} {typ}")
         conn.commit()
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 def bootstrap_supabase_data() -> Dict[str, Any]:
@@ -956,27 +1007,26 @@ def bootstrap_supabase_data() -> Dict[str, Any]:
                 "feedbacks": feedback_count,
             }
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 def _decode_supabase_token(token: str) -> Dict[str, Any]:
-    if not SUPABASE_JWT_SECRET:
-        raise HTTPException(status_code=500, detail="SUPABASE_JWT_SECRET is not configured")
-    try:
-        payload = jwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"], options={"verify_aud": False})
-        return payload
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid Supabase token")
+    secrets_to_try = []
+    if SUPABASE_JWT_SECRET:
+        secrets_to_try.append(SUPABASE_JWT_SECRET)
+    if _RECOVERY_JWT_SECRET and _RECOVERY_JWT_SECRET not in secrets_to_try:
+        secrets_to_try.append(_RECOVERY_JWT_SECRET)
+    if not secrets_to_try:
+        raise HTTPException(status_code=500, detail="No JWT secret configured")
+    for s in secrets_to_try:
+        try:
+            return jwt.decode(token, s, algorithms=["HS256"], options={"verify_aud": False})
+        except JWTError:
+            continue
+    raise HTTPException(status_code=401, detail="Invalid Supabase token")
 
 
 def _mint_invite_recovery_session(user_id: str, email: str = "") -> Dict[str, Any]:
-    """
-    当邀请码绑定的 Supabase refresh_token 已失效/被轮换时，
-    使用 SUPABASE_JWT_SECRET 为原 UID 签一个后端可识别的恢复会话，
-    让老用户仍能进入原账号，不必因为 refresh_token 轮换而被挡在门外。
-    """
-    if not SUPABASE_JWT_SECRET:
-        raise HTTPException(status_code=500, detail="SUPABASE_JWT_SECRET is not configured")
     now = datetime.utcnow()
     exp = now + timedelta(days=30)
     payload = {
@@ -985,8 +1035,9 @@ def _mint_invite_recovery_session(user_id: str, email: str = "") -> Dict[str, An
         "email": email or "",
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
+        "session_source": "invite_recovery",
     }
-    access_token = jwt.encode(payload, SUPABASE_JWT_SECRET, algorithm="HS256")
+    access_token = jwt.encode(payload, _RECOVERY_JWT_SECRET, algorithm="HS256")
     return {
         "access_token": access_token,
         "refresh_token": "",
@@ -1118,7 +1169,7 @@ def _build_daily_task_queue_pg(user_id: str, level: str, daily_new_count: int) -
                 "generated_at": now_ts,
             }
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count: int) -> Dict[str, Any]:
@@ -1261,7 +1312,7 @@ def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count
                 "generated_at": now_ts,
             }
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 def _ensure_invitation_codes_extra_columns() -> None:
@@ -1275,7 +1326,7 @@ def _ensure_invitation_codes_extra_columns() -> None:
             cur.execute("ALTER TABLE public.invitation_codes ADD COLUMN IF NOT EXISTS expires_at timestamptz;")
         conn.commit()
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 def _ensure_invitation_codes_limits_columns() -> None:
@@ -1288,7 +1339,7 @@ def _ensure_invitation_codes_limits_columns() -> None:
             cur.execute("ALTER TABLE public.invitation_codes ADD COLUMN IF NOT EXISTS is_admin boolean NOT NULL DEFAULT false;")
         conn.commit()
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 def _ensure_ai_usage_table() -> None:
@@ -1310,7 +1361,7 @@ def _ensure_ai_usage_table() -> None:
             )
         conn.commit()
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 def _sync_background_init() -> None:
@@ -1330,7 +1381,7 @@ def _sync_background_init() -> None:
             try:
                 _ensure_library_user_lists_tables(conn)
             finally:
-                conn.close()
+                _return_db_conn(conn)
         except Exception:
             logging.exception("Ensure library user list tables failed (non-fatal).")
 
@@ -1358,7 +1409,7 @@ def _sync_background_init() -> None:
                     )
                 conn.commit()
             finally:
-                conn.close()
+                _return_db_conn(conn)
         except Exception:
             logging.exception("Backfill last_active_at failed (non-fatal).")
     except Exception:
@@ -1389,7 +1440,7 @@ def _get_user_ai_limit(user_id: str) -> Optional[int]:
                 return None
             return int(row.get("lim") or 10)
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 def _assert_ai_quota_available(user_id: str) -> None:
@@ -1406,7 +1457,7 @@ def _assert_ai_quota_available(user_id: str) -> None:
         if cnt >= limit:
             raise HTTPException(status_code=429, detail=f"今日小雪梨已达到 {limit} 次上限，明天再来问吧。")
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 def _increment_ai_usage(user_id: str) -> None:
@@ -1427,7 +1478,7 @@ def _increment_ai_usage(user_id: str) -> None:
             )
         conn.commit()
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/config")
@@ -1478,7 +1529,7 @@ def _touch_user_activity(user_id: str) -> None:
                 )
             conn.commit()
         finally:
-            conn.close()
+            _return_db_conn(conn)
     except Exception:
         pass
 
@@ -1544,7 +1595,7 @@ def _is_admin_uid(user_id: str) -> bool:
             )
             return bool((cur.fetchone() or [False])[0])
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 async def require_admin_user(current_user: Dict[str, Any] = Depends(get_current_supabase_user)):
@@ -1642,7 +1693,7 @@ async def code_auth_login_v2(code: str = Body(..., embed=True)):
             if not associated_uid:
                 raise HTTPException(status_code=409, detail="邀请码已绑定，但缺少用户标识，请联系管理员重置")
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
     # 走到这里表示"老用户邀请码恢复"
     # 优先在后端直接 refresh，并把轮换后的 refresh_token 写回 DB；
@@ -1786,7 +1837,7 @@ async def supabase_anonymous_v2(code: str = Body("", embed=True)):
             if bool(row.get("is_used") or False):
                 raise HTTPException(status_code=409, detail="邀请码已被使用")
     finally:
-        conn.close()
+        _return_db_conn(conn)
     session = await _supabase_anonymous_signup()
     if not session.get("access_token") or not session.get("refresh_token") or not (session.get("user") or {}).get("id"):
         raise HTTPException(status_code=502, detail="Supabase anonymous signup returned invalid session")
@@ -1866,7 +1917,7 @@ async def code_auth_complete_v2(
         conn.commit()
         return {"status": "success", "code": code_clean}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.post("/api/v2/code-auth/refresh-token")
@@ -1920,7 +1971,7 @@ async def code_auth_update_refresh_token_v2(
         conn.commit()
         return {"status": "success"}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/v2/auth/me")
@@ -1942,7 +1993,7 @@ async def profile_me_v2(current_user: Dict[str, Any] = Depends(get_current_supab
             row = cur.fetchone()
             return row or {}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.post("/api/v2/profile")
@@ -1979,7 +2030,7 @@ async def upsert_profile_v2(
         conn.commit()
         return {"status": "success"}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.post("/api/v2/profile/settings")
@@ -2005,7 +2056,7 @@ async def update_profile_settings_v2(
         conn.commit()
         return {"status": "success"}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/v2/forum/posts")
@@ -2051,7 +2102,7 @@ async def forum_posts_v2(current_user: Dict[str, Any] = Depends(get_current_supa
                 p["reply_count"] = len(p["replies"])
             return posts
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.post("/api/v2/forum/posts")
@@ -2095,7 +2146,7 @@ async def forum_create_post_v2(
         conn.commit()
         return {"status": "success", "id": str(new_id)}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.post("/api/v2/feedback")
@@ -2120,7 +2171,7 @@ async def submit_feedback_v2(
         conn.commit()
         return {"status": "success"}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/v2/admin/stats")
@@ -2152,7 +2203,7 @@ async def admin_stats_v2(current_user: Dict[str, Any] = Depends(require_admin_us
             "active_30d": mau,
         }
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/v2/admin/activity")
@@ -2210,7 +2261,7 @@ async def admin_activity_v2(current_user: Dict[str, Any] = Depends(require_admin
             "churned_users": churned_users,
         }
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/v2/admin/users")
@@ -2229,7 +2280,7 @@ async def admin_users_v2(current_user: Dict[str, Any] = Depends(require_admin_us
             )
             return cur.fetchall()
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/v2/admin/feedbacks")
@@ -2248,7 +2299,7 @@ async def admin_feedbacks_v2(current_user: Dict[str, Any] = Depends(require_admi
             )
             return cur.fetchall()
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/v2/admin/invitation-codes")
@@ -2268,7 +2319,7 @@ async def admin_invitation_codes_v2(current_user: Dict[str, Any] = Depends(requi
             )
             return cur.fetchall()
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.post("/api/v2/plan")
@@ -2294,7 +2345,7 @@ async def set_plan_v2(
         conn.commit()
         return {"status": "success"}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/v2/tasks")
@@ -2329,7 +2380,7 @@ async def get_tasks_v2(
                 )
                 conn.commit()
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
     queue_payload = _build_daily_task_queue_pg(user_id=user_id, level=level, daily_new_count=daily_new_count)
     return {"plan_date": plan_date, "daily_new_count": daily_new_count, **queue_payload}
@@ -2386,7 +2437,7 @@ async def rate_v2(
         conn.commit()
         return {"status": "success", "repetition": repetition, "interval_days": interval_days}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 # --- Stage 2: Use vocab_library as unified study source ---
@@ -2414,7 +2465,7 @@ async def set_plan_v3(
         conn.commit()
         return {"status": "success"}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/v3/tasks")
@@ -2453,7 +2504,7 @@ async def get_tasks_v3(
                 )
                 conn.commit()
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
     queue_payload = _build_daily_task_queue_library_pg(user_id=user_id, level=selector, daily_new_count=daily_new_count)
     return {"plan_date": plan_date, "daily_new_count": daily_new_count, **queue_payload}
@@ -2521,7 +2572,7 @@ async def get_forecast_v3(
             "estimated_days_left": days_left,
         }
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.post("/api/v3/study/rate")
@@ -2587,7 +2638,7 @@ async def rate_v3(
         conn.commit()
         return {"status": "success", "repetition": repetition, "interval_days": interval_days}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.post("/api/v3/study/rate_batch")
@@ -2667,7 +2718,7 @@ async def rate_batch_v3(
         conn.commit()
         return {"status": "success", "accepted": len(items)}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 def _ensure_library_user_lists_tables(conn) -> None:
@@ -2724,7 +2775,7 @@ async def list_favorites_v3(level: str = Query(...), current_user: Dict[str, Any
             rows = cur.fetchall() or []
         return [str(r["entry_id"]) for r in rows if r.get("entry_id")]
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/v3/favorites/items")
@@ -2758,7 +2809,7 @@ async def list_favorites_items_v3(
             out.append(d)
         return out
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.post("/api/v3/favorites")
@@ -2783,7 +2834,7 @@ async def add_favorite_v3(
         conn.commit()
         return {"status": "ok"}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.delete("/api/v3/favorites/{entry_id}")
@@ -2800,7 +2851,7 @@ async def remove_favorite_v3(entry_id: str, current_user: Dict[str, Any] = Depen
         conn.commit()
         return {"status": "ok"}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/v3/wrongbook")
@@ -2817,7 +2868,7 @@ async def list_wrongbook_v3(level: str = Query(...), current_user: Dict[str, Any
             rows = cur.fetchall() or []
         return [str(r["entry_id"]) for r in rows if r.get("entry_id")]
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/v3/wrongbook/items")
@@ -2851,7 +2902,7 @@ async def list_wrongbook_items_v3(
             out.append(d)
         return out
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.post("/api/v3/wrongbook")
@@ -2876,7 +2927,7 @@ async def add_wrongbook_v3(
         conn.commit()
         return {"status": "ok"}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.delete("/api/v3/wrongbook/{entry_id}")
@@ -2893,7 +2944,7 @@ async def remove_wrongbook_v3(entry_id: str, current_user: Dict[str, Any] = Depe
         conn.commit()
         return {"status": "ok"}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/vocab/audio/{filename}")
@@ -2944,9 +2995,9 @@ async def get_vocab_meta(word: str = Query(...), kana: str = Query(""), meaning:
     c.execute("SELECT meaning_zh, origin FROM vocab_meta_cache WHERE word=?", (word,))
     row = c.fetchone()
     if row and (row[0] or ""):
-        conn.close()
+        _return_db_conn(conn)
         return {"meaning_zh": row[0] or "", "origin": row[1]}
-    conn.close()
+    _return_db_conn(conn)
 
     origin = None
 
@@ -2974,7 +3025,7 @@ async def get_vocab_meta(word: str = Query(...), kana: str = Query(""), meaning:
                     (word, meaning_zh, origin, time.time()),
                 )
                 conn.commit()
-                conn.close()
+                _return_db_conn(conn)
                 return {"meaning_zh": meaning_zh, "origin": origin}
         except Exception:
             pass
@@ -3001,7 +3052,7 @@ async def get_vocab_meta(word: str = Query(...), kana: str = Query(""), meaning:
         (word, meaning_zh, origin, time.time()),
     )
     conn.commit()
-    conn.close()
+    _return_db_conn(conn)
     return {"meaning_zh": meaning_zh, "origin": origin}
 
 
@@ -3368,7 +3419,7 @@ async def list_announcements(limit: int = Query(5, ge=1, le=20)):
             out.append(d)
         return out
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/admin/announcements")
@@ -3401,7 +3452,7 @@ async def admin_list_announcements(
             out.append(d)
         return out
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.post("/api/admin/announcements")
@@ -3439,7 +3490,7 @@ async def create_announcement(
             out["id"] = str(out.get("id"))
         return {"status": "ok", "data": out}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.post("/api/admin/announcements/{ann_id}/toggle")
@@ -3468,7 +3519,7 @@ async def toggle_announcement(
         conn.commit()
         return {"status": "ok"}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 @app.post("/api/library/report")
 async def create_vocab_report(payload: Dict[str, Any] = Body(...)):
@@ -3506,7 +3557,7 @@ async def create_vocab_report(payload: Dict[str, Any] = Body(...)):
         conn.commit()
         return {"status": "ok", "id": str(row[0]) if row else None}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/library/reports")
@@ -3538,7 +3589,7 @@ async def list_vocab_reports(limit: int = Query(50, ge=1, le=200), status: str =
             out.append(d)
         return out
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/word/{slug}", response_class=HTMLResponse)
@@ -3585,7 +3636,7 @@ async def get_library_word(slug: str = Query(...)):
         }
         return payload
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 def _search_db_direct(qq: str, limit: int) -> list:
@@ -3836,16 +3887,19 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         for rl, idx in _prefix_matches(_reading_prefix_sorted, qq_lower):
             _add(idx, 13, "reading_prefix")
 
-    # Tier 3: 包含匹配 — 只在 Tier1/2 结果不足时扫描（避免无谓遍历 200K 条目）
+    # Tier 3: 包含匹配 + 释义搜索（合并为单次扫描，避免重复遍历 200K 条目）
     _NEED_SCAN = int(limit) * 2  # 已有足够结果则跳过全扫描
+    _need_meaning = chinese_chars >= 1 or (not has_kana and len(qq) >= 2)
     if enable_contains and len(results) < _NEED_SCAN:
-        _scan_limit = int(limit) * 5  # 找到足够多就提前退出
+        _scan_limit = int(limit) * 5  # 为词/读+释义匹配提供充足空间
         for idx in range(len(_vocab_cache)):
             if idx in seen:
                 continue
             r = _vocab_cache[idx]
             wl = (r[_VF.WORD] or "").lower()
             rl = (r[_VF.READING] or "").lower()
+
+            # Sub-pass A: 词/读包含匹配
             if has_jp_variant and qq_j_lower in wl:
                 _add(idx, 4, "word_partial_jp")
             elif qq_lower in wl:
@@ -3854,25 +3908,16 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 _add(idx, 14, "reading_partial_jp")
             elif qq_lower in rl:
                 _add(idx, 15, "reading_partial")
-            if len(results) >= _scan_limit:
-                break
 
-    # Tier 3b: 释义搜索 — 对中文查询/无日语字符时，扫描 meaning 列（低优先级，避免噪音）
-    # 仅在 Tier1-3 结果不足时启用
-    _need_meaning = chinese_chars >= 1 or (not has_kana and len(qq) >= 2)
-    if _need_meaning and len(results) < _NEED_SCAN:
-        _meaning_scan_limit = int(limit) * 3
-        _meaning_rank = 30
-        for idx in range(len(_vocab_cache)):
-            if idx in seen:
-                continue
-            r = _vocab_cache[idx]
-            ml = (r[_VF.MEANING] or "").lower()
-            if qq_lower in ml:
-                _add(idx, _meaning_rank, "meaning_partial")
-            elif has_jp_variant and qq_j_lower in ml:
-                _add(idx, _meaning_rank + 1, "meaning_partial_jp")
-            if len(results) >= _meaning_scan_limit:
+            # Sub-pass B: 释义匹配（同一轮迭代，仅在词/读未命中时）
+            if _need_meaning and idx not in seen:
+                ml = r[_VF.MEANING_LOWER] if len(r) > _VF.MEANING_LOWER else (r[_VF.MEANING] or "").lower()
+                if qq_lower in ml:
+                    _add(idx, 30, "meaning_partial")
+                elif has_jp_variant and qq_j_lower in ml:
+                    _add(idx, 31, "meaning_partial_jp")
+
+            if len(results) >= _scan_limit:
                 break
 
     t_match = time.time() - t0
@@ -4003,7 +4048,7 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
             if idx in seen:
                 continue
             r = _vocab_cache[idx]
-            ml = (r[_VF.MEANING] or "").lower()
+            ml = r[_VF.MEANING_LOWER] if len(r) > _VF.MEANING_LOWER else (r[_VF.MEANING] or "").lower()
             if qq_lower in ml:
                 _add(idx, 10)
             elif has_jp_variant and qq_j_lower in ml:
@@ -4192,7 +4237,7 @@ async def get_replacements(word: str = Query(...), level: str = Query(""), limit
                 "denied": [d["label_zh"] for d in denied_contexts],
             }
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/library/synonyms")
@@ -4396,7 +4441,7 @@ async def enrich_library_word(slug: str = Body(..., embed=True)):
             out["id"] = str(out.get("id"))
         return {"status": "ok", "data": out, "skipped": False}
     finally:
-        conn.close()
+        _return_db_conn(conn)
 
 
 
