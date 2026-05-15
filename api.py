@@ -696,6 +696,9 @@ def _pg_conn():
                 cur.execute("ALTER TABLE public.vocab_library ADD COLUMN IF NOT EXISTS examples jsonb;")
                 cur.execute("ALTER TABLE public.vocab_library ADD COLUMN IF NOT EXISTS tags text[] NOT NULL DEFAULT '{}'::text[];")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_vocab_library_tags_gin ON public.vocab_library USING gin(tags);")
+                # pg_trgm 索引：加速同义词 / 替代表达 的 meaning ILIKE 模糊匹配
+                cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_vocab_library_meaning_trgm ON public.vocab_library USING gin (meaning gin_trgm_ops);")
             conn.commit()
             _VOCAB_LIBRARY_SCHEMA_OK = True
         except Exception:
