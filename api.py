@@ -14,6 +14,7 @@ import os
 import logging
 import secrets
 import time
+import threading
 import asyncio
 import sqlite3
 import json
@@ -26,6 +27,15 @@ import psycopg
 import psycopg.rows
 import uuid
 import string
+
+# 自动加载 .env 文件（本地开发 / Render 均适用）
+try:
+    from dotenv import load_dotenv
+    _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(_env_path):
+        load_dotenv(_env_path)
+except ImportError:
+    pass
 
 # --- Supabase Configuration ---
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().strip("`")
@@ -65,7 +75,9 @@ class _VF:
 _vocab_cache: list = []  # List[Tuple] — 每行 10 字段
 _vocab_cache_loaded_at: float = 0
 _vocab_cache_loading: bool = False
-_VOCAB_CACHE_TTL = 300
+_vocab_cache_lock = threading.Lock()
+_vocab_cache_ready = threading.Event()
+_VOCAB_CACHE_TTL = 3600  # 1小时，词库数据变动不频繁，避免每5分钟重新加载200K记录
 
 # 搜索索引
 _word_exact: Dict[str, List[int]] = {}
@@ -91,88 +103,130 @@ def _row_to_dict(idx: int) -> dict:
     }
 
 
+# 详情缓存：避免每次搜索都新建 DB 连接查询 meaning/mp3/image_url
+_detail_cache: Dict[str, tuple] = {}  # id -> (expires_at, {meaning, mp3, image_url})
+_DETAIL_CACHE_TTL = 300
+
+
 def _fetch_details(ids: List[str]) -> Dict[str, dict]:
-    """批量从 DB 查 meaning/mp3/image_url。"""
+    """批量获取 meaning/mp3/image_url，优先命中进程内缓存。"""
     if not ids:
         return {}
+    now_s = time.time()
+    result: Dict[str, dict] = {}
+    missing: List[str] = []
+
+    # 先查缓存
+    for id_ in ids:
+        entry = _detail_cache.get(id_)
+        if entry is not None and now_s < entry[0]:
+            result[id_] = entry[1]
+        else:
+            missing.append(id_)
+
+    if not missing:
+        return result
+
+    # 缓存未命中，批量查 DB
     try:
         conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=3)
     except Exception:
-        return {}
+        return result
     try:
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(
                 "SELECT id::text, meaning, mp3, image_url FROM vocab_library WHERE id::text = ANY(%s)",
-                (ids,)
+                (missing,)
             )
-            return {str(r["id"]): {"meaning": r.get("meaning") or "", "mp3": r.get("mp3") or "", "image_url": r.get("image_url") or ""} for r in cur.fetchall()}
+            for r in cur.fetchall():
+                d = {"meaning": r.get("meaning") or "", "mp3": r.get("mp3") or "", "image_url": r.get("image_url") or ""}
+                rid = str(r["id"])
+                result[rid] = d
+                _detail_cache[rid] = (now_s + _DETAIL_CACHE_TTL, d)
     except Exception:
-        return {}
+        pass
     finally:
         try:
             conn.close()
         except Exception:
             pass
+    return result
 
 
 def _ensure_vocab_cache():
-    """加载词库到内存并构建索引（仅轻量字段，省 ~100MB+ 释义文本）。"""
+    """加载词库到内存并构建索引（仅轻量字段，省 ~100MB+ 释义文本）。
+    并发安全：若已有线程在加载，等待其完成（最多 30s），而不是直接返回空。"""
     global _vocab_cache, _vocab_cache_loaded_at, _vocab_cache_loading
     global _word_exact, _reading_exact, _word_prefix_sorted, _reading_prefix_sorted
     now_s = time.time()
     if _vocab_cache and (now_s - _vocab_cache_loaded_at) < _VOCAB_CACHE_TTL:
         return
     if _vocab_cache_loading:
-        return
-    _vocab_cache_loading = True
-    try:
-        try:
-            conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
-        except Exception:
+        # 等待正在进行的加载完成，最多等 30 秒
+        waited = _vocab_cache_ready.wait(timeout=30)
+        if not waited:
             return
+        if _vocab_cache:
+            return
+    with _vocab_cache_lock:
+        # 双重检查：拿到锁后再次确认状态
+        now_s = time.time()
+        if _vocab_cache and (now_s - _vocab_cache_loaded_at) < _VOCAB_CACHE_TTL:
+            return
+        if _vocab_cache_loading:
+            return
+        _vocab_cache_ready.clear()
+        _vocab_cache_loading = True
         try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """SELECT id::text, level, word, reading, pos, frequency,
-                              COALESCE(jsonb_array_length(examples), 0),
-                              COALESCE(length(insight_text), 0),
-                              is_ai_enriched, order_no
-                       FROM vocab_library"""
-                )
-                rows = cur.fetchall()
-                if rows:
-                    entries = []
-                    we: Dict[str, List[int]] = {}
-                    re: Dict[str, List[int]] = {}
-                    wp: list = []
-                    rp: list = []
-                    for i, row in enumerate(rows):
-                        wl = (row[2] or "").lower()
-                        rl = (row[3] or "").lower()
-                        entries.append(tuple(row))
-                        we.setdefault(wl, []).append(i)
-                        re.setdefault(rl, []).append(i)
-                        if wl:
-                            wp.append((wl, i))
-                        if rl:
-                            rp.append((rl, i))
-                    wp.sort(key=lambda x: x[0])
-                    rp.sort(key=lambda x: x[0])
-                    _vocab_cache = entries
-                    _word_exact = we
-                    _reading_exact = re
-                    _word_prefix_sorted = wp
-                    _reading_prefix_sorted = rp
-                    _vocab_cache_loaded_at = now_s
-        except Exception:
-            pass
-        finally:
             try:
-                conn.close()
+                conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+            except Exception:
+                _vocab_cache_ready.set()
+                return
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """SELECT id::text, level, word, reading, pos, frequency,
+                                  COALESCE(jsonb_array_length(examples), 0),
+                                  COALESCE(length(insight_text), 0),
+                                  is_ai_enriched, order_no
+                           FROM vocab_library"""
+                    )
+                    rows = cur.fetchall()
+                    if rows:
+                        entries = []
+                        we: Dict[str, List[int]] = {}
+                        re: Dict[str, List[int]] = {}
+                        wp: list = []
+                        rp: list = []
+                        for i, row in enumerate(rows):
+                            wl = (row[2] or "").lower()
+                            rl = (row[3] or "").lower()
+                            entries.append(tuple(row))
+                            we.setdefault(wl, []).append(i)
+                            re.setdefault(rl, []).append(i)
+                            if wl:
+                                wp.append((wl, i))
+                            if rl:
+                                rp.append((rl, i))
+                        wp.sort(key=lambda x: x[0])
+                        rp.sort(key=lambda x: x[0])
+                        _vocab_cache = entries
+                        _word_exact = we
+                        _reading_exact = re
+                        _word_prefix_sorted = wp
+                        _reading_prefix_sorted = rp
+                        _vocab_cache_loaded_at = now_s
             except Exception:
                 pass
-    finally:
-        _vocab_cache_loading = False
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        finally:
+            _vocab_cache_loading = False
+            _vocab_cache_ready.set()
 
 
 def _invalidate_vocab_cache():
@@ -380,7 +434,11 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 词库懒加载：首次搜索时加载到内存，不阻塞启动
+    # 启动时在后台线程预加载词库缓存，避免第一个搜索请求触发慢加载
+    if SUPABASE_DB_ENABLED:
+        def _preload():
+            _ensure_vocab_cache()
+        threading.Thread(target=_preload, daemon=True).start()
     yield
 
 app = FastAPI(lifespan=lifespan)

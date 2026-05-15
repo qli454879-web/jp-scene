@@ -3329,12 +3329,12 @@ async function startLearning() {
                         appendChat(data.answer || '（无返回）');
                     }
                 } else {
-                    // 自动重试：Render 免费 tier 休眠时第一次请求会慢，重试可扛过唤醒期
+                    // 词库搜索：优先缓存命中，失败/空结果自动降级到解析模式
                     let arr = null;
-                    let lastErr = null;
-                    for (let attempt = 0; attempt < 3; attempt++) {
+                    let searchFailed = false;
+                    for (let attempt = 0; attempt < 2; attempt++) {
                         try {
-                            const timeout = attempt === 0 ? 8000 : (attempt === 1 ? 10000 : 12000);
+                            const timeout = attempt === 0 ? 15000 : 20000;
                             const ctl = new AbortController();
                             const t = setTimeout(() => ctl.abort(), timeout);
                             const res = await fetch(`/api/library/search?q=${encodeURIComponent(query)}&limit=30`, { signal: ctl.signal });
@@ -3343,8 +3343,8 @@ async function startLearning() {
                             if (!res.ok) throw new Error((arr && (arr.detail || arr.error)) || 'LIBRARY_SEARCH_FAILED');
                             break;
                         } catch (e) {
-                            lastErr = e;
-                            if (attempt < 2) await new Promise(r => setTimeout(r, 500));
+                            if (attempt < 1) await new Promise(r => setTimeout(r, 1000));
+                            else searchFailed = true;
                         }
                     }
                     if (arr && Array.isArray(arr) && arr.length > 0) {
@@ -3361,12 +3361,17 @@ async function startLearning() {
                         showSuggest(query, arr);
                         return;
                     }
-                    if (!arr || !Array.isArray(arr) || arr.length === 0) {
-                        try { await loadData(query); } catch (e2) {}
+                    // 搜索失败或无结果：自动降级到 AI 解析模式
+                    if (searchFailed || !arr || !Array.isArray(arr) || arr.length === 0) {
+                        let analyzeOk = false;
+                        try { await loadData(query); analyzeOk = true; } catch (e2) {}
                         searchHero.classList.add('active');
                         contentView.style.display = 'block';
                         window.scrollTo({ top: 0, behavior: 'smooth' });
-                        alert(arr && Array.isArray(arr) ? '未在词库中找到匹配项' : '词库搜索暂不可用，已切换到简易解析模式。');
+                        if (searchFailed && !analyzeOk) {
+                            alert('词库搜索和 AI 解析均暂不可用，请稍后重试。');
+                        }
+                        // 解析成功时不弹窗打扰用户
                         return;
                     }
                 }
