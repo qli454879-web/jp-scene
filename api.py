@@ -3468,8 +3468,10 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         for rl, idx in _prefix_matches(_reading_prefix_sorted, qq_lower):
             _add(idx, 13, "reading_prefix")
 
-    # Tier 3: 包含匹配 (扫描未命中条目)
-    if enable_contains:
+    # Tier 3: 包含匹配 — 只在 Tier1/2 结果不足时扫描（避免无谓遍历 200K 条目）
+    _NEED_SCAN = int(limit) * 2  # 已有足够结果则跳过全扫描
+    if enable_contains and len(results) < _NEED_SCAN:
+        _scan_limit = int(limit) * 5  # 找到足够多就提前退出
         for idx in range(len(_vocab_cache)):
             if idx in seen:
                 continue
@@ -3484,9 +3486,12 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 _add(idx, 14, "reading_partial_jp")
             elif qq_lower in rl:
                 _add(idx, 15, "reading_partial")
+            if len(results) >= _scan_limit:
+                break
 
-    # Tier 4: 释义匹配 (扫描未命中条目)
-    if enable_meaning:
+    # Tier 4: 释义匹配 — 只在前面几层结果都不足时才扫描
+    if enable_meaning and len(results) < _NEED_SCAN:
+        _scan_limit = int(limit) * 5
         for idx in range(len(_vocab_cache)):
             if idx in seen:
                 continue
@@ -3500,6 +3505,8 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 else:
                     rank = 26 + min(pos // 20, 4)
                 _add(idx, rank, "meaning_match", pos)
+                if len(results) >= _scan_limit:
+                    break
             elif has_jp_variant:
                 pos = ml.find(qq_j_lower)
                 if pos >= 0:
@@ -3510,6 +3517,8 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                     else:
                         rank = 26 + min(pos // 20, 4)
                     _add(idx, rank, "meaning_match", pos)
+                    if len(results) >= _scan_limit:
+                        break
 
     t_match = time.time() - t0
 
