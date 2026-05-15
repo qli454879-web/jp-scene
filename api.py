@@ -25,6 +25,10 @@ import mimetypes
 from urllib.parse import urlparse, unquote
 import psycopg
 import psycopg.rows
+try:
+    from psycopg_pool import ConnectionPool
+except ImportError:
+    ConnectionPool = None
 import uuid
 import string
 
@@ -83,6 +87,43 @@ _vocab_cache_lock = threading.Lock()
 _vocab_cache_ready = threading.Event()
 _VOCAB_CACHE_TTL = 3600  # 1小时，词库数据变动不频繁，避免每5分钟重新加载200K记录
 
+# psycopg 连接池（避免每次查询都重新建立连接，Render 上 TLS 握手 5-10s）
+_db_pool = None
+_db_pool_lock = threading.Lock()
+
+def _get_db_conn():
+    global _db_pool
+    if _db_pool is not None:
+        try:
+            return _db_pool.getconn()
+        except Exception:
+            pass
+    if ConnectionPool is None or not SUPABASE_DB_ENABLED:
+        return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+    with _db_pool_lock:
+        if _db_pool is None:
+            try:
+                _db_pool = ConnectionPool(SUPABASE_DB_URL, min_size=1, max_size=5, timeout=10, open=True)
+            except Exception:
+                return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+    try:
+        return _db_pool.getconn()
+    except Exception:
+        return psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+
+def _return_db_conn(conn):
+    global _db_pool
+    if _db_pool is not None:
+        try:
+            _db_pool.putconn(conn)
+            return
+        except Exception:
+            pass
+    try:
+        conn.close()
+    except Exception:
+        pass
+
 # 搜索索引
 _word_exact: Dict[str, List[int]] = {}
 _reading_exact: Dict[str, List[int]] = {}
@@ -135,7 +176,9 @@ def _fetch_details(ids: List[str]) -> Dict[str, dict]:
 
     # 缓存未命中，批量查 DB
     try:
-        conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=3)
+        conn = _get_db_conn()
+        if conn is None:
+            return result
     except Exception:
         return result
     try:
@@ -152,10 +195,7 @@ def _fetch_details(ids: List[str]) -> Dict[str, dict]:
     except Exception:
         pass
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        _return_db_conn(conn)
     return result
 
 
@@ -633,7 +673,9 @@ def _moderate_forum_text(title: str, content: str) -> None:
 def _pg_conn():
     if not SUPABASE_DB_ENABLED:
         raise HTTPException(status_code=500, detail="SUPABASE_DB_URL is not configured")
-    conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+    conn = _get_db_conn()
+    if conn is None:
+        raise HTTPException(status_code=503, detail="Database connection unavailable")
 
     global _VOCAB_LIBRARY_SCHEMA_OK
     if not _VOCAB_LIBRARY_SCHEMA_OK:
@@ -651,6 +693,9 @@ def _pg_conn():
             conn.rollback()
 
     return conn
+
+def _pg_close(conn):
+    _return_db_conn(conn)
 
 
 def init_supabase_schema():
@@ -3535,7 +3580,9 @@ async def get_library_word(slug: str = Query(...)):
 def _search_db_direct(qq: str, limit: int) -> list:
     """内存缓存未就绪时的 DB 直查 fallback — 单次查询 < 1s，不阻塞用户。"""
     try:
-        conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+        conn = _get_db_conn()
+        if conn is None:
+            return []
     except Exception:
         return []
     try:
@@ -3617,19 +3664,18 @@ def _search_db_direct(qq: str, limit: int) -> list:
                 "image_url": r.get("image_url") or "",
             })
         return out
-    except Exception:
-        return []
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        _return_db_conn(conn)
 
 
 def _suggest_db_direct(qq: str, limit: int) -> list:
     """联想接口的 DB 直查 fallback — 仅前缀匹配，< 1s 返回。"""
     try:
-        conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+        conn = _get_db_conn()
+        if conn is None:
+            return []
+    except Exception:
+        return []
     except Exception:
         return []
     try:
@@ -3692,13 +3738,8 @@ def _suggest_db_direct(qq: str, limit: int) -> list:
                 "image_url": r.get("image_url") or "",
             })
         return out
-    except Exception:
-        return []
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        _return_db_conn(conn)
 
 
 @app.get("/api/library/search")
