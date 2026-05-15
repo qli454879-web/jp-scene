@@ -162,11 +162,9 @@ def _ensure_vocab_cache():
     if _vocab_cache and (now_s - _vocab_cache_loaded_at) < _VOCAB_CACHE_TTL:
         return
     if _vocab_cache_loading:
-        # 等待正在进行的加载完成，最多等 30 秒
-        waited = _vocab_cache_ready.wait(timeout=30)
-        if not waited:
-            return
-        if _vocab_cache:
+        # 缓存正在加载中，短暂等待（2s），未完成则走 DB 直查 fallback
+        waited = _vocab_cache_ready.wait(timeout=2)
+        if not waited or not _vocab_cache:
             return
     with _vocab_cache_lock:
         # 双重检查：拿到锁后再次确认状态
@@ -3462,6 +3460,99 @@ async def get_library_word(slug: str = Query(...)):
         conn.close()
 
 
+def _search_db_direct(qq: str, limit: int) -> list:
+    """内存缓存未就绪时的 DB 直查 fallback — 单次查询 < 1s，不阻塞用户。"""
+    try:
+        conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+    except Exception:
+        return []
+    try:
+        q_lower = qq.lower()
+        q_j = _map_s2j(qq)
+        has_jp = q_j != qq
+        patterns = [qq]
+        if has_jp:
+            patterns.append(q_j)
+        # 精确匹配优先，参数按顺序排列
+        params = []
+        where_parts = []
+        rank_parts = []
+
+        for p in patterns:
+            where_parts.append("word = %s")
+            params.append(p)
+            rank_parts.append(f"word = %s")
+            params.append(p)
+
+            where_parts.append("reading = %s")
+            params.append(p)
+            rank_parts.append(f"reading = %s")
+            params.append(p)
+
+        for p in patterns:
+            where_parts.append("word ILIKE %s")
+            params.append(p + "%")
+            where_parts.append("reading ILIKE %s")
+            params.append(p + "%")
+
+        for p in patterns:
+            where_parts.append("word ILIKE %s")
+            params.append("%" + p + "%")
+            where_parts.append("reading ILIKE %s")
+            params.append("%" + p + "%")
+
+        limit_val = int(limit)
+        query_sql = f"""
+            SELECT id::text, level, word, reading, pos, frequency,
+                   COALESCE(jsonb_array_length(examples), 0) AS ec,
+                   COALESCE(length(insight_text), 0) AS il,
+                   is_ai_enriched, order_no,
+                   meaning, mp3, image_url
+            FROM vocab_library
+            WHERE {" OR ".join(where_parts)}
+            ORDER BY
+                CASE
+                    WHEN {" OR ".join(rank_parts)} THEN 0
+                    ELSE 1
+                END,
+                frequency DESC NULLS LAST
+            LIMIT {limit_val}
+        """
+        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(query_sql, params)
+            rows = cur.fetchall()
+        out = []
+        seen_words = set()
+        for r in rows:
+            w = (r.get("word") or "").strip()
+            if w in seen_words:
+                continue
+            seen_words.add(w)
+            out.append({
+                "id": str(r["id"]),
+                "level": r.get("level") or "",
+                "word": w,
+                "reading": r.get("reading") or "",
+                "pos": r.get("pos") or "",
+                "frequency": r.get("frequency") or 0,
+                "examples_count": int(r.get("ec") or 0),
+                "insight_len": int(r.get("il") or 0),
+                "is_ai_enriched": bool(r.get("is_ai_enriched") or False),
+                "order_no": r.get("order_no") or 0,
+                "meaning": r.get("meaning") or "",
+                "mp3": r.get("mp3") or "",
+                "image_url": r.get("image_url") or "",
+            })
+        return out
+    except Exception:
+        return []
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 @app.get("/api/library/search")
 async def search_library(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=50), _debug: int = Query(0, ge=0, le=1)):
     """
@@ -3487,8 +3578,9 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
     _ensure_vocab_cache()
     t_load = time.time() - t0
 
+    # 缓存未就绪：不使用内存索引，直接走 DB 查询（1s 内返回，不阻塞用户）
     if not _vocab_cache:
-        return []
+        return _search_db_direct(qq, int(limit))
 
     qq_lower = qq.lower()
     is_kana_only = _is_kana_only(qq)
