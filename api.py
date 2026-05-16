@@ -4703,6 +4703,56 @@ async def healthz():
     return {"ok": True}
 
 
+@app.get("/api/debug/storage-bucket")
+async def debug_storage_bucket():
+    """调试端点：测试 Storage bucket 创建/上传状态。"""
+    bucket_exists = False
+    snapshot_uploaded = False
+    error_msg = ""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return {"ok": False, "error": "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY"}
+    try:
+        headers = {
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        }
+        with httpx.Client(timeout=10) as client:
+            resp = client.get(
+                f"{SUPABASE_URL}/storage/v1/bucket/{_VOCAB_SNAPSHOT_BUCKET}",
+                headers=headers)
+            if resp.status_code == 200:
+                bucket_exists = True
+            elif resp.status_code == 404:
+                # 尝试创建
+                resp = client.post(
+                    f"{SUPABASE_URL}/storage/v1/bucket",
+                    headers={**headers, "Content-Type": "application/json"},
+                    json={"name": _VOCAB_SNAPSHOT_BUCKET, "id": _VOCAB_SNAPSHOT_BUCKET,
+                          "public": True, "file_size_limit": 52428800})
+                if resp.status_code in (200, 201):
+                    bucket_exists = True
+                else:
+                    error_msg = f"Create failed: HTTP {resp.status_code} {resp.text[:200]}"
+            else:
+                error_msg = f"Get failed: HTTP {resp.status_code} {resp.text[:200]}"
+
+        # 检查快照是否已上传
+        if bucket_exists:
+            resp2 = httpx.head(
+                f"{SUPABASE_URL}/storage/v1/object/public/{_VOCAB_SNAPSHOT_BUCKET}/{_VOCAB_SNAPSHOT_KEY}",
+                timeout=5)
+            snapshot_uploaded = resp2.status_code == 200
+    except Exception as e:
+        error_msg = str(e)
+    return {
+        "ok": bucket_exists,
+        "bucket": _VOCAB_SNAPSHOT_BUCKET,
+        "bucket_exists": bucket_exists,
+        "snapshot_uploaded": snapshot_uploaded,
+        "error": error_msg
+    }
+
+
 def _read_local_file(filename: str) -> str:
     cached = _html_file_cache.get(filename)
     if cached is not None:
