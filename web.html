@@ -4018,7 +4018,7 @@ async function startLearning() {
                 return;
             }
 
-            _showListViewLevel(_listCurrentGame ? 3 : 2);
+            _showListViewLevel(3);
             var title = document.getElementById('listWordsTitle');
             if (title) title.textContent = meta.cn;
             var container = document.getElementById('listWordsContainer');
@@ -4175,8 +4175,15 @@ async function startLearning() {
                         } else if (foundGroup) {
                             renderSubCategories(foundGroup, foundGroup.tags);
                         } else {
-                            _listCurrentGame = '';
-                            openListView();
+                            // 非游戏分类（如 slang）：回到子分类列表
+                            var flatGroup = CATEGORY_GROUPS.find(function(g) { return g.name === _listCurrentGroup; });
+                            if (flatGroup && flatGroup.tags) {
+                                _listCurrentGame = '';
+                                renderSubCategories(flatGroup, flatGroup.tags);
+                            } else {
+                                _listCurrentGame = '';
+                                openListView();
+                            }
                         }
                     } else if (_listLevel === 2) {
                         // 子分类列表 → 回到游戏列表
