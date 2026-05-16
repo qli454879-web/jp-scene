@@ -245,6 +245,25 @@ _detail_cache: Dict[str, tuple] = {}  # id -> (expires_at, {mp3})
 _DETAIL_CACHE_TTL = 300
 _DETAIL_CACHE_MAX = 5000  # 防止无上限增长
 
+# 单词详情全量缓存（减少 detail 页 DB 查询）
+_word_detail_cache: Dict[str, tuple] = {}  # slug -> (expires_at, dict)
+_WORD_DETAIL_CACHE_TTL = 600  # 10分钟，词库数据极少变动
+_WORD_DETAIL_CACHE_MAX = 2000
+
+def _trim_word_detail_cache():
+    """清理过期的详情缓存条目，防止 OOM"""
+    if len(_word_detail_cache) <= _WORD_DETAIL_CACHE_MAX:
+        return
+    now_s = time.time()
+    stale = [k for k, (exp, _) in _word_detail_cache.items() if now_s >= exp]
+    for k in stale:
+        _word_detail_cache.pop(k, None)
+    if len(_word_detail_cache) > _WORD_DETAIL_CACHE_MAX * 2:
+        sorted_items = sorted(_word_detail_cache.items(), key=lambda x: x[1][0])
+        excess = len(sorted_items) - _WORD_DETAIL_CACHE_MAX
+        for k, _ in sorted_items[:excess]:
+            _word_detail_cache.pop(k, None)
+
 
 def _fetch_details(ids: List[str]) -> Dict[str, dict]:
     """批量获取 mp3，优先命中进程内缓存。"""
@@ -3508,6 +3527,13 @@ def _is_uuid(s: str) -> bool:
 def _library_fetch_by_slug(conn, slug: str) -> Optional[Dict[str, Any]]:
     if not slug:
         return None
+
+    # 进程内缓存：避免重复查询同一个词条
+    now_s = time.time()
+    entry = _word_detail_cache.get(slug)
+    if entry is not None and now_s < entry[0]:
+        return entry[1]
+
     with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
         if _is_uuid(slug):
             cur.execute(
@@ -3522,8 +3548,7 @@ def _library_fetch_by_slug(conn, slug: str) -> Optional[Dict[str, Any]]:
                 (slug,),
             )
         else:
-            # 单次查询完成 word/reading 精确匹配 + meaning 模糊匹配
-            like = f"%{slug}%"
+            # Tier 1: 精确匹配 word/reading（B-tree 索引，< 10ms）
             cur.execute(
                 """
                 SELECT id, level, word, reading, meaning, mp3,
@@ -3531,26 +3556,46 @@ def _library_fetch_by_slug(conn, slug: str) -> Optional[Dict[str, Any]]:
                        social_context, heatmap_data, insight_text, image_url, is_ai_enriched, order_no,
                        COALESCE(tags, '{}'::text[]) AS tags
                 FROM vocab_library
-                WHERE word = %(slug)s OR reading = %(slug)s OR meaning ILIKE %(like)s
-                ORDER BY
-                  CASE
-                    WHEN word = %(slug)s THEN 1
-                    WHEN reading = %(slug)s THEN 2
-                    ELSE 3
-                  END,
-                  level DESC, order_no ASC
+                WHERE word = %(slug)s OR reading = %(slug)s
+                ORDER BY level DESC, order_no ASC
                 LIMIT 1
                 """,
-                {"slug": slug, "like": like},
+                {"slug": slug},
             )
             row = cur.fetchone()
+            # Tier 2: ILIKE 回退（仅当精确匹配无结果且 slug >= 3 字符，避免短文本扫全表）
+            if not row and len(slug) >= 3:
+                like = f"%{slug}%"
+                cur.execute(
+                    """
+                    SELECT id, level, word, reading, meaning, mp3,
+                           pos, frequency, examples,
+                           social_context, heatmap_data, insight_text, image_url, is_ai_enriched, order_no,
+                           COALESCE(tags, '{}'::text[]) AS tags
+                    FROM vocab_library
+                    WHERE meaning ILIKE %(like)s
+                    ORDER BY level DESC, order_no ASC
+                    LIMIT 1
+                    """,
+                    {"like": like},
+                )
+                row = cur.fetchone()
             if not row:
                 return None
-            return dict(row)
+            result = dict(row)
+            # 同时用 UUID 和查询 slug 缓存
+            _word_detail_cache[slug] = (now_s + _WORD_DETAIL_CACHE_TTL, result)
+            if str(result.get("id")) != slug:
+                _word_detail_cache[str(result["id"])] = (now_s + _WORD_DETAIL_CACHE_TTL, result)
+            _trim_word_detail_cache()
+            return result
         row = cur.fetchone()
         if not row:
             return None
-        return dict(row)
+        result = dict(row)
+        _word_detail_cache[slug] = (now_s + _WORD_DETAIL_CACHE_TTL, result)
+        _trim_word_detail_cache()
+        return result
 
 
 def _ensure_vocab_reports_table(conn) -> None:
@@ -3851,7 +3896,10 @@ async def get_library_word(slug: str = Query(...)):
             "is_ai_enriched": bool(row.get("is_ai_enriched") or False),
             "tags": list(row.get("tags") or []),
         }
-        return payload
+        return JSONResponse(content=payload, headers={
+            "Cache-Control": "public, max-age=120",
+            "CDN-Cache-Control": "public, max-age=300",
+        })
     finally:
         _return_db_conn(conn)
 
