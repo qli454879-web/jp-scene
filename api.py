@@ -165,7 +165,7 @@ def _get_db_conn():
                                        connect_timeout=5))
             try:
                 _db_pool = ConnectionPool(
-                    SUPABASE_DB_URL, min_size=2, max_size=12, timeout=8,
+                    SUPABASE_DB_URL, min_size=1, max_size=4, timeout=8,
                     open=True, check=_check_pool_conn,
                 )
                 _db_pool_create_failed_at = 0
@@ -284,9 +284,17 @@ def _fetch_details(ids: List[str]) -> Dict[str, dict]:
                 result[rid] = d
                 _detail_cache[rid] = (now_s + _DETAIL_CACHE_TTL, d)
                 if len(_detail_cache) > _DETAIL_CACHE_MAX:
+                    # 清理过期条目
                     stale = [k for k, (exp, _) in _detail_cache.items() if now_s >= exp]
                     for k in stale:
                         _detail_cache.pop(k, None)
+                    # 保底：超过硬上限驱逐最老条目，防止内存无限增长
+                    hard_limit = max(5000, _DETAIL_CACHE_MAX * 2)
+                    if len(_detail_cache) > hard_limit:
+                        sorted_items = sorted(_detail_cache.items(), key=lambda x: x[1][0])
+                        excess = len(sorted_items) - _DETAIL_CACHE_MAX
+                        for k, _ in sorted_items[:excess]:
+                            _detail_cache.pop(k, None)
     except Exception:
         pass
     finally:
@@ -446,12 +454,11 @@ def _upload_snapshot_to_storage() -> bool:
             "apikey": SUPABASE_SERVICE_ROLE_KEY,
             "Content-Type": "application/octet-stream",
         }
-        with open(_VOCAB_SNAPSHOT_DB, "rb") as f:
-            data = f.read()
         url = f"{SUPABASE_URL}/storage/v1/object/{_VOCAB_SNAPSHOT_BUCKET}/{_VOCAB_SNAPSHOT_KEY}"
-        with httpx.Client(timeout=30) as client:
-            resp = client.put(url, headers=headers, content=data)
-            return resp.status_code in (200, 201, 204)
+        with open(_VOCAB_SNAPSHOT_DB, "rb") as f:
+            with httpx.Client(timeout=60) as client:
+                resp = client.put(url, headers=headers, content=f)
+                return resp.status_code in (200, 201, 204)
     except Exception:
         return False
 
