@@ -724,6 +724,7 @@ else:
     # 安全默认值：仅允许生产域名与常见本地开发地址。
     _cors_origins = [
         "https://jp-scene-lab.onrender.com",
+        "https://cheat-on-content.onrender.com",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:8000",
