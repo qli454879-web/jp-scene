@@ -15,11 +15,6 @@
     .serif { font-family: 'Noto Serif JP', serif; }
     .card-pixel { background:white; border:3px solid #333; box-shadow: 8px 8px 0px #F0F0E8; overflow:hidden; }
     .badge-pixel { border:2px solid #333; box-shadow: 3px 3px 0px #333; }
-    .pixel-img { image-rendering: pixelated; object-fit: cover; }
-    .dash-placeholder {
-      border: 2px dashed #9CA3AF;
-      background: repeating-linear-gradient(45deg, rgba(156,163,175,0.08), rgba(156,163,175,0.08) 8px, rgba(156,163,175,0.02) 8px, rgba(156,163,175,0.02) 16px);
-    }
     .toggle-card { border:2px solid #333; box-shadow: 4px 4px 0px #333; }
     .toggle-on { background:#DCFCE7; border-color:#16A34A; box-shadow: 4px 4px 0px #16A34A; }
     .toggle-off { background:#F3F4F6; border-color:#9CA3AF; box-shadow: 4px 4px 0px #9CA3AF; opacity:0.85; }
@@ -56,17 +51,6 @@
     </div>
 
     <div class="card-pixel">
-      <!-- Pixel cat container (16:9) -->
-      <div class="w-full aspect-[16/9] bg-white border-b-3 border-[#333] relative hidden" id="pixelCatContainer">
-        <img id="pixelCatImg" class="w-full h-full pixel-img hidden" alt="Pixel Cat" />
-        <div id="pixelCatPlaceholder" class="absolute inset-0 dash-placeholder flex items-center justify-center">
-          <div class="text-center">
-            <div class="pixel-font text-2xl text-gray-700">AI 像素猫绘制中...</div>
-            <div class="text-[10px] text-gray-500 mt-1">16:9 / 推荐 1024×576</div>
-          </div>
-        </div>
-      </div>
-
       <div class="p-6 md:p-8">
         <!-- Header -->
         <div class="flex items-start justify-between gap-4">
@@ -376,20 +360,33 @@
     }
 
     async function fetchWord(slug) {
-      const res = await fetch('/api/library/word?slug=' + encodeURIComponent(slug));
-      if (!res.ok) throw new Error('not_found');
-      return await res.json();
+      const ctrl = new AbortController();
+      const timer = setTimeout(function() { ctrl.abort(); }, 10000);
+      try {
+        const res = await fetch('/api/library/word?slug=' + encodeURIComponent(slug), {signal: ctrl.signal});
+        if (!res.ok) throw new Error(res.status === 404 ? 'not_found' : 'server_error');
+        return await res.json();
+      } finally {
+        clearTimeout(timer);
+      }
     }
 
     async function enrichWord(slug) {
-      const res = await fetch('/api/library/enrich', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ slug })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data && data.detail ? data.detail : 'enrich_failed');
-      return data && data.data ? data.data : null;
+      const ctrl = new AbortController();
+      const timer = setTimeout(function() { ctrl.abort(); }, 15000);
+      try {
+        const res = await fetch('/api/library/enrich', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ slug }),
+          signal: ctrl.signal
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data && data.detail ? data.detail : 'enrich_failed');
+        return data && data.data ? data.data : null;
+      } finally {
+        clearTimeout(timer);
+      }
     }
 
     function formatLevelLabel(level) {
@@ -438,19 +435,6 @@
         } else {
           posWrap.classList.add('hidden');
         }
-      }
-
-      // image
-      const img = document.getElementById('pixelCatImg');
-      const ph = document.getElementById('pixelCatPlaceholder');
-      const url = (data.image_url || '').trim();
-      if (url) {
-        img.src = url;
-        img.classList.remove('hidden');
-        ph.classList.add('hidden');
-      } else {
-        img.classList.add('hidden');
-        ph.classList.remove('hidden');
       }
 
       // frequency：按数据库 frequency(1~5) 显示五角星
@@ -735,8 +719,13 @@
       try {
         data = await fetchWord(slug);
       } catch (e) {
-        document.getElementById('wordTitle').innerText = '未找到';
-        document.getElementById('meaningText').innerText = '该词不在词库中';
+        if (e && e.message === 'not_found') {
+          document.getElementById('wordTitle').innerText = '未找到';
+          document.getElementById('meaningText').innerText = '该词不在词库中';
+        } else {
+          document.getElementById('wordTitle').innerText = '加载失败';
+          document.getElementById('meaningText').innerHTML = '网络或服务器异常，请 <a href="javascript:location.reload()" class="underline text-green-600">点击重试</a>';
+        }
         return;
       }
 

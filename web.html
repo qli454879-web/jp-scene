@@ -1144,23 +1144,23 @@
             try { var a = window.__jpAudio; if (a) a.pause(); } catch (_) {}
         });
 
-        window.addEventListener('error', function() {
+        window.addEventListener('error', function(e) {
             try {
                 if (globalLoading) {
                     globalLoading.classList.add('hidden');
                     globalLoading.classList.remove('flex');
                 }
             } catch (_) {}
-            try { resetToHome(); } catch (_) {}
+            // 不重置页面：让各函数自己的错误处理决定行为
         });
-        window.addEventListener('unhandledrejection', function() {
+        window.addEventListener('unhandledrejection', function(e) {
             try {
                 if (globalLoading) {
                     globalLoading.classList.add('hidden');
                     globalLoading.classList.remove('flex');
                 }
             } catch (_) {}
-            try { resetToHome(); } catch (_) {}
+            // 不重置页面：让各函数自己的错误处理决定行为
         });
 
         // Vocab State Management
@@ -3766,8 +3766,9 @@ async function startLearning() {
 
         // ── 第2层：子分类列表 ──
         function openGroup(groupId) {
+            if (!groupId) return;
             var group = CATEGORY_GROUPS.find(function(g) { return g.id === groupId; });
-            if (!group) return;
+            if (!group || !Array.isArray(group.tags)) return;
             _listCurrentGroup = group.name;
             _listCurrentTag = '';
             _listOffset = 0;
@@ -3881,10 +3882,14 @@ async function startLearning() {
         function renderListWords(data, isFirstPage) {
             var container = document.getElementById('listWordsContainer');
             if (!container) return;
+            if (!data || !Array.isArray(data.words)) {
+                if (isFirstPage) container.innerHTML = '<p class="text-gray-400 text-center py-8">暂无数据</p>';
+                return;
+            }
             var countEl = document.getElementById('listWordsCount');
-            if (countEl) countEl.textContent = '共 ' + data.total + ' 个单词';
+            if (countEl) countEl.textContent = '共 ' + (data.total || 0) + ' 个单词';
             if (isFirstPage) container.innerHTML = '';
-            var words = data.words || [];
+            var words = data.words;
             if (words.length === 0 && isFirstPage) {
                 container.innerHTML = '<p class="text-gray-400 text-center py-8">该分类暂无单词</p>';
                 return;
