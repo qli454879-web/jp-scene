@@ -325,11 +325,12 @@ def _ensure_storage_bucket() -> bool:
 def _download_snapshot_from_storage() -> Optional[str]:
     """从 Supabase Storage 下载 vocab_snapshot.db 到本地。
     Render 冷启动时本地文件丢失，通过 Storage 恢复，避免全量查询 198K 行导致 OOM。
-    返回本地路径成功，任何失败返回 None（上层回退到 DB 直查）。"""
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+    返回本地路径成功，任何失败返回 None（上层回退到 DB 直查）。
+    注意：需先手动创建 public bucket 并上传快照，此函数无需 service_role key。"""
+    if not SUPABASE_URL:
         return None
     try:
-        # Public bucket: 使用 /public/ 路径，anon key 即可
+        # Public bucket: 使用 /public/ 路径，无需认证
         url = f"{SUPABASE_URL}/storage/v1/object/public/{_VOCAB_SNAPSHOT_BUCKET}/{_VOCAB_SNAPSHOT_KEY}"
         with httpx.stream("GET", url,
                           timeout=_VOCAB_STORAGE_DOWNLOAD_TIMEOUT,
