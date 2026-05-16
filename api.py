@@ -81,6 +81,11 @@ _VOCAB_SNAPSHOT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "v
 _VOCAB_SNAPSHOT_TTL = 86400  # 24 小时内有效，超时则从 Supabase 刷新
 _VOCAB_SNAPSHOT_VERSION = 5  # v5: 8 列格式，int 打包 + 去 image_url
 
+# ── Supabase Storage 快照（Render 冷启动时本地文件丢失，从 Storage 下载恢复）──
+_VOCAB_SNAPSHOT_BUCKET = (os.getenv("VOCAB_SNAPSHOT_BUCKET") or "vocab-snapshots").strip()
+_VOCAB_SNAPSHOT_KEY = (os.getenv("VOCAB_SNAPSHOT_KEY") or "vocab_snapshot.db").strip()
+_VOCAB_STORAGE_DOWNLOAD_TIMEOUT = 15  # Storage 下载超时秒数
+
 # ── 内存词库缓存 + 索引（紧凑格式，5 个 int 字段打包为 1 个，省 ~23MB）──
 class _VF:
     ID = 0; LEVEL = 1; WORD = 2; READING = 3; POS = 4
@@ -289,6 +294,61 @@ def _fetch_details(ids: List[str]) -> Dict[str, dict]:
     return result
 
 
+def _ensure_storage_bucket() -> bool:
+    """确保 Supabase Storage bucket 存在，不存在则创建（需要 service_role key）。"""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return False
+    try:
+        headers = {
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        }
+        # 先检查 bucket 是否存在
+        with httpx.Client(timeout=10) as client:
+            resp = client.get(
+                f"{SUPABASE_URL}/storage/v1/bucket/{_VOCAB_SNAPSHOT_BUCKET}",
+                headers=headers)
+            if resp.status_code == 200:
+                return True
+            # 不存在则创建（public read, service_role write）
+            resp = client.post(
+                f"{SUPABASE_URL}/storage/v1/bucket",
+                headers=headers,
+                json={"name": _VOCAB_SNAPSHOT_BUCKET, "public": True,
+                      "file_size_limit": 52428800,
+                      "allowed_mime_types": ["application/octet-stream"]})
+            return resp.status_code in (200, 201, 204)
+    except Exception:
+        return False
+
+
+def _download_snapshot_from_storage() -> Optional[str]:
+    """从 Supabase Storage 下载 vocab_snapshot.db 到本地。
+    Render 冷启动时本地文件丢失，通过 Storage 恢复，避免全量查询 198K 行导致 OOM。
+    返回本地路径成功，任何失败返回 None（上层回退到 DB 直查）。"""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return None
+    try:
+        url = f"{SUPABASE_URL}/storage/v1/object/{_VOCAB_SNAPSHOT_BUCKET}/{_VOCAB_SNAPSHOT_KEY}"
+        headers = {
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        }
+        with httpx.stream("GET", url, headers=headers,
+                          timeout=_VOCAB_STORAGE_DOWNLOAD_TIMEOUT,
+                          follow_redirects=True) as resp:
+            if resp.status_code != 200:
+                return None
+            tmp_path = _VOCAB_SNAPSHOT_DB + ".tmp"
+            with open(tmp_path, "wb") as f:
+                for chunk in resp.iter_bytes(chunk_size=65536):
+                    f.write(chunk)
+        os.replace(tmp_path, _VOCAB_SNAPSHOT_DB)
+        return _VOCAB_SNAPSHOT_DB
+    except Exception:
+        return None
+
+
 def _load_local_snapshot() -> Optional[List[tuple]]:
     """从本地 SQLite 读取词库快照，若有效则返回 rows，否则返回 None。"""
     if not os.path.exists(_VOCAB_SNAPSHOT_DB):
@@ -375,6 +435,34 @@ def _save_local_snapshot(rows: list):
         pass
 
 
+def _upload_snapshot_to_storage() -> bool:
+    """上传本地 vocab_snapshot.db 到 Supabase Storage。后台线程调用。"""
+    if not os.path.exists(_VOCAB_SNAPSHOT_DB):
+        return False
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return False
+    try:
+        _ensure_storage_bucket()
+        url = f"{SUPABASE_URL}/storage/v1/object/{_VOCAB_SNAPSHOT_BUCKET}/{_VOCAB_SNAPSHOT_KEY}"
+        headers = {
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        }
+        with open(_VOCAB_SNAPSHOT_DB, "rb") as f:
+            data = f.read()
+        with httpx.Client(timeout=30) as client:
+            resp = client.put(url, headers=headers, content=data)
+            return resp.status_code in (200, 201, 204)
+    except Exception:
+        return False
+
+
+def _save_and_upload_snapshot(rows: list):
+    """保存本地快照后异步上传到 Supabase Storage。"""
+    _save_local_snapshot(rows)
+    threading.Thread(target=_upload_snapshot_to_storage, daemon=True).start()
+
+
 def _build_indexes(rows: list, now_s: float):
     """从 rows 构建内存索引（8 列紧凑格式，5 个 int 打包为 1）。
     兼容两种输入：DB 12 列 或快照 8 列（自动检测）。"""
@@ -437,13 +525,17 @@ def _ensure_vocab_cache():
         _vocab_cache_ready.clear()
         _vocab_cache_loading = True
         try:
+            # Tier 0：本地快照不存在时，尝试从 Supabase Storage 下载（Render 冷启动恢复）
+            if not os.path.exists(_VOCAB_SNAPSHOT_DB):
+                _download_snapshot_from_storage()
+
             # Tier 1：本地 SQLite 快照（秒级恢复）
             local_rows = _load_local_snapshot()
             if local_rows:
                 _build_indexes(local_rows, now_s)
                 return
 
-            # Tier 2：从 Supabase 加载并保存快照
+            # Tier 2：从 Supabase 加载并保存快照 + 上传到 Storage
             try:
                 conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=10)
             except Exception:
@@ -466,8 +558,8 @@ def _ensure_vocab_cache():
                     if rows:
                         _build_indexes(rows, now_s)
                         del rows  # 立即释放 DB 查询结果，避免与 _vocab_cache 同时占用内存
-                        # 异步写快照（传 _vocab_cache 引用，8 列格式更省内存）
-                        threading.Thread(target=_save_local_snapshot, args=(_vocab_cache,), daemon=True).start()
+                        # 异步写本地快照 + 上传到 Supabase Storage
+                        threading.Thread(target=_save_and_upload_snapshot, args=(_vocab_cache,), daemon=True).start()
             except Exception:
                 pass
             finally:

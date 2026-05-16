@@ -1109,6 +1109,12 @@
                 <p id="listSubsDesc" class="text-[11px] text-gray-500 mb-4"></p>
                 <div id="listSubsGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
             </div>
+            <!-- 第2.5层：特工列表（仅 Valorant 特工分类） -->
+            <div id="listAgentsView" style="display:none;">
+                <h3 id="listAgentsTitle" class="pixel-font text-xl mb-2"></h3>
+                <p id="listAgentsDesc" class="text-[11px] text-gray-500 mb-4">选择一位特工查看相关词汇（名称、技能、昵称）</p>
+                <div id="listAgentsGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3"></div>
+            </div>
             <!-- 第3层：某子分类下的单词列表 -->
             <div id="listWordsView" style="display:none;">
                 <h3 id="listWordsTitle" class="pixel-font text-xl mb-2"></h3>
@@ -3646,6 +3652,10 @@ async function startLearning() {
             _listCurrentTag = '';
             _listCurrentGame = '';
             _listCurrentGroup = '';
+            _listCurrentAgent = '';
+            _listCurrentAgentCN = '';
+            _listCurrentTagName = '';
+            _listAllAgentWords = null;
             _listOffset = 0;
             try { if (mainInput) mainInput.value = ''; } catch (_) {}
             try {
@@ -3695,8 +3705,12 @@ async function startLearning() {
         var _listCurrentGame = '';
         var _listOffset = 0;
         var _listTagsCache = null;
-        // 0=groups, 1=games(or subs for simple groups), 2=subs, 3=words
+        // 0=groups, 1=games(or subs for simple groups), 2=subs, 3=agents(or words for simple groups), 4=words
         var _listLevel = 0;
+        var _listCurrentAgent = '';
+        var _listCurrentAgentCN = '';
+        var _listCurrentTagName = '';
+        var _listAllAgentWords = null;
 
         // 大分类定义
         var CATEGORY_GROUPS = [
@@ -3732,22 +3746,81 @@ async function startLearning() {
             'slang': {cn:'网络·若者言葉'},
         };
 
+        // ── Valorant 特工数据（中文名、日文名、定位、关联关键词）──
+        var VAL_AGENTS = [
+            { id:'jett',       cn:'捷风',     jp:'ジェット',       role:'决斗者', roleJp:'デュエリスト',
+              keywords:['ジェット','捷风','アップドラフト','テイルウィンド','クラウドバースト','ブレードストーム','顺风','上升气流','剑刃风暴'] },
+            { id:'phoenix',    cn:'不死鸟',   jp:'フェニックス',   role:'决斗者', roleJp:'デュエリスト',
+              keywords:['フェニックス','不死鸟','ホットハンズ','ブレイズ','カーブボール','ラン・イット・バック','燃烧弹','闪光弹'] },
+            { id:'raze',       cn:'雷兹',     jp:'レイズ',         role:'决斗者', roleJp:'デュエリスト',
+              keywords:['レイズ','雷兹','ブームボット','ブラストパック','ペイント弾','ショーストッパー','爆破机器人','炸药包'] },
+            { id:'reyna',      cn:'芮娜',     jp:'レイナ',         role:'决斗者', roleJp:'デュエリスト',
+              keywords:['レイナ','芮娜','リーア','ディスミス','デバウアー','エンプレス','噬魂','放逐'] },
+            { id:'yoru',       cn:'夜露',     jp:'ヨル',           role:'决斗者', roleJp:'デュエリスト',
+              keywords:['ヨル','夜露','フェイクアウト','ブラインドサイド','ゲートクラッシュ','ディメンショナルドリフト','诱饵','传送'] },
+            { id:'neon',       cn:'霓虹',     jp:'ネオン',         role:'决斗者', roleJp:'デュエリスト',
+              keywords:['ネオン','霓虹','ハイギア','リレーボルト','ファストレーン','オーバードライブ','加速','电击'] },
+            { id:'breach',     cn:'铁臂',     jp:'ブリーチ',       role:'先锋',   roleJp:'イニシエーター',
+              keywords:['ブリーチ','铁臂','アフターショック','フラッシュポイント','フォールトライン','ローリングサンダー','余震','地裂'] },
+            { id:'skye',       cn:'斯凯',     jp:'スカイ',         role:'先锋',   roleJp:'イニシエーター',
+              keywords:['スカイ','斯凯','ガイディングライト','トレイルブレイザー','リグロウス','シーカー','引导之光','开拓者'] },
+            { id:'sova',       cn:'猎枭',     jp:'ソーヴァ',       role:'先锋',   roleJp:'イニシエーター',
+              keywords:['ソーヴァ','猎枭','リコン','ドローン','ショックダート','オウルドローン','ハンターズフューリー','侦查','无人机'] },
+            { id:'kayo',       cn:'凯欧',     jp:'KAY/O',          role:'先锋',   roleJp:'イニシエーター',
+              keywords:['KAY/O','ケイオー','凯欧','フラグメント','フラッシュドライブ','ゼロポイント','ヌルコマンド','压制'] },
+            { id:'gekko',      cn:'盖可',     jp:'ゲッコー',       role:'先锋',   roleJp:'イニシエーター',
+              keywords:['ゲッコー','盖可','ウィングマン','モッシュ','スラッシュ','スラッシュパック','鲨鲨','皮蛋'] },
+            { id:'fade',       cn:'黑市',     jp:'フェイド',       role:'先锋',   roleJp:'イニシエーター',
+              keywords:['フェイド','黑市','プラウラー','シーズ','ホーント','ナイトフォール','侦查','恐惧'] },
+            { id:'sage',       cn:'贤者',     jp:'セージ',         role:'哨兵',   roleJp:'センチネル',
+              keywords:['セージ','贤者','バリアオーブ','スローオーブ','ヒール','リバイブ','リザレクション','复活','治疗','冰墙'] },
+            { id:'killjoy',    cn:'奇乐',     jp:'キルジョイ',     role:'哨兵',   roleJp:'センチネル',
+              keywords:['キルジョイ','奇乐','タレット','アラームボット','ナノスワーム','ロックダウン','炮台','警报机器人'] },
+            { id:'cypher',     cn:'零',       jp:'サイファー',     role:'哨兵',   roleJp:'センチネル',
+              keywords:['サイファー','零','カメラ','トラップワイヤー','ケージ','ニューラルセフト','摄像头','绊线'] },
+            { id:'chamber',    cn:'尚博勒',   jp:'チェンバー',     role:'哨兵',   roleJp:'センチネル',
+              keywords:['チェンバー','尚博勒','ヘッドハンター','ランデヴー','トレードマーク','ツール・ド・フォース','猎头手枪','传送锚'] },
+            { id:'deadlock',   cn:'铁壁',     jp:'デッドロック',   role:'哨兵',   roleJp:'センチネル',
+              keywords:['デッドロック','铁壁','グラヴネット','ソニックセンサー','バリアメッシュ','アナイアレーション','重力网','声波传感器'] },
+            { id:'vyse',       cn:'维斯',     jp:'ヴァイス',       role:'哨兵',   roleJp:'センチネル',
+              keywords:['ヴァイス','维斯','アークローズ','レイザーバイン','シアー','スティールガーデン','金属控制'] },
+            { id:'brimstone',  cn:'炼狱',     jp:'ブリムストーン', role:'控场',   roleJp:'コントローラー',
+              keywords:['ブリムストーン','炼狱','スカイスモーク','モロトフ','スティムビーコン','オービタルストライク','燃烧弹','卫星烟雾'] },
+            { id:'viper',      cn:'蝰蛇',     jp:'ヴァイパー',     role:'控场',   roleJp:'コントローラー',
+              keywords:['ヴァイパー','蝰蛇','スネークバイト','ポイズンクラウド','トキシックスクリーン','ヴァイパーズピット','毒幕','毒云'] },
+            { id:'omen',       cn:'黑梦',     jp:'オーメン',       role:'控场',   roleJp:'コントローラー',
+              keywords:['オーメン','黑梦','パラノイア','ダークカバー','シュラウドステップ','フロム・ザ・シャドウ','致盲','传送'] },
+            { id:'astra',      cn:'星礈',     jp:'アストラ',       role:'控场',   roleJp:'コントローラー',
+              keywords:['アストラ','星礈','グラビティウェル','ノヴァパルス','ネビュラ','ディシペイト','アストラルフォーム','星辰'] },
+            { id:'clove',      cn:'丁香',     jp:'クローヴ',       role:'控场',   roleJp:'コントローラー',
+              keywords:['クローヴ','丁香','ルース','ピックミーアップ','メドル','ノット・デッド・イェット','死后烟雾','自愈'] },
+            { id:'harbor',     cn:'港湾',     jp:'ハーバー',       role:'控场',   roleJp:'コントローラー',
+              keywords:['ハーバー','港湾','カスケード','コーヴ','ハイタイド','レコニング','水墙','水盾'] },
+            { id:'iso',        cn:'壹决',     jp:'アイソ',         role:'决斗者', roleJp:'デュエリスト',
+              keywords:['アイソ','壹决','ダブルタップ','アンダーカット','コンティンジェンシー','キルコントラクト','能量盾','斩杀'] }
+        ];
+
         // ── 视图切换辅助 ──
         function _showListViewLevel(level) {
             _listLevel = level;
             var gv = document.getElementById('listGroupsView');
             var sv = document.getElementById('listSubsView');
+            var av = document.getElementById('listAgentsView');
             var wv = document.getElementById('listWordsView');
             var bc = document.getElementById('listBreadcrumb');
-            // level 0: groups only, 1-2: subs view, 3: words view
+            // level 0: groups, 1-2: subs, 3: agents or words, 4: agent words
             if (gv) gv.style.display = level === 0 ? 'block' : 'none';
             if (sv) sv.style.display = (level === 1 || level === 2) ? 'block' : 'none';
-            if (wv) wv.style.display = level === 3 ? 'block' : 'none';
+            if (av) av.style.display = (level === 3 && _listCurrentTag === 'gaming_val_agents' && !_listCurrentAgent) ? 'block' : 'none';
+            if (wv) wv.style.display = (level === 4 || (level === 3 && (_listCurrentTag !== 'gaming_val_agents' || _listCurrentAgent))) ? 'block' : 'none';
             if (bc) {
                 if (level === 0) bc.textContent = '';
                 else if (level === 1) bc.innerHTML = '<span class="text-gray-400">/</span> <span class="font-bold text-gray-700">' + (_listCurrentGame || _listCurrentGroup) + '</span>';
-                else if (level === 2) bc.innerHTML = '<span class="text-gray-400">/</span> <span class="text-gray-500">' + (_listCurrentGame || _listCurrentGroup) + '</span> <span class="text-gray-400">/</span> <span class="font-bold text-gray-700">' + (_listCurrentTag || '').replace(/_/g, ' ').toUpperCase() + '</span>';
-                else bc.innerHTML = '<span class="text-gray-400">/</span> <span class="text-gray-500">' + (_listCurrentGame || _listCurrentGroup) + '</span> <span class="text-gray-400">/</span> <span class="text-gray-500">' + (_listCurrentTag || '').replace(/_/g, ' ').toUpperCase() + '</span> <span class="text-gray-400">/</span> <span class="font-bold text-gray-700">单词列表</span>';
+                else if (level === 2) bc.innerHTML = '<span class="text-gray-400">/</span> <span class="text-gray-500">' + (_listCurrentGame || _listCurrentGroup) + '</span> <span class="text-gray-400">/</span> <span class="font-bold text-gray-700">' + (_listCurrentTagName || (_listCurrentTag || '').replace(/_/g, ' ').toUpperCase()) + '</span>';
+                else if (level === 3 && _listCurrentAgent) bc.innerHTML = '<span class="text-gray-400">/</span> <span class="text-gray-500">' + (_listCurrentGame || '') + '</span> <span class="text-gray-400">/</span> <span class="text-gray-500">特工列表</span> <span class="text-gray-400">/</span> <span class="font-bold text-gray-700">' + (_listCurrentAgentCN || '') + '</span>';
+                else if (level === 3 && _listCurrentTag === 'gaming_val_agents') bc.innerHTML = '<span class="text-gray-400">/</span> <span class="text-gray-500">' + (_listCurrentGame || '') + '</span> <span class="text-gray-400">/</span> <span class="text-gray-500">特工名称与特工技能</span> <span class="text-gray-400">/</span> <span class="font-bold text-gray-700">特工列表</span>';
+                else if (level === 3) bc.innerHTML = '<span class="text-gray-400">/</span> <span class="text-gray-500">' + (_listCurrentGame || _listCurrentGroup) + '</span> <span class="text-gray-400">/</span> <span class="text-gray-500">' + (_listCurrentTagName || (_listCurrentTag || '').replace(/_/g, ' ').toUpperCase()) + '</span> <span class="text-gray-400">/</span> <span class="font-bold text-gray-700">单词列表</span>';
+                else bc.innerHTML = '<span class="text-gray-400">/</span> <span class="text-gray-500">' + (_listCurrentGame || '') + '</span> <span class="text-gray-400">/</span> <span class="text-gray-500">特工列表</span> <span class="text-gray-400">/</span> <span class="text-gray-500">' + (_listCurrentAgentCN || '') + '</span> <span class="text-gray-400">/</span> <span class="font-bold text-gray-700">单词列表</span>';
             }
         }
 
@@ -3761,6 +3834,10 @@ async function startLearning() {
             _listCurrentTag = '';
             _listCurrentGroup = '';
             _listCurrentGame = '';
+            _listCurrentAgent = '';
+            _listCurrentAgentCN = '';
+            _listCurrentTagName = '';
+            _listAllAgentWords = null;
             _listOffset = 0;
             fetchListTags();  // 获取 tag 数据后才能渲染分组
         }
@@ -3818,6 +3895,10 @@ async function startLearning() {
             _listCurrentGroup = group.name;
             _listCurrentGame = '';
             _listCurrentTag = '';
+            _listCurrentAgent = '';
+            _listCurrentAgentCN = '';
+            _listCurrentTagName = '';
+            _listAllAgentWords = null;
             _listOffset = 0;
 
             if (!_listTagsCache) {
@@ -3883,6 +3964,10 @@ async function startLearning() {
             if (!foundGame) return;
             _listCurrentGame = foundGame.name;
             _listCurrentTag = '';
+            _listCurrentAgent = '';
+            _listCurrentAgentCN = '';
+            _listCurrentTagName = '';
+            _listAllAgentWords = null;
             _listOffset = 0;
             renderSubCategories({ name: foundGame.name }, foundGame.tags);
         }
@@ -3920,14 +4005,119 @@ async function startLearning() {
             _listCurrentTag = tag;
             _listOffset = 0;
             _listWordsCache = {};
-            _showListViewLevel(_listCurrentGame ? 3 : 2);
+            _listCurrentAgent = '';
+            _listCurrentAgentCN = '';
 
             var meta = TAG_META[tag] || {cn: tag.replace(/_/g, ' ')};
+            _listCurrentTagName = meta.cn;
+
+            // 特工分类特殊处理：先显示特工列表
+            if (tag === 'gaming_val_agents') {
+                _showListViewLevel(3);
+                renderAgentList();
+                return;
+            }
+
+            _showListViewLevel(_listCurrentGame ? 3 : 2);
             var title = document.getElementById('listWordsTitle');
             if (title) title.textContent = meta.cn;
             var container = document.getElementById('listWordsContainer');
             if (container) container.innerHTML = '<p class="text-gray-400 text-center py-8">加载中...</p>';
             fetchListWords(tag, 0);
+        }
+
+        // ── 特工列表渲染 ──
+        function renderAgentList() {
+            var title = document.getElementById('listAgentsTitle');
+            var grid = document.getElementById('listAgentsGrid');
+            if (title) title.textContent = '特工列表 / VALORANT AGENTS';
+            if (!grid) return;
+
+            if (!_listAllAgentWords) {
+                grid.innerHTML = '<p class="text-gray-400 text-center py-8 col-span-full">加载中...</p>';
+                fetchAllAgentWords().then(function() { renderAgentGrid(grid); });
+            } else {
+                renderAgentGrid(grid);
+            }
+        }
+
+        function renderAgentGrid(grid) {
+            var html = '';
+            VAL_AGENTS.forEach(function(agent) {
+                var wordCount = 0;
+                if (_listAllAgentWords) {
+                    wordCount = _listAllAgentWords.filter(function(w) {
+                        return agent.keywords.some(function(kw) {
+                            var wl = (w.word || '').toLowerCase();
+                            var ml = (w.meaning || '').toLowerCase();
+                            var kwl = kw.toLowerCase();
+                            return wl.indexOf(kwl) !== -1 || ml.indexOf(kwl) !== -1;
+                        });
+                    }).length;
+                }
+                html += '<div class="border-2 border-gray-200 bg-white p-3 cursor-pointer hover:border-gray-400 hover:shadow-[3px_3px_0px_#ddd] hover:-translate-x-[1px] hover:-translate-y-[1px] transition-all" onclick="openAgentWords(\'' + agent.id + '\')">' +
+                    '<div class="text-sm font-bold">' + agent.cn + '</div>' +
+                    '<div class="text-[10px] text-gray-400 mt-0.5">' + agent.jp + '</div>' +
+                    '<div class="text-[9px] text-gray-500 mt-1">' + agent.role + ' / ' + agent.roleJp + '</div>' +
+                    '<div class="text-[10px] text-gray-400 mt-1 font-bold">' + wordCount + ' 词</div>' +
+                '</div>';
+            });
+            grid.innerHTML = html || '<p class="text-gray-400 text-center py-8 col-span-full">暂无特工数据</p>';
+        }
+
+        async function fetchAllAgentWords() {
+            try {
+                var res = await fetch('/api/library/words/by-tag?tag=gaming_val_agents&offset=0&limit=100');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                var data = await res.json();
+                _listAllAgentWords = data.words || [];
+            } catch (_) {
+                _listAllAgentWords = [];
+            }
+        }
+
+        function openAgentWords(agentId) {
+            var agent = VAL_AGENTS.find(function(a) { return a.id === agentId; });
+            if (!agent) return;
+
+            _listCurrentAgent = agentId;
+            _listCurrentAgentCN = agent.cn;
+            _listLevel = 4;
+
+            var av = document.getElementById('listAgentsView');
+            var wv = document.getElementById('listWordsView');
+            var bc = document.getElementById('listBreadcrumb');
+            if (av) av.style.display = 'none';
+            if (wv) wv.style.display = 'block';
+            if (bc) bc.innerHTML = '<span class="text-gray-400">/</span> <span class="text-gray-500">' + (_listCurrentGame || '') + '</span> <span class="text-gray-400">/</span> <span class="text-gray-500">特工列表</span> <span class="text-gray-400">/</span> <span class="font-bold text-gray-700">' + agent.cn + '</span>';
+
+            var title = document.getElementById('listWordsTitle');
+            if (title) title.textContent = agent.cn + ' (' + agent.jp + ') / ' + agent.role;
+
+            var filterAndRender = function() {
+                var filtered = (_listAllAgentWords || []).filter(function(w) {
+                    return agent.keywords.some(function(kw) {
+                        var wl = (w.word || '').toLowerCase();
+                        var ml = (w.meaning || '').toLowerCase();
+                        var kwl = kw.toLowerCase();
+                        return wl.indexOf(kwl) !== -1 || ml.indexOf(kwl) !== -1;
+                    });
+                });
+                var data = {words: filtered, total: filtered.length, offset: 0};
+                _listOffset = 0;
+                _listWordsCache = {};
+                _listWordsCache[_listCurrentTag + '|0'] = data;
+                renderListWords(data, true);
+            };
+
+            if (!_listAllAgentWords || _listAllAgentWords.length === 0) {
+                var container = document.getElementById('listWordsContainer');
+                if (container) container.innerHTML = '<p class="text-gray-400 text-center py-8">加载中...</p>';
+                fetchAllAgentWords().then(filterAndRender);
+                return;
+            }
+
+            filterAndRender();
         }
 
         // ── 返回按钮（4 层逻辑）──
@@ -3936,7 +4126,36 @@ async function startLearning() {
             _listBackLink = document.getElementById('listBackBtn');
             if (_listBackLink) {
                 _listBackLink.onclick = function() {
-                    if (_listLevel === 3) {
+                    if (_listLevel === 4 || (_listLevel === 3 && _listCurrentAgent)) {
+                        // 特工单词列表 → 回到特工列表
+                        _listCurrentAgent = '';
+                        _listCurrentAgentCN = '';
+                        _listOffset = 0;
+                        _listWordsCache = {};
+                        _showListViewLevel(3);
+                        renderAgentList();
+                    } else if (_listLevel === 3 && _listCurrentTag === 'gaming_val_agents') {
+                        // 特工列表 → 回到子分类列表
+                        _listCurrentTag = '';
+                        _listCurrentTagName = '';
+                        _listOffset = 0;
+                        _listAllAgentWords = null;
+                        var foundGroup = null;
+                        var foundGame = null;
+                        CATEGORY_GROUPS.forEach(function(g) {
+                            if (g.subGroups) {
+                                g.subGroups.forEach(function(sg) {
+                                    if (sg.name === _listCurrentGame) { foundGroup = g; foundGame = sg; }
+                                });
+                            }
+                        });
+                        if (foundGame) {
+                            renderSubCategories({ name: foundGame.name }, foundGame.tags);
+                        } else {
+                            _listCurrentGame = '';
+                            openListView();
+                        }
+                    } else if (_listLevel === 3) {
                         // 单词列表 → 回到子分类列表
                         _listCurrentTag = '';
                         _listOffset = 0;
