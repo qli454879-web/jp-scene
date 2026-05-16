@@ -299,19 +299,25 @@ def _ensure_storage_bucket() -> bool:
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         return False
     try:
-        admin = _get_supabase_admin()
-        if admin is None:
-            return False
-        # 检查 bucket 是否存在
-        buckets = admin.storage.list_buckets()
-        for b in buckets:
-            if b.name == _VOCAB_SNAPSHOT_BUCKET:
+        headers = {
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type": "application/json",
+        }
+        with httpx.Client(timeout=10) as client:
+            resp = client.get(
+                f"{SUPABASE_URL}/storage/v1/bucket/{_VOCAB_SNAPSHOT_BUCKET}",
+                headers=headers)
+            if resp.status_code == 200:
                 return True
-        # 创建 public bucket
-        admin.storage.create_bucket(
-            _VOCAB_SNAPSHOT_BUCKET,
-            options={"public": True, "file_size_limit": 52428800})
-        return True
+            if resp.status_code == 404:
+                resp = client.post(
+                    f"{SUPABASE_URL}/storage/v1/bucket",
+                    headers=headers,
+                    json={"name": _VOCAB_SNAPSHOT_BUCKET, "id": _VOCAB_SNAPSHOT_BUCKET,
+                          "public": True, "file_size_limit": 52428800})
+                return resp.status_code in (200, 201)
+        return False
     except Exception:
         return False
 
@@ -434,16 +440,17 @@ def _upload_snapshot_to_storage() -> bool:
         return False
     try:
         _ensure_storage_bucket()
+        headers = {
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type": "application/octet-stream",
+        }
         with open(_VOCAB_SNAPSHOT_DB, "rb") as f:
             data = f.read()
-        admin = _get_supabase_admin()
-        if admin is None:
-            return False
-        # 使用 supabase storage API 上传（upsert）
-        result = admin.storage.from_(_VOCAB_SNAPSHOT_BUCKET).upload(
-            _VOCAB_SNAPSHOT_KEY, data,
-            {"upsert": True, "content-type": "application/octet-stream"})
-        return True
+        url = f"{SUPABASE_URL}/storage/v1/object/{_VOCAB_SNAPSHOT_BUCKET}/{_VOCAB_SNAPSHOT_KEY}"
+        with httpx.Client(timeout=30) as client:
+            resp = client.put(url, headers=headers, content=data)
+            return resp.status_code in (200, 201, 204)
     except Exception:
         return False
 
