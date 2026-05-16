@@ -4324,7 +4324,7 @@ async def list_tags():
 
 
 @app.get("/api/library/words/by-tag")
-async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100)):
+async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
     """按标签分页取词（从内存缓存，<1ms，不占 DB 连接）。"""
     _ensure_vocab_cache()
     if not _tag_index:
