@@ -50,8 +50,7 @@
       <div class="flex items-center gap-2">
         <button id="reportBtnTop" class="badge-pixel px-3 py-1 bg-amber-50 text-[10px] font-bold hover:bg-amber-100">报错</button>
         <div id="levelBadge" class="badge-pixel px-3 py-1 bg-white text-[10px] font-bold">JLPT</div>
-        <div id="gamingHint" class="badge-pixel px-2 py-1 bg-purple-50 text-[9px] font-bold text-purple-700 hidden" title="游戏术语"><i class="fa-solid fa-gamepad mr-1"></i><span id="gamingHintLabel"></span></div>
-        <div id="tagsBadge" class="flex flex-wrap gap-1"></div>
+        <div id="contextSwitch" class="hidden flex items-center gap-0"></div>
       </div>
     </div>
     <div class="mb-4 flex gap-2">
@@ -411,33 +410,18 @@
       _rawData = data || null;
       currentWordData = data || null;
       document.getElementById('levelBadge').innerText = formatLevelLabel(data.level || '');
-      // 渲染可点击标签
+      // 双语境切换大按钮（仅重叠词条显示）
       var tags = data.tags || [];
-      var hasGaming = tags.some(function(t) { return t.indexOf('gaming_') === 0; });
-      var tagsEl = document.getElementById('tagsBadge');
-      if (tagsEl) {
-        tagsEl.innerHTML = tags.map(function(t) {
-          var isGaming = t.indexOf('gaming_') === 0;
-          var name = isGaming ? t.replace('gaming_', '').replace('val_', '').replace('lol_', '').toUpperCase() : t.replace(/_/g, ' ').toUpperCase();
-          var activeClass = '';
-          if (_activeContext === 'gaming' && isGaming) activeClass = ' ring-1 ring-purple-500 bg-purple-100 border-purple-500 text-purple-800';
-          else if (_activeContext === 'daily' && !isGaming) activeClass = ' ring-1 ring-gray-500 bg-gray-200 border-gray-600 text-gray-800';
-          else if (isGaming) activeClass = ' bg-purple-50 border-purple-300 text-purple-700 hover:bg-purple-100';
-          else activeClass = ' bg-gray-50 border-gray-300 text-gray-500 hover:bg-gray-100';
-          return '<span class="text-[8px] px-1 border cursor-pointer ' + activeClass + '" onclick="switchContext(\'' + t + '\')" title="' + (isGaming ? '查看游戏术语解析' : '查看日常用语解析') + '">' + name + '</span>';
-        }).join('');
-      }
-      // 游戏术语提示
-      var gamingHint = document.getElementById('gamingHint');
-      var gamingLabel = document.getElementById('gamingHintLabel');
-      if (gamingHint && gamingLabel) {
-        var gamingTags = tags.filter(function(t) { return t.indexOf('gaming_') === 0; });
-        if (gamingTags.length > 0) {
-          var name = gamingTags[0].replace('gaming_', '').toUpperCase();
-          gamingLabel.innerText = name + '术语';
-          gamingHint.classList.remove('hidden');
+      var labels = _deriveContextLabels(tags, data.level);
+      var ctxEl = document.getElementById('contextSwitch');
+      if (ctxEl) {
+        if (labels.gaming) {
+          ctxEl.classList.remove('hidden');
+          ctxEl.innerHTML =
+            '<button id="ctxDailyBtn" class="badge-pixel px-3 py-1 text-[10px] font-bold cursor-pointer bg-gray-200 border-gray-600 text-gray-800" onclick="switchContext(\'daily\')">' + labels.daily + '</button>' +
+            '<button id="ctxGamingBtn" class="badge-pixel px-3 py-1 text-[10px] font-bold cursor-pointer bg-white border-gray-300 text-gray-400 hover:bg-purple-50 hover:border-purple-300 hover:text-purple-700" onclick="switchContext(\'gaming\')">' + labels.gaming + '</button>';
         } else {
-          gamingHint.classList.add('hidden');
+          ctxEl.classList.add('hidden');
         }
       }
       document.getElementById('wordTitle').innerText = data.word || '---';
@@ -499,6 +483,18 @@
 
       var isGaming = _activeContext === 'gaming';
 
+      // 双按钮激活态
+      var dailyBtn = document.getElementById('ctxDailyBtn');
+      var gamingBtn = document.getElementById('ctxGamingBtn');
+      if (dailyBtn) {
+        dailyBtn.className = 'badge-pixel px-3 py-1 text-[10px] font-bold cursor-pointer ' +
+          (!isGaming ? 'bg-gray-200 border-gray-600 text-gray-800' : 'bg-white border-gray-300 text-gray-400 hover:bg-gray-100');
+      }
+      if (gamingBtn) {
+        gamingBtn.className = 'badge-pixel px-3 py-1 text-[10px] font-bold cursor-pointer ' +
+          (isGaming ? 'bg-purple-100 border-purple-500 text-purple-800' : 'bg-white border-gray-300 text-gray-400 hover:bg-purple-50 hover:border-purple-300 hover:text-purple-700');
+      }
+
       // insight_text：按双语境标题拆分
       var insight = data.insight_text || '';
       var dailyInsight = '';
@@ -509,13 +505,10 @@
         if (dailyInsight.indexOf('\n\n') === 0) dailyInsight = dailyInsight.slice(2).trim();
         gameInsight = (parts[1] || '').trim();
       }
-      if (isGaming && gameInsight) {
-        document.getElementById('insightText').innerText = gameInsight;
-      } else if (!isGaming && dailyInsight) {
-        document.getElementById('insightText').innerText = dailyInsight;
-      } else {
-        document.getElementById('insightText').innerText = insight || '—';
-      }
+      document.getElementById('insightText').innerText =
+        (isGaming && gameInsight) ? gameInsight :
+        (!isGaming && dailyInsight) ? dailyInsight :
+        (insight || '—');
 
       // meaning：去除游戏部分或提取游戏部分
       var meaning = data.meaning || '';
@@ -528,41 +521,51 @@
       }
       document.getElementById('meaningText').innerText = displayMeaning || '—';
 
-      // heatmap
-      renderHeatmap(data.heatmap_data || {});
+      // 社交兼容 + 高频场景：仅日常语境有意义
+      var socialSection = document.querySelector('#cardCasual').parentElement.parentElement;
+      if (socialSection) socialSection.style.display = isGaming ? 'none' : '';
+      var heatmapSection = document.getElementById('heatmapList').parentElement;
+      if (heatmapSection) heatmapSection.style.display = isGaming ? 'none' : '';
 
-      // examples
+      if (!isGaming) {
+        renderHeatmap(data.heatmap_data || {});
+      }
+      // examples 两种语境均显示
       renderExamples(data.examples || null);
+    }
 
-      // 刷新标签高亮
-      _refreshTagHighlight();
+    function _deriveContextLabels(tags, level) {
+      var tagsArr = tags || [];
+      var lv = (level || '').trim();
+      // 非游戏标签名
+      var daily = '';
+      if (/^N[1-5]$/i.test(lv)) daily = 'JLPT ' + lv.toUpperCase();
+      if (!daily) {
+        var tagMap = {
+          kaoyan:'考研', loanword:'外来语', slang:'流行语', onomatopoeia:'拟声词',
+          yoji_jukugo:'四字熟语', jlpt_n1:'JLPT N1', jlpt_n2:'JLPT N2',
+          jlpt_n3:'JLPT N3', jlpt_n4:'JLPT N4', jlpt_n5:'JLPT N5',
+          n1:'N1', n2:'N2', n3:'N3'
+        };
+        for (var i = 0; i < tagsArr.length; i++) {
+          var n = tagMap[tagsArr[i]];
+          if (n) { daily = n; break; }
+        }
+      }
+      if (!daily) daily = lv || '一般';
+      // 游戏标签名
+      var gaming = '';
+      for (var i = 0; i < tagsArr.length; i++) {
+        if (tagsArr[i].indexOf('gaming_val') === 0) { gaming = 'VAL术语'; break; }
+        if (tagsArr[i].indexOf('gaming_lol') === 0) { gaming = 'LOL术语'; break; }
+      }
+      return { daily: daily, gaming: gaming };
     }
 
     // ── 切换语境 ──
-    function switchContext(tag) {
-      var isGaming = tag.indexOf('gaming_') === 0;
-      _activeContext = isGaming ? 'gaming' : 'daily';
+    function switchContext(ctx) {
+      _activeContext = ctx;
       _applyFilteredContent();
-    }
-
-    function _refreshTagHighlight() {
-      var tagsEl = document.getElementById('tagsBadge');
-      if (!tagsEl || !_rawData) return;
-      var tags = _rawData.tags || [];
-      var spans = tagsEl.querySelectorAll('span');
-      spans.forEach(function(span, i) {
-        var t = tags[i] || '';
-        var isGaming = t.indexOf('gaming_') === 0;
-        span.className = 'text-[8px] px-1 border cursor-pointer';
-        if (_activeContext === 'gaming' && isGaming)
-          span.className += ' ring-1 ring-purple-500 bg-purple-100 border-purple-500 text-purple-800';
-        else if (_activeContext === 'daily' && !isGaming)
-          span.className += ' ring-1 ring-gray-500 bg-gray-200 border-gray-600 text-gray-800';
-        else if (isGaming)
-          span.className += ' bg-purple-50 border-purple-300 text-purple-700 hover:bg-purple-100';
-        else
-          span.className += ' bg-gray-50 border-gray-300 text-gray-500 hover:bg-gray-100';
-      });
     }
 
     // 同义词/替代前端缓存（5分钟TTL）
