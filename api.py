@@ -462,6 +462,14 @@ def _save_and_upload_snapshot(rows: list):
     threading.Thread(target=_upload_snapshot_to_storage, daemon=True).start()
 
 
+def _safe_snapshot():
+    """异常安全地保存快照，防止后台线程崩溃拖垮主进程。"""
+    try:
+        _save_and_upload_snapshot(_vocab_cache)
+    except Exception:
+        pass
+
+
 def _build_indexes(rows: list, now_s: float):
     """从 rows 构建内存索引（8 列紧凑格式，5 个 int 打包为 1）。
     兼容两种输入：DB 12 列 或快照 8 列（自动检测）。"""
@@ -555,10 +563,15 @@ def _ensure_vocab_cache():
                     )
                     rows = cur.fetchall()
                     if rows:
+                        # 先清旧缓存释放内存，再建新索引，避免内存翻倍
+                        _vocab_cache = []
+                        _word_index = []
+                        _reading_index = []
+                        _tag_index.clear()
                         _build_indexes(rows, now_s)
-                        del rows  # 立即释放 DB 查询结果，避免与 _vocab_cache 同时占用内存
-                        # 异步写本地快照 + 上传到 Supabase Storage
-                        threading.Thread(target=_save_and_upload_snapshot, args=(_vocab_cache,), daemon=True).start()
+                        del rows
+                        # 异步写本地快照 + 上传到 Supabase Storage（异常安全）
+                        threading.Thread(target=_safe_snapshot, daemon=True).start()
             except Exception:
                 pass
             finally:
@@ -1933,7 +1946,7 @@ async def code_auth_login_v2(code: str = Body(..., embed=True)):
                 )
             conn2.commit()
         finally:
-            conn2.close()
+            _return_db_conn(conn2)
 
     # 恢复会话也把 access_token 更新一下，便于站内直接继续用 Bearer token
     if session_source == "invite_recovery" and session and session.get("access_token"):
@@ -1951,7 +1964,7 @@ async def code_auth_login_v2(code: str = Body(..., embed=True)):
                 )
             conn3.commit()
         finally:
-            conn3.close()
+            _return_db_conn(conn3)
 
     return {
         "status": "returning_user",
@@ -3211,7 +3224,7 @@ async def get_vocab_meta(word: str = Query(...), kana: str = Query(""), meaning:
                     (word,),
                 )
                 lib_row = cur.fetchone()
-            pg.close()
+            _return_db_conn(pg)
             if lib_row:
                 meaning_zh = (lib_row.get("meaning") or "").strip()
                 # detect loanword origin for katakana words
