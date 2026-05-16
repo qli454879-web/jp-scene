@@ -3330,13 +3330,9 @@ async function startLearning() {
                         resetToHome();
                     }
                 } else if (listView && listView.style.display === 'block') {
-                    var wordView = document.getElementById('listWordsView');
-                    if (wordView && wordView.style.display !== 'none') {
-                        wordView.style.display = 'none';
-                        var catView = document.getElementById('listCategoriesView');
-                        if (catView) catView.style.display = 'block';
-                        _listCurrentTag = '';
-                        _listOffset = 0;
+                    // 使用列表视图的返回按钮逻辑
+                    if (_listBackLink && _listBackLink.onclick) {
+                        _listBackLink.onclick();
                     } else {
                         resetToHome();
                     }
@@ -3648,6 +3644,8 @@ async function startLearning() {
             try { if (listView) listView.style.display = 'none'; } catch (_) {}
             // 重置列表视图状态
             _listCurrentTag = '';
+            _listCurrentGame = '';
+            _listCurrentGroup = '';
             _listOffset = 0;
             try { if (mainInput) mainInput.value = ''; } catch (_) {}
             try {
@@ -3694,21 +3692,43 @@ async function startLearning() {
         // ── 分类单词表 ──
         var _listCurrentTag = '';
         var _listCurrentGroup = '';
+        var _listCurrentGame = '';
         var _listOffset = 0;
         var _listTagsCache = null;
-        // 0=groups, 1=subs, 2=words
+        // 0=groups, 1=games(or subs for simple groups), 2=subs, 3=words
         var _listLevel = 0;
 
-        // 大分类定义（只保留游戏术语 & 流行语，其余词可通过搜索查）
+        // 大分类定义
         var CATEGORY_GROUPS = [
-            { id:'gaming', name:'游戏术语', tags:['gaming_lol','gaming_valorant'] },
+            {
+                id:'gaming', name:'游戏术语',
+                subGroups: [
+                    { id:'gaming_val', name:'瓦罗兰特', tags:[
+                        'gaming_val_agents', 'gaming_val_weapons', 'gaming_val_tactics',
+                        'gaming_val_settings', 'gaming_val_ranks', 'gaming_val_maps'
+                    ]},
+                    { id:'gaming_lol', name:'英雄联盟', tags:[
+                        'gaming_lol_champions', 'gaming_lol_items', 'gaming_lol_tactics',
+                        'gaming_lol_roles', 'gaming_lol_objectives'
+                    ]},
+                ]
+            },
             { id:'slang', name:'日语流行语', tags:['slang'] },
         ];
 
         // 子分类名映射
         var TAG_META = {
-            'gaming_lol': {cn:'英雄联盟'},
-            'gaming_valorant': {cn:'瓦罗兰特'},
+            'gaming_val_agents': {cn:'特工名称与特工技能'},
+            'gaming_val_weapons': {cn:'枪械'},
+            'gaming_val_tactics': {cn:'战术术语与对局交流'},
+            'gaming_val_settings': {cn:'游戏设置'},
+            'gaming_val_ranks': {cn:'段位名称'},
+            'gaming_val_maps': {cn:'地图与地图报点'},
+            'gaming_lol_champions': {cn:'英雄名称与技能'},
+            'gaming_lol_items': {cn:'装备'},
+            'gaming_lol_tactics': {cn:'战术与对局交流'},
+            'gaming_lol_roles': {cn:'位置与职责'},
+            'gaming_lol_objectives': {cn:'地图资源与目标'},
             'slang': {cn:'网络·若者言葉'},
         };
 
@@ -3719,13 +3739,15 @@ async function startLearning() {
             var sv = document.getElementById('listSubsView');
             var wv = document.getElementById('listWordsView');
             var bc = document.getElementById('listBreadcrumb');
+            // level 0: groups only, 1-2: subs view, 3: words view
             if (gv) gv.style.display = level === 0 ? 'block' : 'none';
-            if (sv) sv.style.display = level === 1 ? 'block' : 'none';
-            if (wv) wv.style.display = level === 2 ? 'block' : 'none';
+            if (sv) sv.style.display = (level === 1 || level === 2) ? 'block' : 'none';
+            if (wv) wv.style.display = level === 3 ? 'block' : 'none';
             if (bc) {
                 if (level === 0) bc.textContent = '';
-                else if (level === 1) bc.innerHTML = '<span class="text-gray-400">/</span> <span class="font-bold text-gray-700">' + _listCurrentGroup + '</span>';
-                else bc.innerHTML = '<span class="text-gray-400">/</span> <span class="text-gray-500">' + _listCurrentGroup + '</span> <span class="text-gray-400">/</span> <span class="font-bold text-gray-700">' + (_listCurrentTag || '').replace(/_/g, ' ').toUpperCase() + '</span>';
+                else if (level === 1) bc.innerHTML = '<span class="text-gray-400">/</span> <span class="font-bold text-gray-700">' + (_listCurrentGame || _listCurrentGroup) + '</span>';
+                else if (level === 2) bc.innerHTML = '<span class="text-gray-400">/</span> <span class="text-gray-500">' + (_listCurrentGame || _listCurrentGroup) + '</span> <span class="text-gray-400">/</span> <span class="font-bold text-gray-700">' + (_listCurrentTag || '').replace(/_/g, ' ').toUpperCase() + '</span>';
+                else bc.innerHTML = '<span class="text-gray-400">/</span> <span class="text-gray-500">' + (_listCurrentGame || _listCurrentGroup) + '</span> <span class="text-gray-400">/</span> <span class="text-gray-500">' + (_listCurrentTag || '').replace(/_/g, ' ').toUpperCase() + '</span> <span class="text-gray-400">/</span> <span class="font-bold text-gray-700">单词列表</span>';
             }
         }
 
@@ -3738,6 +3760,7 @@ async function startLearning() {
             if (lv) lv.style.display = 'block';
             _listCurrentTag = '';
             _listCurrentGroup = '';
+            _listCurrentGame = '';
             _listOffset = 0;
             fetchListTags();  // 获取 tag 数据后才能渲染分组
         }
@@ -3767,9 +3790,16 @@ async function startLearning() {
             var html = '';
             CATEGORY_GROUPS.forEach(function(g) {
                 var totalWords = 0;
-                g.tags.forEach(function(tn) {
-                    totalWords += countMap[tn] || 0;
-                });
+                // 计算该组下所有词数（支持 subGroups 和直接 tags）
+                var allTags = [];
+                if (g.subGroups && g.subGroups.length) {
+                    g.subGroups.forEach(function(sg) {
+                        sg.tags.forEach(function(tn) { allTags.push(tn); });
+                    });
+                } else if (g.tags) {
+                    allTags = g.tags;
+                }
+                allTags.forEach(function(tn) { totalWords += countMap[tn] || 0; });
                 html += '<div class="border-2 border-gray-800 bg-white p-4 cursor-pointer hover:shadow-[3px_3px_0px_#333] hover:-translate-x-[1px] hover:-translate-y-[1px] transition-all" onclick="openGroup(\'' + g.id + '\')">' +
                     '<div class="flex items-center justify-between">' +
                         '<span class="text-sm font-bold">' + g.name + '</span>' +
@@ -3780,30 +3810,85 @@ async function startLearning() {
             grid.innerHTML = html || '<p class="text-gray-400 text-center py-12">暂无分类数据</p>';
         }
 
-        // ── 第2层：子分类列表 ──
+        // ── 第2层：打开分组（有 subGroups → 显示游戏列表；无 subGroups → 显示子分类）──
         function openGroup(groupId) {
             if (!groupId) return;
             var group = CATEGORY_GROUPS.find(function(g) { return g.id === groupId; });
-            if (!group || !Array.isArray(group.tags)) return;
+            if (!group) return;
             _listCurrentGroup = group.name;
+            _listCurrentGame = '';
             _listCurrentTag = '';
             _listOffset = 0;
 
-            // 确保 tags 已加载
             if (!_listTagsCache) {
                 fetch('/api/library/tags')
                     .then(function(res) { return res.json(); })
                     .then(function(data) {
                         _listTagsCache = data.tags || [];
-                        renderSubCategories(group);
+                        if (group.subGroups && group.subGroups.length) {
+                            renderGames(group);
+                        } else {
+                            renderSubCategories(group, group.tags);
+                        }
                     })
                     .catch(function() {});
                 return;
             }
-            renderSubCategories(group);
+            if (group.subGroups && group.subGroups.length) {
+                renderGames(group);
+            } else if (group.tags && group.tags.length) {
+                renderSubCategories(group, group.tags);
+            }
         }
 
-        function renderSubCategories(group) {
+        // ── 第2层（游戏列表）：显示 subGroups，点击进入第3层 ──
+        function renderGames(group) {
+            var countMap = {};
+            (_listTagsCache || []).forEach(function(t) { countMap[t.name] = t.count; });
+
+            var title = document.getElementById('listSubsTitle');
+            var desc = document.getElementById('listSubsDesc');
+            var grid = document.getElementById('listSubsGrid');
+            if (title) title.textContent = group.name;
+            if (desc) desc.textContent = '选择游戏查看分类单词';
+            _showListViewLevel(1);
+
+            var html = '';
+            (group.subGroups || []).forEach(function(sg) {
+                var totalWords = 0;
+                (sg.tags || []).forEach(function(tn) { totalWords += countMap[tn] || 0; });
+                html += '<div class="border-2 border-gray-800 bg-white p-4 cursor-pointer hover:shadow-[3px_3px_0px_#333] hover:-translate-x-[1px] hover:-translate-y-[1px] transition-all" onclick="openGame(\'' + sg.id + '\')">' +
+                    '<div class="flex items-center justify-between">' +
+                        '<span class="text-sm font-bold">' + sg.name + '</span>' +
+                        '<span class="text-[10px] text-gray-400">' + totalWords.toLocaleString() + ' 词 <i class="fa-solid fa-chevron-right ml-1"></i></span>' +
+                    '</div>' +
+                '</div>';
+            });
+            grid.innerHTML = html || '<p class="text-gray-400 text-center py-8">暂无游戏分类</p>';
+        }
+
+        // ── 第3层：打开游戏 → 显示其子分类标签 ──
+        function openGame(gameId) {
+            if (!gameId) return;
+            // 在所有 subGroups 中查找
+            var foundGroup = null;
+            var foundGame = null;
+            CATEGORY_GROUPS.forEach(function(g) {
+                if (g.subGroups) {
+                    g.subGroups.forEach(function(sg) {
+                        if (sg.id === gameId) { foundGroup = g; foundGame = sg; }
+                    });
+                }
+            });
+            if (!foundGame) return;
+            _listCurrentGame = foundGame.name;
+            _listCurrentTag = '';
+            _listOffset = 0;
+            renderSubCategories({ name: foundGame.name }, foundGame.tags);
+        }
+
+        // ── 渲染子分类列表（第2层或第3层，取决于上下文）──
+        function renderSubCategories(group, tags) {
             var countMap = {};
             (_listTagsCache || []).forEach(function(t) { countMap[t.name] = t.count; });
 
@@ -3813,10 +3898,11 @@ async function startLearning() {
             if (title) title.textContent = group.name;
             if (desc) desc.textContent = '';
 
-            _showListViewLevel(1);
+            // 如果有 _listCurrentGame 说明是第3层，否则是第2层
+            _showListViewLevel(_listCurrentGame ? 2 : 1);
 
             var html = '';
-            group.tags.forEach(function(tn) {
+            tags.forEach(function(tn) {
                 var meta = TAG_META[tn] || {cn: tn.replace(/_/g, ' ')};
                 var count = countMap[tn] || 0;
                 html += '<div class="border-2 border-gray-800 bg-white p-4 cursor-pointer hover:shadow-[3px_3px_0px_#333] hover:-translate-x-[1px] hover:-translate-y-[1px] transition-all" onclick="openListWords(\'' + tn + '\')">' +
@@ -3829,12 +3915,12 @@ async function startLearning() {
             grid.innerHTML = html || '<p class="text-gray-400 text-center py-8">暂无子分类</p>';
         }
 
-        // ── 第3层：单词列表 ──
+        // ── 第4层（或第3层）：单词列表 ──
         function openListWords(tag) {
             _listCurrentTag = tag;
             _listOffset = 0;
             _listWordsCache = {};
-            _showListViewLevel(2);
+            _showListViewLevel(_listCurrentGame ? 3 : 2);
 
             var meta = TAG_META[tag] || {cn: tag.replace(/_/g, ' ')};
             var title = document.getElementById('listWordsTitle');
@@ -3844,20 +3930,57 @@ async function startLearning() {
             fetchListWords(tag, 0);
         }
 
-        // ── 返回按钮（3 层逻辑）──
+        // ── 返回按钮（4 层逻辑）──
         var _listBackLink = null;
         function initListBackLink() {
             _listBackLink = document.getElementById('listBackBtn');
             if (_listBackLink) {
                 _listBackLink.onclick = function() {
-                    if (_listLevel === 2) {
+                    if (_listLevel === 3) {
                         // 单词列表 → 回到子分类列表
                         _listCurrentTag = '';
                         _listOffset = 0;
                         _listWordsCache = {};
-                        openGroup(CATEGORY_GROUPS.find(function(g) { return g.name === _listCurrentGroup; })?.id || '');
+                        // 找到对应的 game 和 group
+                        var foundGroup = null;
+                        var foundGame = null;
+                        CATEGORY_GROUPS.forEach(function(g) {
+                            if (g.subGroups) {
+                                g.subGroups.forEach(function(sg) {
+                                    if (sg.name === _listCurrentGame) { foundGroup = g; foundGame = sg; }
+                                });
+                            }
+                        });
+                        if (foundGame) {
+                            renderSubCategories({ name: foundGame.name }, foundGame.tags);
+                        } else if (foundGroup) {
+                            renderSubCategories(foundGroup, foundGroup.tags);
+                        } else {
+                            _listCurrentGame = '';
+                            openListView();
+                        }
+                    } else if (_listLevel === 2) {
+                        // 子分类列表 → 回到游戏列表
+                        _listCurrentTag = '';
+                        var fg2 = null;
+                        CATEGORY_GROUPS.forEach(function(g) {
+                            if (g.subGroups) {
+                                g.subGroups.forEach(function(sg) {
+                                    if (sg.name === _listCurrentGame) { fg2 = g; }
+                                });
+                            }
+                        });
+                        if (fg2) {
+                            _listCurrentGame = '';
+                            renderGames(fg2);
+                        } else {
+                            _listCurrentGame = '';
+                            _listCurrentGroup = '';
+                            openListView();
+                        }
                     } else if (_listLevel === 1) {
-                        // 子分类列表 → 回到大分类列表
+                        // 游戏列表 → 回到大分类列表
+                        _listCurrentGame = '';
                         _listCurrentGroup = '';
                         if (_listTagsCache) renderListGroups(_listTagsCache);
                         else openListView();
