@@ -445,12 +445,13 @@ def _ensure_vocab_cache():
 
             # Tier 2：从 Supabase 加载并保存快照
             try:
-                conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=5)
+                conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=10)
             except Exception:
                 _vocab_cache_ready.set()
                 return
             try:
                 with conn.cursor() as cur:
+                    cur.execute("SET statement_timeout = '30s'")
                     cur.execute(
                         """SELECT id::text, level, word, reading, pos, frequency,
                                   CASE WHEN jsonb_typeof(examples) = 'array'
@@ -464,8 +465,9 @@ def _ensure_vocab_cache():
                     rows = cur.fetchall()
                     if rows:
                         _build_indexes(rows, now_s)
-                        # 异步写快照（直接传 rows 引用，不复制，避免 GIL 阻塞健康检查）
-                        threading.Thread(target=_save_local_snapshot, args=(rows,), daemon=True).start()
+                        del rows  # 立即释放 DB 查询结果，避免与 _vocab_cache 同时占用内存
+                        # 异步写快照（传 _vocab_cache 引用，8 列格式更省内存）
+                        threading.Thread(target=_save_local_snapshot, args=(_vocab_cache,), daemon=True).start()
             except Exception:
                 pass
             finally:
