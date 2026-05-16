@@ -302,8 +302,8 @@ def _ensure_storage_bucket() -> bool:
         headers = {
             "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
             "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type": "application/json",
         }
-        # 先检查 bucket 是否存在
         with httpx.Client(timeout=10) as client:
             resp = client.get(
                 f"{SUPABASE_URL}/storage/v1/bucket/{_VOCAB_SNAPSHOT_BUCKET}",
@@ -315,8 +315,7 @@ def _ensure_storage_bucket() -> bool:
                 f"{SUPABASE_URL}/storage/v1/bucket",
                 headers=headers,
                 json={"name": _VOCAB_SNAPSHOT_BUCKET, "public": True,
-                      "file_size_limit": 52428800,
-                      "allowed_mime_types": ["application/octet-stream"]})
+                      "file_size_limit": 52428800})
             return resp.status_code in (200, 201, 204)
     except Exception:
         return False
