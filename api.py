@@ -79,15 +79,30 @@ _html_file_cache: Dict[str, str] = {}
 # ── 本地持久化缓存（SQLite），重启/关机后秒级恢复，不用重新从 Supabase 加载 20 万条 ──
 _VOCAB_SNAPSHOT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vocab_snapshot.db")
 _VOCAB_SNAPSHOT_TTL = 86400  # 24 小时内有效，超时则从 Supabase 刷新
-_VOCAB_SNAPSHOT_VERSION = 4  # v4: 12 列格式，去掉 mp3/image_url 省 ~20MB
+_VOCAB_SNAPSHOT_VERSION = 5  # v5: 8 列格式，int 打包 + 去 image_url
 
-# ── 内存词库缓存 + 索引（含 meaning/mp3/image_url，避免每次搜索都开新 DB 连接）──
+# ── 内存词库缓存 + 索引（紧凑格式，5 个 int 字段打包为 1 个，省 ~23MB）──
 class _VF:
     ID = 0; LEVEL = 1; WORD = 2; READING = 3; POS = 4
-    FREQUENCY = 5; EXAMPLES_COUNT = 6; INSIGHT_LEN = 7
-    IS_AI_ENRICHED = 8; ORDER_NO = 9
-    MEANING = 10; TAGS = 11
-    # _vocab_cache 仅存原始 12 列（去掉 mp3/image_url 省 ~20MB），这两项按需从 _detail_cache 获取
+    PACKED = 5; MEANING = 6; TAGS = 7
+    # PACKED 编码: freq(4b) | examples_count(10b) | insight_len(12b) | is_ai_enriched(1b) | order_no(5b)
+
+def _pack_ints(freq, ec, il, ai, order):
+    f = min(int(freq or 0), 15)
+    e = min(int(ec or 0), 1023)
+    i = min(int(il or 0), 4095)
+    a = 1 if ai else 0
+    o = min(int(order or 0), 31)
+    return (f << 28) | (e << 18) | (i << 6) | (a << 5) | o
+
+def _unpack(p):
+    return (
+        (p >> 28) & 0xF,
+        (p >> 18) & 0x3FF,
+        (p >> 6) & 0xFFF,
+        bool((p >> 5) & 0x1),
+        p & 0x1F,
+    )
 
 _vocab_cache: list = []  # List[Tuple] — 每行 10 字段
 _vocab_cache_loaded_at: float = 0
@@ -195,40 +210,39 @@ def _build_audio_url(mp3: str) -> str:
 def _row_to_dict(idx: int) -> dict:
     r = _vocab_cache[idx]
     rid = r[_VF.ID]
+    freq, ec, il, ai, order = _unpack(r[_VF.PACKED]) if len(r) > _VF.PACKED else (0,0,0,False,0)
     # mp3/image_url 从详情缓存获取（无则留空，不额外查 DB）
     detail = _detail_cache.get(rid)
     mp3 = ""
-    img = ""
     if detail is not None and time.time() < detail[0]:
         mp3 = detail[1].get("mp3") or ""
-        img = detail[1].get("image_url") or ""
     return {
         "id": rid,
         "level": r[_VF.LEVEL],
         "word": r[_VF.WORD],
         "reading": r[_VF.READING],
         "pos": r[_VF.POS],
-        "frequency": r[_VF.FREQUENCY],
-        "examples_count": r[_VF.EXAMPLES_COUNT],
-        "insight_len": r[_VF.INSIGHT_LEN],
-        "is_ai_enriched": r[_VF.IS_AI_ENRICHED],
-        "order_no": r[_VF.ORDER_NO],
+        "frequency": freq,
+        "examples_count": ec,
+        "insight_len": il,
+        "is_ai_enriched": ai,
+        "order_no": order,
         "meaning": r[_VF.MEANING] if len(r) > _VF.MEANING else "",
         "mp3": mp3,
         "audio_url": _build_audio_url(mp3),
-        "image_url": img,
+        "image_url": "",
         "tags": list(r[_VF.TAGS]) if len(r) > _VF.TAGS and r[_VF.TAGS] else [],
     }
 
 
-# 详情缓存：避免每次搜索都新建 DB 连接查询 meaning/mp3/image_url
-_detail_cache: Dict[str, tuple] = {}  # id -> (expires_at, {meaning, mp3, image_url})
+# 详情缓存：避免每次搜索都新建 DB 连接查询 mp3
+_detail_cache: Dict[str, tuple] = {}  # id -> (expires_at, {mp3})
 _DETAIL_CACHE_TTL = 300
 _DETAIL_CACHE_MAX = 5000  # 防止无上限增长
 
 
 def _fetch_details(ids: List[str]) -> Dict[str, dict]:
-    """批量获取 meaning/mp3/image_url，优先命中进程内缓存。"""
+    """批量获取 mp3，优先命中进程内缓存。"""
     if not ids:
         return {}
     now_s = time.time()
@@ -256,11 +270,11 @@ def _fetch_details(ids: List[str]) -> Dict[str, dict]:
     try:
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(
-                "SELECT id::text, meaning, mp3, image_url FROM vocab_library WHERE id::text = ANY(%s)",
+                "SELECT id::text, mp3 FROM vocab_library WHERE id::text = ANY(%s)",
                 (missing,)
             )
             for r in cur.fetchall():
-                d = {"meaning": r.get("meaning") or "", "mp3": r.get("mp3") or "", "image_url": r.get("image_url") or ""}
+                d = {"mp3": r.get("mp3") or ""}
                 rid = str(r["id"])
                 result[rid] = d
                 _detail_cache[rid] = (now_s + _DETAIL_CACHE_TTL, d)
@@ -297,20 +311,20 @@ def _load_local_snapshot() -> Optional[List[tuple]]:
         if not ver_row or int(ver_row[0]) != _VOCAB_SNAPSHOT_VERSION:
             lite.close()
             return None
-        # v4 格式：12 列 (id,level,word,reading,pos,freq,examples,insight,enriched,order,meaning,tags)
-        cur.execute("SELECT id, level, word, reading, pos, frequency, examples_count, insight_len, is_ai_enriched, order_no, meaning, tags FROM vocab_snapshot ORDER BY rowid")
+        # v5 格式：8 列 (id,level,word,reading,pos,packed,meaning,tags)
+        cur.execute("SELECT id, level, word, reading, pos, packed, meaning, tags FROM vocab_snapshot ORDER BY rowid")
         rows = []
         import json as _json
         for r in cur.fetchall():
             t = tuple(r)
-            # tags 在 index 11，反序列化 JSON
-            if len(t) >= 12 and isinstance(t[11], str) and t[11].strip():
+            # tags 在 index 7，反序列化 JSON
+            if len(t) >= 8 and isinstance(t[7], str) and t[7].strip():
                 try:
-                    t = t[:11] + (_json.loads(t[11]),)
+                    t = t[:7] + (_json.loads(t[7]),)
                 except Exception:
-                    t = t[:11] + ([],)
-            elif len(t) < 12:
-                t = t + tuple([[]] * max(0, 12 - len(t)))
+                    t = t[:7] + ([],)
+            elif len(t) < 8:
+                t = t + tuple([[]] * max(0, 8 - len(t)))
             rows.append(t)
         lite.close()
         if rows:
@@ -321,8 +335,7 @@ def _load_local_snapshot() -> Optional[List[tuple]]:
 
 
 def _save_local_snapshot(rows: list):
-    """将词库原始 DB 行（12 列）写入本地 SQLite 快照。tags 列序列化为 JSON。
-    使用生成器避免 padded 副本额外占用内存。"""
+    """将 8 列紧凑格式写入本地 SQLite 快照。tags 列序列化为 JSON。"""
     try:
         lite = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
         cur = lite.cursor()
@@ -330,9 +343,7 @@ def _save_local_snapshot(rows: list):
         cur.execute("DROP TABLE IF EXISTS snapshot_meta")
         cur.execute("""CREATE TABLE vocab_snapshot (
             id TEXT, level TEXT, word TEXT, reading TEXT, pos TEXT,
-            frequency INTEGER, examples_count INTEGER, insight_len INTEGER,
-            is_ai_enriched INTEGER, order_no INTEGER,
-            meaning TEXT, tags TEXT
+            packed INTEGER, meaning TEXT, tags TEXT
         )""")
         cur.execute("CREATE TABLE snapshot_meta (key TEXT PRIMARY KEY, value TEXT)")
         cur.execute("INSERT INTO snapshot_meta VALUES ('loaded_at', ?)", (str(time.time()),))
@@ -343,18 +354,19 @@ def _save_local_snapshot(rows: list):
         def _gen():
             for r in rows:
                 t = tuple(r) if not isinstance(r, tuple) else r
-                # 统一为 12 列
-                if len(t) > 12:
-                    t = t[:12]
-                tags_val = t[11] if len(t) > 11 else []
+                if len(t) > 8:
+                    # 来自 DB 的 12 列 → 打包为 8 列
+                    packed = _pack_ints(t[5], t[6], t[7], t[8], t[9])
+                    t = (t[0], t[1], t[2], t[3], t[4], packed, t[10], t[11])
+                tags_val = t[7] if len(t) > 7 else []
                 if isinstance(tags_val, list):
                     tags_val = _json.dumps(tags_val, ensure_ascii=False)
                 else:
                     tags_val = str(tags_val)
-                yield tuple(list(t[:11]) + [tags_val])
+                yield (t[0], t[1], t[2], t[3], t[4], t[5], t[6], tags_val)
 
         cur.executemany(
-            "INSERT INTO vocab_snapshot VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO vocab_snapshot VALUES (?,?,?,?,?,?,?,?)",
             _gen()
         )
         lite.commit()
@@ -364,7 +376,8 @@ def _save_local_snapshot(rows: list):
 
 
 def _build_indexes(rows: list, now_s: float):
-    """从 rows 构建内存索引（紧凑格式 — 仅存整数索引，不回存字符串副本）。"""
+    """从 rows 构建内存索引（8 列紧凑格式，5 个 int 打包为 1）。
+    兼容两种输入：DB 12 列 或快照 8 列（自动检测）。"""
     global _vocab_cache, _vocab_cache_loaded_at
     global _word_index, _reading_index, _tag_index
     entries = []
@@ -372,16 +385,27 @@ def _build_indexes(rows: list, now_s: float):
     ri: List[int] = []
     ti: Dict[str, List[int]] = {}  # tag → [idx, ...]
     for i, row in enumerate(rows):
-        wl = (row[2] or "").lower()
-        rl = (row[3] or "").lower()
-        # 直接存原始 12 列，不附加冗余字段（节省 ~60MB 内存）
-        t = row if isinstance(row, tuple) else tuple(row)
+        rlen = len(row) if hasattr(row, '__len__') else 0
+        if rlen >= 12:
+            # DB 12 列格式 → 打包为 8 列
+            if isinstance(row, tuple):
+                packed = _pack_ints(row[5], row[6], row[7], row[8], row[9])
+                t = (row[0], row[1], row[2], row[3], row[4], packed, row[10], row[11])
+            else:
+                packed = _pack_ints(row[5], row[6], row[7], row[8], row[9])
+                t = (row[0], row[1], row[2], row[3], row[4], packed, row[10], row[11])
+        else:
+            # 快照 8 列格式（已打包）→ 直接使用
+            t = row if isinstance(row, tuple) else tuple(row)
         entries.append(t)
+        wl = (t[2] or "").lower()
+        rl = (t[3] or "").lower()
         if wl:
             wi.append(i)
         if rl:
             ri.append(i)
-        for tag in (list(t[_VF.TAGS]) if len(t) > _VF.TAGS and t[_VF.TAGS] else []):
+        tags = list(t[_VF.TAGS]) if len(t) > _VF.TAGS and t[_VF.TAGS] else []
+        for tag in tags:
             tag = tag.strip()
             if tag:
                 ti.setdefault(tag, []).append(i)
@@ -440,11 +464,8 @@ def _ensure_vocab_cache():
                     rows = cur.fetchall()
                     if rows:
                         _build_indexes(rows, now_s)
-                        # 同步写本地快照（避免 _rows_copy 额外占用 ~80MB 导致 OOM）
-                        try:
-                            _save_local_snapshot(rows)
-                        except Exception:
-                            pass
+                        # 异步写快照（直接传 rows 引用，不复制，避免 GIL 阻塞健康检查）
+                        threading.Thread(target=_save_local_snapshot, args=(rows,), daemon=True).start()
             except Exception:
                 pass
             finally:

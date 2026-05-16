@@ -3971,7 +3971,6 @@ async function startLearning() {
             title.innerText = `候选（${results.length}） · ${query}`;
             list.innerHTML = '';
             results.forEach((r) => {
-                const img = (r.image_url || '').trim();
                 const pos = (r.pos || '').trim();
                 const reading = (r.reading || '').trim();
                 const meaning = (r.meaning || '').trim();
@@ -3980,9 +3979,6 @@ async function startLearning() {
                 item.type = 'button';
                 item.className = 'w-full text-left px-4 py-3 border-b border-gray-100 hover:bg-amber-50 transition-colors flex gap-3 items-center';
                 item.innerHTML = `
-                    <div class="w-[104px] h-[58px] border-2 border-[#333] bg-[#FBF6E9] overflow-hidden flex-shrink-0">
-                        ${img ? `<img src="${img}" class="w-full h-full object-cover" style="image-rendering: pixelated;" />` : `<div class="w-full h-full flex items-center justify-center text-[10px] text-gray-400">NO IMG</div>`}
-                    </div>
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
                             <div class="text-[16px] font-bold">${r.word || ''}</div>
