@@ -189,6 +189,10 @@ def _return_db_conn(conn):
 
 # ── 词库快照（SQLite 直查，无内存缓存）──
 
+# 标签聚合缓存（避免每次 /api/library/tags 全表扫描 198K 行）
+_tags_cache: dict = {}          # {"tags": [...], "expires_at": float}
+_TAGS_CACHE_TTL = 300           # 5 分钟，词库标签极少变动
+
 _snapshot_conn_local = threading.local()
 
 def _snapshot_conn():
@@ -196,13 +200,32 @@ def _snapshot_conn():
     if not hasattr(_snapshot_conn_local, 'db') or _snapshot_conn_local.db is None:
         _snapshot_conn_local.db = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
         _snapshot_conn_local.db.row_factory = sqlite3.Row
+        _snapshot_conn_local.db.execute("PRAGMA journal_mode=WAL")
+        _snapshot_conn_local.db.execute("PRAGMA synchronous=NORMAL")
+        _snapshot_conn_local.db.execute("PRAGMA mmap_size=268435456")
     return _snapshot_conn_local.db
 
 def _snapshot_open():
     """打开快照 SQLite，确认表存在后返回连接。"""
     db = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
     db.row_factory = sqlite3.Row
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA synchronous=NORMAL")
+    db.execute("PRAGMA mmap_size=268435456")
     return db
+
+
+def _invalidate_snapshot_conns():
+    """快照文件替换后，关闭所有线程本地旧连接（下次请求自动重连新文件）。"""
+    global _tags_cache
+    _tags_cache.clear()
+    db_attr = 'db'
+    if hasattr(_snapshot_conn_local, db_attr) and _snapshot_conn_local.db is not None:
+        try:
+            _snapshot_conn_local.db.close()
+        except Exception:
+            pass
+        _snapshot_conn_local.db = None
 
 
 def _ensure_snapshot_indexes(db):
@@ -210,7 +233,23 @@ def _ensure_snapshot_indexes(db):
     db.execute("CREATE INDEX IF NOT EXISTS idx_snap_word ON vocab_snapshot(word)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_snap_reading ON vocab_snapshot(reading)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_snap_level ON vocab_snapshot(level)")
+    # 标签拆解表：一次构建后，words/by-tag 走索引精确查找，避免 198K 行 LIKE 全表扫描
+    db.execute("CREATE TABLE IF NOT EXISTS snapshot_tags (tag TEXT NOT NULL, word_rowid INTEGER NOT NULL, PRIMARY KEY (tag, word_rowid))")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_snap_tags_tag ON snapshot_tags(tag)")
     db.commit()
+    # 如果拆解表为空，批量填充（仅首次）
+    cnt = db.execute("SELECT COUNT(*) as c FROM snapshot_tags").fetchone()["c"]
+    if cnt == 0:
+        rows = db.execute("SELECT rowid, tags FROM vocab_snapshot WHERE tags != ''").fetchall()
+        data = []
+        for r in rows:
+            for t in (r["tags"] or "").split(","):
+                t = t.strip()
+                if t:
+                    data.append((t, r["rowid"]))
+        if data:
+            db.executemany("INSERT OR IGNORE INTO snapshot_tags VALUES (?, ?)", data)
+            db.commit()
 
 
 def _build_audio_url(mp3: str) -> str:
@@ -290,6 +329,7 @@ def _ensure_snapshot_available():
                     _ensure_snapshot_indexes(db)
                     db.close()
                     _snapshot_ready = True
+                    _invalidate_snapshot_conns()
                     return
                 db.close()
             except Exception:
@@ -345,6 +385,7 @@ def _rebuild_snapshot_from_db():
                     _ensure_snapshot_indexes(db)
                     db.close()
                     _snapshot_ready = True
+                    _invalidate_snapshot_conns()  # 快照重建后刷新标签缓存 + 关闭旧连接
     except Exception:
         pass
     finally:
@@ -500,6 +541,7 @@ def _save_local_snapshot(rows: list, first_batch: bool = True):
         if first_batch:
             cur.execute("DROP TABLE IF EXISTS vocab_snapshot")
             cur.execute("DROP TABLE IF EXISTS snapshot_meta")
+            cur.execute("DROP TABLE IF EXISTS snapshot_tags")  # 重建后 _ensure_snapshot_indexes 会重新填充
             cur.execute("""CREATE TABLE vocab_snapshot (
                 id TEXT, level TEXT, word TEXT, reading TEXT, pos TEXT,
                 packed INTEGER, meaning TEXT, tags TEXT
@@ -3420,23 +3462,38 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
 
 @app.get("/api/library/tags")
 async def list_tags():
-    """列出所有标签及对应词数（快照优先，失败回退 DB 直查）。"""
+    """列出所有标签及对应词数（内存缓存 → 快照 schema 表 → DB fallback）。"""
+    global _tags_cache
+    now_s = time.time()
+    if _tags_cache and now_s < _tags_cache.get("expires_at", 0):
+        return {"tags": _tags_cache["tags"]}
+
     _ensure_snapshot_available()
     if os.path.exists(_VOCAB_SNAPSHOT_DB):
-        db = _snapshot_open()
+        db = _snapshot_conn()
         try:
-            tag_counts: Dict[str, int] = {}
-            for row in db.execute("SELECT tags FROM vocab_snapshot"):
-                tags_raw = row["tags"] or ""
-                for t in tags_raw.split(","):
-                    t = t.strip()
-                    if t:
-                        tag_counts[t] = tag_counts.get(t, 0) + 1
-            tags = [{"name": tag, "count": cnt}
-                    for tag, cnt in sorted(tag_counts.items(), key=lambda x: -x[1])]
+            # 优先用 snapshot_tags 拆解表（有索引，秒级聚合）
+            cnt = db.execute("SELECT COUNT(*) as c FROM snapshot_tags").fetchone()["c"]
+            if cnt > 0:
+                rows = db.execute(
+                    "SELECT tag, COUNT(*) as cnt FROM snapshot_tags GROUP BY tag ORDER BY cnt DESC"
+                ).fetchall()
+                tags = [{"name": r["tag"], "count": r["cnt"]} for r in rows]
+            else:
+                # fallback: 全表扫描（仅首次）
+                tag_counts: Dict[str, int] = {}
+                for row in db.execute("SELECT tags FROM vocab_snapshot"):
+                    tags_raw = row["tags"] or ""
+                    for t in tags_raw.split(","):
+                        t = t.strip()
+                        if t:
+                            tag_counts[t] = tag_counts.get(t, 0) + 1
+                tags = [{"name": tag, "count": cnt}
+                        for tag, cnt in sorted(tag_counts.items(), key=lambda x: -x[1])]
+            _tags_cache = {"tags": tags, "expires_at": now_s + _TAGS_CACHE_TTL}
             return {"tags": tags}
-        finally:
-            db.close()
+        except Exception:
+            pass
     # DB fallback
     try:
         conn = _get_db_conn()
@@ -3448,6 +3505,7 @@ async def list_tags():
         with conn.cursor() as cur:
             cur.execute("SELECT unnest(tags) as t, count(*) FROM vocab_library WHERE tags IS NOT NULL GROUP BY t ORDER BY count(*) DESC")
             tags = [{"name": r[0], "count": r[1]} for r in cur.fetchall()]
+        _tags_cache = {"tags": tags, "expires_at": now_s + _TAGS_CACHE_TTL}
         return {"tags": tags}
     except Exception:
         return {"tags": []}
@@ -3457,25 +3515,42 @@ async def list_tags():
 
 @app.get("/api/library/words/by-tag")
 async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
-    """按标签分页取词（快照优先，失败回退 DB 直查）。"""
+    """按标签分页取词（快照优先，走 snapshot_tags 索引；失败回退 DB 直查）。"""
     _ensure_snapshot_available()
     tag_clean = tag.strip()
     if os.path.exists(_VOCAB_SNAPSHOT_DB):
-        db = _snapshot_open()
+        db = _snapshot_conn()
         try:
-            count_row = db.execute(
-                "SELECT COUNT(*) as cnt FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ?",
-                ('%,' + tag_clean + ',%',)
-            ).fetchone()
-            total = count_row["cnt"] if count_row else 0
-            rows = db.execute(
-                "SELECT * FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ? ORDER BY word LIMIT ? OFFSET ?",
-                ('%,' + tag_clean + ',%', int(limit), int(offset))
-            ).fetchall()
+            # 优先用 snapshot_tags 索引表（精确 JOIN，避免 LIKE 全表扫描）
+            cnt = db.execute("SELECT COUNT(*) as c FROM snapshot_tags").fetchone()["c"]
+            if cnt > 0:
+                total_row = db.execute(
+                    "SELECT COUNT(*) as cnt FROM snapshot_tags WHERE tag = ?", (tag_clean,)
+                ).fetchone()
+                total = total_row["cnt"] if total_row else 0
+                rows = db.execute(
+                    """SELECT vs.id, vs.level, vs.word, vs.reading, vs.pos, vs.packed, vs.meaning, vs.tags
+                       FROM vocab_snapshot vs
+                       INNER JOIN snapshot_tags st ON vs.rowid = st.word_rowid
+                       WHERE st.tag = ?
+                       ORDER BY vs.word LIMIT ? OFFSET ?""",
+                    (tag_clean, int(limit), int(offset))
+                ).fetchall()
+            else:
+                # fallback: LIKE 扫描（旧快照未建 snapshot_tags 表时）
+                total_row = db.execute(
+                    "SELECT COUNT(*) as cnt FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ?",
+                    ('%,' + tag_clean + ',%',)
+                ).fetchone()
+                total = total_row["cnt"] if total_row else 0
+                rows = db.execute(
+                    "SELECT * FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ? ORDER BY word LIMIT ? OFFSET ?",
+                    ('%,' + tag_clean + ',%', int(limit), int(offset))
+                ).fetchall()
             words = [_snapshot_row_to_dict(r) for r in rows]
             return {"tag": tag_clean, "total": total, "offset": offset, "words": words}
-        finally:
-            db.close()
+        except Exception:
+            pass
     # DB fallback
     try:
         conn = _get_db_conn()

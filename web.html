@@ -2414,13 +2414,20 @@
                 renderListGroups(_listTagsCache);
                 return;
             }
+            var grid = document.getElementById('listGroupsGrid');
+            if (grid) grid.innerHTML = '<p class="text-gray-400 text-center py-12"><i class="fa-solid fa-spinner fa-spin mr-2"></i>加载分类中...</p>';
             try {
-                var res = await fetch('/api/library/tags');
-                if (!res.ok) return;
+                var ctrl = new AbortController();
+                var tid = setTimeout(function() { ctrl.abort(); }, 10000);
+                var res = await fetch('/api/library/tags', { signal: ctrl.signal });
+                clearTimeout(tid);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
                 var data = await res.json();
                 _listTagsCache = data.tags || [];
                 renderListGroups(_listTagsCache);
-            } catch (_) {}
+            } catch (_) {
+                if (grid) grid.innerHTML = '<p class="text-red-500 text-center py-8">分类加载失败，<a href="javascript:void(0)" class="underline" onclick="_listTagsCache=null;fetchListTags()">点此重试</a></p>';
+            }
         }
 
         function renderListGroups(tags) {
@@ -2804,7 +2811,10 @@
             var loadBtn = document.getElementById('listWordsLoadBtn');
             if (loadBtn) { loadBtn.disabled = true; loadBtn.textContent = '加载中...'; }
             try {
-                var res = await fetch('/api/library/words/by-tag?tag=' + encodeURIComponent(tag) + '&offset=' + offset + '&limit=50');
+                var ctrl = new AbortController();
+                var tid = setTimeout(function() { ctrl.abort(); }, 15000);
+                var res = await fetch('/api/library/words/by-tag?tag=' + encodeURIComponent(tag) + '&offset=' + offset + '&limit=50', { signal: ctrl.signal });
+                clearTimeout(tid);
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 var data = await res.json();
                 _listWordsCache[cacheKey] = data;
@@ -2812,7 +2822,7 @@
             } catch (_) {
                 if (offset === 0) {
                     var container = document.getElementById('listWordsContainer');
-                    if (container) container.innerHTML = '<p class="text-red-500 text-center py-8">加载失败，请稍后重试</p>';
+                    if (container) container.innerHTML = '<p class="text-red-500 text-center py-8">加载失败，<a href="javascript:void(0)" class="underline" onclick="fetchListWords(\'' + _listCurrentTag + '\',0)">点此重试</a></p>';
                 }
             } finally {
                 if (loadBtn) { loadBtn.disabled = false; loadBtn.textContent = '加载更多'; }
