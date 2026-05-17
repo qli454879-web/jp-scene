@@ -165,15 +165,6 @@
             flex-shrink: 0;
         }
 
-        /* 背单词模块：字体与卡片风格统一（更贴近全站像素风 + 干净排版） */
-        #vocabLearningScreen .card-pixel,
-        #vocabSummaryScreen .card-pixel {
-            font-family: 'Noto Sans JP', system-ui, -apple-system, sans-serif;
-        }
-        #vocabLearningScreen .pixel-font,
-        #vocabSummaryScreen .pixel-font {
-            letter-spacing: 0.06em;
-        }
         .xue-bubble {
             border: 2px solid #333 !important;
             box-shadow: 3px 3px 0px #333;
@@ -295,17 +286,6 @@
             word-break: break-word;
             overflow-wrap: anywhere;
         }
-        #vocabLearningScreen #studyPromptLabel,
-        #vocabLearningScreen #studyFrontHint,
-        #vocabLearningScreen #frontCardActions,
-        #vocabLearningScreen #vocabMetaRow {
-            margin-bottom: 0.5rem;
-            justify-content: center;
-        }
-        #vocabLearningScreen #vocabBackActions {
-            margin-top: auto;
-            justify-content: center;
-        }
         @media (max-width: 640px) {
             .vocab-card-container {
                 max-width: 100%;
@@ -357,7 +337,6 @@
         </div>
         <nav class="flex gap-8 bg-white/80 backdrop-blur px-6 py-3 border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
             <span class="nav-link" onclick="resetToHome()">搜索</span>
-            <span class="nav-link" onclick="openVocabMode()">背单词</span>
             <span class="nav-link" onclick="openListView()">自制单词表</span>
             <div id="userArea" class="flex gap-4">
                 <span class="nav-link" onclick="toggleAuthModal()">登录/注册</span>
@@ -562,267 +541,7 @@
         </div>
     </div>
 
-    <!-- Vocab Learning Section -->
-    <section id="vocabView" class="content-view !pt-32">
-        <!-- Step 1: Level Selection Screen -->
-        <div id="vocabLevelSelector" class="max-w-2xl mx-auto text-center reveal">
-            <div class="mb-12">
-                <div class="w-20 h-20 bg-green-100 text-green-600 rounded-2xl flex items-center justify-center text-4xl mx-auto mb-6 shadow-[4px_4px_0px_#333] border-2 border-gray-800">
-                    <i class="fa-solid fa-book-open"></i>
-                </div>
-                <h2 class="pixel-font text-3xl mb-2">VOCAB MASTERY</h2>
-                <p class="text-gray-400 text-sm">选择您的日语水平，开启沉浸式单词记忆之旅</p>
-            </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-                <button onclick="selectLevel('N5')" id="selJLPT" class="level-btn active p-6 border-3 border-gray-800 bg-white shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
-                    <div class="text-2xl font-bold mb-1">JLPT</div>
-                    <div class="text-[9px] text-gray-400 uppercase tracking-tighter">N1 - N5</div>
-                </button>
-                <button onclick="selectLevel('KAOYAN')" id="selKAOYAN" class="level-btn p-6 border-3 border-gray-800 bg-white shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
-                    <div class="text-2xl font-bold mb-1">考研词汇</div>
-                    <div class="text-[9px] text-gray-400 uppercase tracking-tighter">KAOYAN</div>
-                </button>
-            </div>
-
-            <div id="jlptSublevels" class="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-12">
-                <button onclick="selectLevel('N5')" id="selN5" class="level-btn active p-6 border-3 border-gray-800 bg-white shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
-                    <div class="text-2xl font-bold mb-1">N5</div>
-                    <div class="text-[9px] text-gray-400 uppercase tracking-tighter">Beginner</div>
-                </button>
-                <button onclick="selectLevel('N4')" id="selN4" class="level-btn p-6 border-3 border-gray-800 bg-white shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
-                    <div class="text-2xl font-bold mb-1">N4</div>
-                    <div class="text-[9px] text-gray-400 uppercase tracking-tighter">Basic</div>
-                </button>
-                <button onclick="selectLevel('N3')" id="selN3" class="level-btn p-6 border-3 border-gray-800 bg-white shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
-                    <div class="text-2xl font-bold mb-1">N3</div>
-                    <div class="text-[9px] text-gray-400 uppercase tracking-tighter">Intermediate</div>
-                </button>
-                <button onclick="selectLevel('N2')" id="selN2" class="level-btn p-6 border-3 border-gray-800 bg-white shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
-                    <div class="text-2xl font-bold mb-1">N2</div>
-                    <div class="text-[9px] text-gray-400 uppercase tracking-tighter">Advanced</div>
-                </button>
-                <button onclick="selectLevel('N1')" id="selN1" class="level-btn p-6 border-3 border-gray-800 bg-white shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
-                    <div class="text-2xl font-bold mb-1">N1</div>
-                    <div class="text-[9px] text-gray-400 uppercase tracking-tighter">Master</div>
-                </button>
-            </div>
-
-            <div class="card-pixel !p-6 mb-8 text-left">
-                <div class="text-[10px] text-gray-400">查词对所有人开放；背单词需要登录以保存进度。</div>
-            </div>
-
-            <button onclick="startLearning()" class="w-full max-w-xs bg-gray-800 text-white py-4 font-bold pixel-font text-xl shadow-[6px_6px_0px_#10B981] hover:bg-green-600 transition-all">
-                START LEARNING / 开始学习
-            </button>
-        </div>
-
-        <!-- Step 2: Learning Screen (Flashcards) -->
-        <div id="vocabLearningScreen" class="max-w-2xl mx-auto text-center hidden">
-            <div class="flex justify-between items-center mb-8">
-                <button onclick="backToLevels()" class="text-[10px] font-bold text-gray-400 hover:text-gray-800">
-                    <i class="fa-solid fa-chevron-left mr-1"></i> 切换词书
-                </button>
-                <div class="px-3 py-1 bg-gray-100 border-2 border-gray-800 text-[10px] font-bold" id="currentLevelBadge">JLPT N5</div>
-            </div>
-
-            <!-- Progress Bar -->
-            <div class="mb-8">
-                <div class="flex justify-between text-[10px] text-gray-400 mb-2">
-                    <span class="font-bold tracking-widest uppercase">Progress / 进度</span>
-                    <span id="vocabProgress">0 / 0</span>
-                </div>
-                <div class="w-full h-2 bg-gray-100 border-2 border-gray-800 rounded-full overflow-hidden">
-                    <div id="vocabProgressBar" class="h-full bg-green-500 transition-all duration-500" style="width: 0%"></div>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 text-left">
-                <div class="p-3 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
-                    <div class="text-[10px] text-gray-400 font-bold">待复习</div>
-                    <div id="studyReviewLeft" class="text-xl font-bold pixel-font">0</div>
-                </div>
-                <div class="p-3 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
-                    <div class="text-[10px] text-gray-400 font-bold">待新词</div>
-                    <div id="studyNewLeft" class="text-xl font-bold pixel-font">0</div>
-                </div>
-                <div class="p-3 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
-                    <div class="text-[10px] text-gray-400 font-bold">当前题型</div>
-                    <div id="studyModeTop" class="text-sm font-bold">看词想义</div>
-                </div>
-                <div class="p-3 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
-                    <div class="text-[10px] text-gray-400 font-bold">当前阶段</div>
-                    <div id="studyPhaseTop" class="text-sm font-bold">先复习</div>
-                </div>
-            </div>
-
-            <!-- Vocab Card -->
-            <div class="flex justify-center gap-2 flex-wrap mb-4">
-                <span id="studyKindBadge" class="text-[10px] px-3 py-1 bg-amber-100 border-2 border-gray-800 font-bold shadow-[3px_3px_0px_#333]">复习</span>
-                <span id="studyModeBadge" class="text-[10px] px-3 py-1 bg-sky-100 border-2 border-gray-800 font-bold shadow-[3px_3px_0px_#333]">看词想义</span>
-                <span id="studyQueueBadge" class="text-[10px] px-3 py-1 bg-white border-2 border-gray-800 font-bold shadow-[3px_3px_0px_#333]">第 1 题</span>
-            </div>
-            <div id="studyPromptHint" class="mb-4 text-[12px] font-bold text-gray-500">看到单词，先自己想意思，再点显示答案</div>
-            <div class="vocab-card-container mb-8">
-                <div id="vocabCard" class="vocab-card cursor-pointer">
-                    <div class="vocab-card-front">
-                        <span id="studyPromptLabel" class="text-[10px] text-gray-400 mb-4 tracking-widest uppercase">Word / 単語</span>
-                        <h2 id="vocabWord" class="text-6xl font-bold serif">---</h2>
-                        <div id="vocabWordRuby" class="hidden text-6xl font-bold serif leading-tight"></div>
-                        <div id="frontCardActions" class="mt-6 flex justify-center gap-4">
-                            <button type="button" onclick="playVocabAudio()" id="vocabFrontAudioBtn" class="audio-btn" title="播放读音"><i class="fa-solid fa-volume-up"></i></button>
-                            <button type="button" onclick="toggleVocabFavorite()" id="vocabFavBtn" class="w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full hover:bg-red-50 transition-colors"><i class="fa-regular fa-heart text-gray-400"></i></button>
-                        </div>
-                        <p id="studyFrontHint" class="mt-8 text-[10px] text-gray-300 animate-pulse">点击卡片或点下方按钮，显示答案</p>
-                    </div>
-                    <div class="vocab-card-back">
-                        <div id="offenseRiskBanner" class="hidden mb-3 p-2 border-2 border-red-500 bg-red-50 text-red-700 text-[10px] font-bold text-left">
-                            ⚠ 失礼风险较高：该词在部分社交场景中容易冒犯，请谨慎使用。
-                        </div>
-                        <h3 id="vocabKana" class="text-2xl text-green-600 mb-2">---</h3>
-                        <p id="vocabMeaning" class="text-xl font-bold mb-4">---</p>
-                        <div id="vocabMetaRow" class="flex flex-wrap gap-2 mb-3">
-                            <span id="vocabPosBadge" class="text-[10px] px-2 py-1 bg-white border border-gray-200">词性：---</span>
-                            <span id="vocabUsageFreq" class="text-[10px] px-2 py-1 bg-orange-50 border border-orange-300">频次：---</span>
-                        </div>
-
-                        <!-- 小雪梨提示 -->
-                        <div id="vocabTipBox" class="mb-4 p-3 bg-blue-50 border-2 border-blue-100 rounded-xl relative text-left">
-                            <div class="absolute -top-3 left-4 bg-blue-500 text-white text-[8px] px-2 py-0.5 rounded-full font-bold">小雪梨提示</div>
-                            <p id="vocabTip" class="text-[11px] text-blue-800 leading-relaxed italic">点一下生成，小雪梨会给你一个便于记忆的小技巧。</p>
-                            <div class="mt-2 flex justify-end">
-                                <button onclick="generateVocabTip(); event.stopPropagation();" class="text-[10px] font-bold underline underline-offset-4 text-blue-700 hover:text-blue-900">生成提示</button>
-                            </div>
-                        </div>
-
-                        <div id="vocabBackActions" class="flex gap-3">
-                            <button type="button" onclick="playVocabAudio()" id="vocabBackAudioBtn" class="px-3 py-2 bg-white border-2 border-gray-800 text-[10px] font-bold hover:bg-green-50 transition-colors" title="播放读音">
-                                <i class="fa-solid fa-volume-up mr-1"></i> 听读音
-                            </button>
-                            <button type="button" onclick="toggleVocabFavorite()" id="vocabBackFavBtn" class="px-3 py-2 bg-gray-100 text-[10px] font-bold hover:bg-red-50 transition-colors">
-                                <i class="fa-regular fa-heart mr-1"></i> 收藏
-                            </button>
-                            <button type="button" onclick="analyzeVocab()" class="px-4 py-2 bg-gray-800 text-white text-[10px] font-bold hover:bg-green-600 transition-all">
-                                深度解析
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div id="studyInputArea" class="hidden mt-10 mb-6">
-                <div class="p-4 bg-white border-2 border-gray-800 shadow-[4px_4px_0px_#333] text-left">
-                    <label id="studyInputLabel" class="block text-[11px] text-gray-500 font-bold mb-2">请输入你听到的假名</label>
-                    <input id="studyAnswerInput" type="text" class="w-full border-2 border-gray-800 p-3 text-lg font-bold outline-none focus:border-green-500 bg-white" placeholder="例如：あれ">
-                    <label id="studyMeaningInputLabel" class="block text-[11px] text-gray-500 font-bold mt-4 mb-2 hidden">再输入中文意思</label>
-                    <input id="studyMeaningInput" type="text" class="hidden w-full border-2 border-gray-800 p-3 text-lg font-bold outline-none focus:border-green-500 bg-emerald-50" placeholder="例如：那个">
-                    <div id="studyInputFeedback" class="mt-2 text-[11px] text-gray-500">先播放音频，再输入假名。</div>
-                </div>
-            </div>
-
-            <div class="flex justify-center gap-3 flex-wrap mb-4">
-                <button id="revealAnswerBtn" onclick="revealStudyAnswer()" class="bg-gray-800 text-white border-2 border-gray-800 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#10B981] hover:bg-green-600 transition-all">显示答案</button>
-                <button id="submitAnswerBtn" onclick="submitStudyInput()" class="hidden bg-sky-100 border-2 border-sky-500 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#333] hover:bg-sky-500 hover:text-white transition-all">提交输入</button>
-            </div>
-
-            <div id="ratingArea" class="flex justify-center gap-3 flex-wrap">
-                <button id="rateDontKnowBtn" onclick="rateCurrent('dont_know')" class="bg-red-50 border-2 border-red-500 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#333] hover:bg-red-500 hover:text-white transition-all">不认识</button>
-                <button id="rateFuzzyBtn" onclick="rateCurrent('fuzzy')" class="bg-yellow-50 border-2 border-yellow-500 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#333] hover:bg-yellow-500 hover:text-white transition-all">模糊</button>
-                <button id="rateKnowBtn" onclick="rateCurrent('know')" class="bg-green-100 border-2 border-green-500 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#333] hover:bg-green-500 hover:text-white transition-all">认识</button>
-                <button id="finishSessionBtn" onclick="finishSessionEarly()" class="bg-white border-2 border-gray-800 px-6 py-3 font-bold text-sm shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">结束学习</button>
-            </div>
-            <div id="ratingHint" class="mt-3 text-[11px] text-gray-500 text-center">先点“显示答案”，再进行评分。</div>
-
-            <div class="card-pixel !p-5 mt-6 text-left">
-                <div class="flex items-center gap-3 mb-3">
-                    <img id="xuexueliAvatar" src="/xuexueli_avatar_64.png" alt="小雪梨" class="w-9 h-9 border-2 border-gray-800 bg-white" style="image-rendering: pixelated;" />
-                    <div>
-                        <div class="text-sm font-bold pixel-font tracking-widest">小雪梨</div>
-                        <div class="text-[10px] text-gray-500">哈基米日语博士 · 随时解答你的日语问题</div>
-                    </div>
-                    <div id="xuexueliSideMsg" class="ml-auto hidden text-[10px] text-gray-700 bg-white border-2 border-gray-800 px-2 py-1 shadow-[3px_3px_0px_#333]">
-                        快来找我玩啊
-                    </div>
-                </div>
-                <div id="studyChatBox" class="space-y-2 max-h-[180px] overflow-y-auto custom-scrollbar mb-3 text-sm">
-                    <div class="p-3 bg-blue-50 border-2 border-blue-100 rounded text-blue-800 text-[12px] leading-relaxed">
-                        你好！我叫小雪梨，我是哈基米日语博士！有什么日语问题尽管问我！
-                    </div>
-                </div>
-                <div class="flex gap-2">
-                    <input id="studyAiInput" type="text" placeholder="问小雪梨..." class="flex-1 border-2 border-gray-800 p-2 text-sm outline-none focus:border-green-500">
-                    <button id="studyAiSendBtn" class="px-3 bg-gray-800 text-white border-2 border-gray-800 hover:bg-green-600"><i class="fa-solid fa-paper-plane"></i></button>
-                </div>
-            </div>
-        </div>
-
-        <div id="vocabSummaryScreen" class="max-w-2xl mx-auto hidden">
-            <div class="card-pixel text-center reveal">
-                <div class="flex flex-col items-center">
-                    <img src="/arigatou_256.png" alt="ありがとう" class="w-[220px] max-w-full border-3 border-[#333] shadow-[6px_6px_0px_#333] mb-5" style="image-rendering: pixelated;" />
-                </div>
-                <div class="text-[10px] font-bold tracking-widest uppercase text-gray-400 mb-3">SESSION SUMMARY</div>
-                <div class="pixel-font text-2xl mb-2">今日の学習お疲れ様でした！</div>
-                <div class="text-[11px] text-gray-500 mb-6">这组单词已完成，可以再来一组或回到首页。</div>
-                <div class="grid grid-cols-2 gap-4 mb-6">
-                    <div class="p-4 bg-gray-50 border-2 border-gray-800">
-                        <div class="text-[10px] text-gray-400 mb-1">完成</div>
-                        <div id="sumDone" class="text-2xl font-bold pixel-font tracking-widest">0</div>
-                    </div>
-                    <div class="p-4 bg-gray-50 border-2 border-gray-800">
-                        <div class="text-[10px] text-gray-400 mb-1">用时</div>
-                        <div id="sumTime" class="text-2xl font-bold pixel-font tracking-widest">0m</div>
-                    </div>
-                    <div class="p-4 bg-green-50 border-2 border-green-500">
-                        <div class="text-[10px] text-gray-400 mb-1">认识</div>
-                        <div id="sumKnow" class="text-2xl font-bold pixel-font tracking-widest">0</div>
-                    </div>
-                    <div class="p-4 bg-yellow-50 border-2 border-yellow-500">
-                        <div class="text-[10px] text-gray-400 mb-1">模糊</div>
-                        <div id="sumFuzzy" class="text-2xl font-bold pixel-font tracking-widest">0</div>
-                    </div>
-                    <div class="p-4 bg-red-50 border-2 border-red-500">
-                        <div class="text-[10px] text-gray-400 mb-1">不认识</div>
-                        <div id="sumDont" class="text-2xl font-bold pixel-font tracking-widest">0</div>
-                    </div>
-                    <div class="p-4 bg-blue-50 border-2 border-blue-500">
-                        <div class="text-[10px] text-gray-400 mb-1">新词</div>
-                        <div id="sumNew" class="text-2xl font-bold pixel-font tracking-widest">0</div>
-                    </div>
-                    <div class="p-4 bg-purple-50 border-2 border-purple-500">
-                        <div class="text-[10px] text-gray-400 mb-1">复习</div>
-                        <div id="sumReview" class="text-2xl font-bold pixel-font tracking-widest">0</div>
-                    </div>
-                </div>
-                <div class="flex justify-center gap-4">
-                    <button onclick="backToLevels()" class="bg-white border-2 border-gray-800 px-6 py-3 font-bold pixel-font shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">再来一组</button>
-                    <button onclick="resetToHome()" class="bg-gray-800 text-white px-6 py-3 font-bold pixel-font shadow-[4px_4px_0px_#10B981] hover:bg-green-600 transition-all">回到首页</button>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <div id="batchSummaryModal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-[600] hidden flex items-center justify-center p-4">
-        <div class="card-pixel w-full max-w-2xl reveal">
-            <div class="flex items-center justify-between mb-4">
-                <div class="pixel-font text-xl">阶段汇总</div>
-                <button onclick="closeBatchSummary()" class="text-gray-400 hover:text-gray-800"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <div class="text-[10px] text-gray-400 mb-4">回顾这一组单词：点击条目可在“遮盖/揭示”间切换。</div>
-            <div class="flex flex-wrap gap-2 mb-4">
-                <button id="summaryCoverWordBtn" onclick="toggleSummaryCover('word')" class="summary-toggle px-3 py-2 bg-white border-2 border-gray-800 text-[10px] font-bold shadow-[3px_3px_0px_#333]">遮盖单词</button>
-                <button id="summaryCoverKanaBtn" onclick="toggleSummaryCover('kana')" class="summary-toggle px-3 py-2 bg-white border-2 border-gray-800 text-[10px] font-bold shadow-[3px_3px_0px_#333]">遮盖读音</button>
-                <button id="summaryCoverMeaningBtn" onclick="toggleSummaryCover('meaning')" class="summary-toggle px-3 py-2 bg-white border-2 border-gray-800 text-[10px] font-bold shadow-[3px_3px_0px_#333]">遮盖释义</button>
-                <button id="summaryRevealAllBtn" onclick="setBatchRevealAll(true)" class="summary-action px-3 py-2 bg-gray-800 text-white text-[10px] font-bold shadow-[3px_3px_0px_#10B981] hover:bg-green-600 transition-colors">一键揭示</button>
-            </div>
-            <div id="batchList" class="max-h-[320px] overflow-y-auto custom-scrollbar space-y-2 mb-6"></div>
-            <div class="flex justify-end gap-3">
-                <button onclick="closeBatchSummary()" class="bg-gray-800 text-white px-6 py-3 font-bold shadow-[4px_4px_0px_#10B981] hover:bg-green-600 transition-all">继续学习</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Study Insight Modal（改成与“搜单词单词卡”同风格） -->
     <div id="studyInsightModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-[650] p-4">
         <div class="w-full max-w-3xl reveal">
             <div class="card-pixel !p-0 bg-white">
@@ -1146,8 +865,6 @@
         });
 
         // Vocab State Management
-        let currentVocabLevel = 'N5';
-        let currentVocabData = null;
         let currentStudyModalData = null;
         let currentSearchAudioFn = '';
         let currentReportContext = null;
@@ -1163,7 +880,6 @@
         let activeInviteCode = localStorage.getItem('inviteCode') || null;
         let pendingInviteSession = null;
         try { const _pis = sessionStorage.getItem('pendingInviteSession'); if (_pis) pendingInviteSession = JSON.parse(_pis); } catch (e) {}
-        let isLearningSession = false;
 
         // 记住用户上次选择的词书，避免“进入背词又跳回 N5”
         try {
@@ -1217,7 +933,8 @@
                 supabaseProfile = supabaseProfile || {};
                 supabaseProfile.is_level_public = is_level_public;
                 supabaseProfile.current_level = current_level;
-                selectLevel(current_level);
+                currentVocabLevel = current_level;
+                localStorage.setItem('lastVocabLevel', current_level);
                 toggleSettingsModal();
             } catch (e) {
                 alert('保存失败，请稍后重试');
@@ -1304,15 +1021,13 @@
                 }
                 localStorage.setItem('currentUser', currentUser);
                 if (currentUserKey) localStorage.setItem('currentUserKey', currentUserKey);
-                loadPendingRates();
                 const lv = (supabaseProfile && (supabaseProfile.current_level || supabaseProfile.initial_level)) ? (supabaseProfile.current_level || supabaseProfile.initial_level) : null;
                 // 若用户已经手动选择过词书（lastVocabLevel 存在），不要用 profile 覆盖，避免跳回 N5
                 const hasManual = !!((localStorage.getItem('lastVocabLevel') || '').trim());
-                if (lv && !hasManual && !isLearningSession) selectLevel(lv);
+                if (lv && !hasManual) currentVocabLevel = lv;
             } catch (e) {
                 currentUser = '已登录';
                 localStorage.setItem('currentUser', currentUser);
-                loadPendingRates();
             }
         }
 
@@ -1683,7 +1398,6 @@
         initSupabase();
 
         // 启动后尝试把上次没发完的评分同步出去（用户担心“退出后像没背过”）
-        setTimeout(() => { try { flushPendingRates(); } catch (e) {} }, 900);
 
         // 支持从其他页面跳回首页后自动打开收藏夹（保持右下角入口一致）
         (function handleOpenParam() {
@@ -1712,19 +1426,6 @@
             } catch (e) {}
         })();
 
-        let studyQueue = [];
-        let queueIndex = 0;
-        let sessionTarget = 50;
-        let sessionStartTs = 0;
-        let sessionStats = { know: 0, fuzzy: 0, dont_know: 0, newDone: 0, reviewDone: 0 };
-        let coverConfig = { word: false, kana: false, meaning: true };
-        let isRevealed = false;
-        let batchRevealed = {};
-        let summaryCoverConfig = { word: false, kana: true, meaning: true };
-        let ratingBusy = false;
-        const batchSize = 10;
-        const vocabMetaCache = new Map();
-        const vocabTipCache = new Map(); // 小雪梨提示缓存（避免重复消耗）
         let favoritesSet = new Set();
         let currentStudyMode = 'meaning';
         let studyAnswerShown = false;
@@ -1738,40 +1439,16 @@
             return /^[\u30A0-\u30FFー]+$/.test((text || '').trim());
         }
 
+        function todayStr() { return new Date().toISOString().slice(0, 10); }
+        function xueTodayKey() { return `xueAiExhausted:${todayStr()}`; }
+        function xueIsExhausted() { try { return localStorage.getItem(xueTodayKey()) === '1'; } catch(e) { return false; } }
+        function xueSetExhausted() { try { localStorage.setItem(xueTodayKey(), '1'); } catch(e) {} }
+
         // 判断是否“日语句子/日语问题”：至少包含假名（平假名/片假名）
         function looksJapanese(text) {
             return /[\u3040-\u30FF]/.test((text || '').trim());
         }
 
-        async function ensureVocabMeta(entry) {
-            if (!entry || !entry.word) return;
-            const key = entry.word;
-            if (vocabMetaCache.has(key)) {
-                Object.assign(entry, vocabMetaCache.get(key));
-                return;
-            }
-
-            const meaning = (entry.meaning || '').trim();
-            const need = !hasChinese(meaning) || isKatakana(entry.word);
-            if (!need) return;
-
-            try {
-                const res = await fetch(`/api/vocab/meta?word=${encodeURIComponent(entry.word)}&kana=${encodeURIComponent(entry.kana || '')}&meaning=${encodeURIComponent(meaning)}`);
-                const data = await res.json();
-                const meta = {
-                    meaning_zh: (data.meaning_zh || meaning).trim(),
-                    origin: data.origin || null
-                };
-                vocabMetaCache.set(key, meta);
-                // 防止缓存无限增长导致移动端内存压力（可能引发“闪退/白屏”）
-                if (vocabMetaCache.size > 600) {
-                    const firstKey = vocabMetaCache.keys().next().value;
-                    if (firstKey) vocabMetaCache.delete(firstKey);
-                }
-                Object.assign(entry, meta);
-            } catch (e) {
-            }
-        }
 
         function getEntryId(entry) {
             return entry?.id || entry?.entry_id || entry?.word_id || null;
@@ -1844,13 +1521,6 @@
             };
         }
 
-        function todayStr() {
-            const d = new Date();
-            const y = d.getFullYear();
-            const m = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            return `${y}-${m}-${day}`;
-        }
 
         function renderWordRuby(word, kana) {
             const plain = document.getElementById('vocabWord');
@@ -1873,47 +1543,6 @@
             }
         }
 
-        function playVocabAudio() {
-            let fn = (currentVocabData?.mp3 || currentVocabData?.audio_filename || '').trim();
-            // 若是完整 URL，提取末尾文件名
-            if (fn.startsWith('http')) {
-              const segs = fn.split('/');
-              fn = segs[segs.length - 1] || fn;
-            }
-            const sharedAudio = document.getElementById('globalAudio') || window.__jpAudio || new Audio();
-            try {
-                sharedAudio.preload = 'auto';
-                sharedAudio.playsInline = true;
-                sharedAudio.setAttribute('playsinline', '');
-                sharedAudio.setAttribute('webkit-playsinline', '');
-                sharedAudio.muted = false;
-                sharedAudio.volume = 1;
-            } catch (e) {}
-            window.__jpAudio = sharedAudio;
-            if (!fn) {
-                syncStudyAudioButtons(false);
-                const inputFeedback = document.getElementById('studyInputFeedback');
-                if (currentStudyMode === 'audio' && inputFeedback) inputFeedback.innerText = '当前词条暂无音频，请直接看答案并评分。';
-                return;
-            }
-            const url = `/api/vocab/audio/${encodeURIComponent(fn)}`;
-            const sameSrc = (sharedAudio.getAttribute('data-src') || '') === url;
-            try { sharedAudio.pause(); } catch (e) {}
-            if (!sameSrc) {
-                sharedAudio.src = url;
-                sharedAudio.setAttribute('data-src', url);
-                try { sharedAudio.load(); } catch (e) {}
-            }
-            try { sharedAudio.currentTime = 0; } catch (e) {}
-            setAudioButtonsPlaying(true);
-            sharedAudio.onended = () => setAudioButtonsPlaying(false);
-            sharedAudio.onpause = () => setAudioButtonsPlaying(false);
-            sharedAudio.onerror = () => setAudioButtonsPlaying(false);
-            sharedAudio.play().catch((err) => {
-                console.warn('audio play failed', err);
-                setAudioButtonsPlaying(false);
-            });
-        }
 
         function primeVocabAudio(data) {
             const fn = String(data?.mp3 || data?.audio_filename || '').trim();
@@ -1951,7 +1580,7 @@
         }
 
         function toggleVocabFavorite(scope) {
-            const data = scope === 'modal' ? currentStudyModalData : currentVocabData;
+            const data = currentStudyModalData;
             if (!data) return;
             if (!authToken) { toggleAuthModal(); return; }
             const id = getEntryId(data);
@@ -1965,7 +1594,7 @@
             const url = isFav ? `/api/v3/favorites/${encodeURIComponent(id)}` : `/api/v3/favorites`;
             const opt = isFav
                 ? { method: 'DELETE' }
-                : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entry_id: id, level: String(data.level || currentVocabLevel || '') }) };
+                : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entry_id: id, level: String(data.level || '') }) };
             authFetch(url, opt).catch(() => {
                 // 回滚
                 if (isFav) favoritesSet.add(String(id));
@@ -1992,860 +1621,44 @@
                         : '<i class="fa-regular fa-heart text-gray-400"></i>';
                 }
             };
-            update('vocabFavBtn', currentVocabData);
-            update('vocabBackFavBtn', currentVocabData);
             update('siFavBtn', currentStudyModalData);
         }
 
-        function setStudyRatingEnabled(enabled) {
-            ['rateDontKnowBtn', 'rateFuzzyBtn', 'rateKnowBtn'].forEach((id) => {
-                const btn = document.getElementById(id);
-                if (!btn) return;
-                const allow = enabled || id === 'rateKnowBtn';
-                btn.disabled = !allow;
-                btn.classList.toggle('opacity-40', !allow);
-                btn.classList.toggle('cursor-not-allowed', !allow);
-            });
-            const hint = document.getElementById('ratingHint');
-            if (hint) {
-                hint.innerText = enabled ? '现在可以评分了。' : '如果你已经确定认识，可以直接点“认识”；否则先点“显示答案”。';
-            }
-        }
 
-        function normalizeStudyText(v) {
-            return String(v || '').trim().replace(/[，、；;。.!！?？\s]+/g, '');
-        }
 
-        function studyMeaningCandidates(text) {
-            return String(text || '')
-                .split(/[；;、，,/]/)
-                .map(s => normalizeStudyText(s))
-                .filter(Boolean);
-        }
 
-        function studyModeLabel(mode) {
-            if (mode === 'audio') return '听音输入假名';
-            if (mode === 'reverse') return '看义回忆词';
-            return '看词想义';
-        }
 
-        function studyPhaseLabel() {
-            const remaining = studyQueue.slice(queueIndex);
-            return remaining.some(it => String(it.kind || '') === 'review') ? '先复习' : '开始新词';
-        }
 
-        function pickStudyMode(item, idx) {
-            if (item && item.study_mode) return item.study_mode;
-            const reviewModes = ['meaning', 'audio', 'reverse'];
-            const newModes = ['meaning', 'reverse', 'audio'];
-            return (item && item.kind === 'review' ? reviewModes : newModes)[idx % 3];
-        }
 
-        function prepareStudyQueue(queue) {
-            const list = Array.isArray(queue) ? queue.filter(Boolean).map(it => ({ ...it })) : [];
-            const reviews = list.filter(it => String(it.kind || '') === 'review');
-            const fresh = list.filter(it => String(it.kind || '') !== 'review');
-            const assign = (arr) => arr.map((it, idx) => ({
-                ...it,
-                kind: String(it.kind || '') === 'review' ? 'review' : 'new',
-                study_mode: pickStudyMode(it, idx),
-            }));
-            return [...assign(reviews), ...assign(fresh)];
-        }
 
-        function updateSessionProgress() {
-            const done = sessionStats.newDone + sessionStats.reviewDone;
-            const total = studyQueue.length || sessionTarget || 50;
-            const percent = Math.min(Math.round((done / total) * 100), 100);
-            const remain = studyQueue.slice(queueIndex);
-            const reviewLeft = remain.filter(it => String(it.kind || '') === 'review').length;
-            const newLeft = remain.filter(it => String(it.kind || '') !== 'review').length;
-            const current = studyQueue[queueIndex];
-            document.getElementById('vocabProgress').innerText = `已完成 ${done} / ${total} · 待复习 ${reviewLeft} · 待新词 ${newLeft}`;
-            document.getElementById('vocabProgressBar').style.width = `${percent}%`;
-            const reviewEl = document.getElementById('studyReviewLeft');
-            const newEl = document.getElementById('studyNewLeft');
-            const modeEl = document.getElementById('studyModeTop');
-            const phaseEl = document.getElementById('studyPhaseTop');
-            if (reviewEl) reviewEl.innerText = String(reviewLeft);
-            if (newEl) newEl.innerText = String(newLeft);
-            if (modeEl) modeEl.innerText = current ? studyModeLabel(current.study_mode || 'meaning') : '—';
-            if (phaseEl) phaseEl.innerText = remain.length ? (reviewLeft > 0 ? `先复习（剩 ${reviewLeft}）` : `开始新词（剩 ${newLeft}）`) : '已完成';
-        }
 
-        function syncCoverButtons() {
-            document.getElementById('coverWordBtn').classList.toggle('bg-green-50', coverConfig.word);
-            document.getElementById('coverKanaBtn').classList.toggle('bg-green-50', coverConfig.kana);
-            document.getElementById('coverMeaningBtn').classList.toggle('bg-green-50', coverConfig.meaning);
-        }
 
-        function syncSummaryCoverButtons() {
-            const w = document.getElementById('summaryCoverWordBtn');
-            const k = document.getElementById('summaryCoverKanaBtn');
-            const m = document.getElementById('summaryCoverMeaningBtn');
-            if (!w || !k || !m) return;
-            w.classList.toggle('active', summaryCoverConfig.word);
-            k.classList.toggle('active', summaryCoverConfig.kana);
-            m.classList.toggle('active', summaryCoverConfig.meaning);
-        }
 
-        function toggleSummaryCover(field) {
-            if (!(field in summaryCoverConfig)) return;
-            summaryCoverConfig[field] = !summaryCoverConfig[field];
-            syncSummaryCoverButtons();
-            batchRevealed = {};
-            const list = document.getElementById('batchList');
-            if (list && Array.isArray(currentBatchSlice)) renderBatchList(list, currentBatchSlice);
-        }
 
-        function setBatchRevealAll(reveal) {
-            if (!Array.isArray(currentBatchSlice)) return;
-            const btn = document.getElementById('summaryRevealAllBtn');
-            if (btn) {
-                btn.classList.remove('pulse');
-                void btn.offsetWidth;
-                btn.classList.add('pulse');
-            }
-            const next = {};
-            for (let i = 0; i < currentBatchSlice.length; i += 1) {
-                next[i] = !!reveal;
-            }
-            batchRevealed = next;
-            const list = document.getElementById('batchList');
-            if (list) renderBatchList(list, currentBatchSlice);
-        }
 
-        function toggleCover(field) {
-            if (!(field in coverConfig)) return;
-            coverConfig[field] = !coverConfig[field];
-            syncCoverButtons();
-            renderVocabCard();
-        }
 
-        function toggleReveal() {
-            isRevealed = !isRevealed;
-            renderVocabCard();
-        }
 
-        function renderVocabCard() {
-            const card = document.getElementById('vocabCard');
-            card.classList.remove('is-flipped');
-            if (!currentVocabData) return;
 
-            const wordText = coverConfig.word && !isRevealed ? '？？？' : currentVocabData.word;
-            const kanaText = coverConfig.kana && !isRevealed ? '？？？' : (currentVocabData.kana || '');
-            const meaningText = coverConfig.meaning && !isRevealed ? '（请先回想释义）' : (currentVocabData.meaning || '');
 
-            document.getElementById('vocabWord').innerText = wordText;
-            document.getElementById('vocabKana').innerText = kanaText;
-            document.getElementById('vocabMeaning').innerText = meaningText;
-        }
 
-        function showCurrent() {
-            const item = studyQueue[queueIndex];
-            if (!item) return;
-            currentVocabData = item;
-            currentStudyMode = item.study_mode || 'meaning';
-            studyAnswerShown = false;
-            const card = document.getElementById('vocabCard');
-            if (card) card.classList.remove('is-flipped');
-            document.getElementById('vocabTip').innerText = '点一下生成，小雪梨会给你一个便于记忆的小技巧。';
 
-            const reading = getCanonicalStudyReading(currentVocabData);
-            const hasAudio = !!String(currentVocabData?.mp3 || currentVocabData?.audio_filename || '').trim();
-            const plain = document.getElementById('vocabWord');
-            const ruby = document.getElementById('vocabWordRuby');
-            document.getElementById('vocabKana').innerText = reading || '—';
 
-            const baseMeaning = getMeaning(currentVocabData);
-            document.getElementById('vocabMeaning').innerText = baseMeaning || '—';
 
-            const pos = getPos(currentVocabData);
-            const posEl = document.getElementById('vocabPosBadge');
-            if (posEl) posEl.innerText = pos ? `词性：${pos}` : '词性：—';
 
-            // vocab_library 没有 offense_risk：默认隐藏
-            const risk = Number(currentVocabData.offense_risk || 0);
-            const riskBanner = document.getElementById('offenseRiskBanner');
-            if (risk >= 60) riskBanner.classList.remove('hidden');
-            else riskBanner.classList.add('hidden');
 
-            const freqNum = getFrequency(currentVocabData);
-            document.getElementById('vocabUsageFreq').innerText = freqNum ? `日常频次：${stars(freqNum)}（${freqNum}/5）` : `日常频次：—`;
 
-            // 收藏按钮状态同步
-            syncFavButton();
-            syncStudyAudioButtons(hasAudio);
-            setAudioButtonsPlaying(false);
-            if (hasAudio) primeVocabAudio(currentVocabData);
-            // 小雪梨提示：不再自动请求。只有用户点击“生成提示”时才生成，避免卡顿和额外消耗。
-            const id = getEntryId(currentVocabData);
-            if (id && vocabTipCache.has(String(id))) {
-                document.getElementById('vocabTip').innerText = vocabTipCache.get(String(id));
-            }
 
-            const kindBadge = document.getElementById('studyKindBadge');
-            const modeBadge = document.getElementById('studyModeBadge');
-            const queueBadge = document.getElementById('studyQueueBadge');
-            const promptLabel = document.getElementById('studyPromptLabel');
-            const promptHint = document.getElementById('studyPromptHint');
-            const frontHint = document.getElementById('studyFrontHint');
-            const revealBtn = document.getElementById('revealAnswerBtn');
-            const submitBtn = document.getElementById('submitAnswerBtn');
-            const inputArea = document.getElementById('studyInputArea');
-            const inputLabel = document.getElementById('studyInputLabel');
-            const inputBox = document.getElementById('studyAnswerInput');
-            const meaningLabel = document.getElementById('studyMeaningInputLabel');
-            const meaningBox = document.getElementById('studyMeaningInput');
-            const inputFeedback = document.getElementById('studyInputFeedback');
-            if (kindBadge) {
-                const retry = !!item.retry_round;
-                kindBadge.innerText = retry ? '本轮重练' : (item.kind === 'review' ? '复习' : '新词');
-                kindBadge.className = `text-[10px] px-3 py-1 border-2 border-gray-800 font-bold shadow-[3px_3px_0px_#333] ${retry ? 'bg-red-100' : (item.kind === 'review' ? 'bg-amber-100' : 'bg-emerald-100')}`;
-            }
-            if (modeBadge) modeBadge.innerText = studyModeLabel(currentStudyMode);
-            if (queueBadge) queueBadge.innerText = `第 ${Math.min(queueIndex + 1, studyQueue.length || 1)} / ${studyQueue.length || 1} 题`;
-            if (inputArea) inputArea.classList.toggle('hidden', currentStudyMode !== 'audio');
-            if (submitBtn) submitBtn.classList.toggle('hidden', currentStudyMode !== 'audio');
-            if (revealBtn) revealBtn.innerText = currentStudyMode === 'audio' ? '不会，显示答案' : '显示答案';
-            if (inputBox) inputBox.value = '';
-            if (inputBox) inputBox.placeholder = '例如：あした';
-            if (meaningBox) meaningBox.value = '';
-            if (meaningBox) meaningBox.placeholder = '例如：明天';
-            if (meaningLabel) meaningLabel.classList.toggle('hidden', currentStudyMode !== 'audio');
-            if (meaningBox) meaningBox.classList.toggle('hidden', currentStudyMode !== 'audio');
-            if (inputFeedback) inputFeedback.innerText = currentStudyMode === 'audio'
-                ? (hasAudio ? '已自动播放音频。请填写假名和中文意思，两个都正确会自动进入下一题。' : '当前词条暂无音频，请直接看答案并评分。')
-                : '';
-            setStudyRatingEnabled(false);
 
-            if (currentStudyMode === 'audio') {
-                if (plain && ruby) {
-                    plain.classList.remove('hidden');
-                    ruby.classList.add('hidden');
-                    plain.innerText = '♪';
-                }
-                if (promptLabel) promptLabel.innerText = 'Listen / 听音输入';
-                if (promptHint) promptHint.innerText = hasAudio ? '已自动播放音频。先输入假名和中文意思；都对就直接下一题，不对再看答案。' : '这题暂时没有音频，请直接看答案并评分。';
-                if (frontHint) frontHint.innerText = '这题不看单词，只靠听音';
-                if (inputLabel) inputLabel.innerText = '请输入你听到的假名';
-                setTimeout(() => {
-                    if (currentVocabData === item && currentStudyMode === 'audio') playVocabAudio();
-                }, 80);
-            } else if (currentStudyMode === 'reverse') {
-                if (plain && ruby) {
-                    plain.classList.remove('hidden');
-                    ruby.classList.add('hidden');
-                    plain.innerText = baseMeaning || '—';
-                }
-                if (promptLabel) promptLabel.innerText = 'Meaning / 释义';
-                if (promptHint) promptHint.innerText = '看到中文意思，先主动回忆日文，再点显示答案。';
-                if (frontHint) frontHint.innerText = '不要急着翻，先自己想';
-            } else {
-                renderWordRuby(currentVocabData.word, reading);
-                if (promptLabel) promptLabel.innerText = 'Word / 単語';
-                if (promptHint) promptHint.innerText = '看到单词，先自己想意思。卡片正面只保留单词，点卡片或点按钮看答案。';
-                if (frontHint) frontHint.innerText = '先回忆，再显示答案';
-            }
-            updateSessionProgress();
-        }
 
-        function revealStudyAnswer() {
-            const item = studyQueue[queueIndex];
-            if (!item) return;
-            studyAnswerShown = true;
-            const card = document.getElementById('vocabCard');
-            if (card) card.classList.add('is-flipped');
-            setStudyRatingEnabled(true);
-        }
-
-        function submitStudyInput() {
-            const item = studyQueue[queueIndex];
-            if (!item) return;
-            const input = document.getElementById('studyAnswerInput');
-            const meaningInput = document.getElementById('studyMeaningInput');
-            const feedback = document.getElementById('studyInputFeedback');
-            const rawExpected = String(getCanonicalStudyReading(item) || '').trim();
-            const got = normalizeStudyText(input?.value || '');
-            const expected = normalizeStudyText(rawExpected);
-            const meaningGot = normalizeStudyText(meaningInput?.value || '');
-            const meaningOk = !!meaningGot && studyMeaningCandidates(getMeaning(item)).some(x => x && (meaningGot.includes(x) || x.includes(meaningGot)));
-            const readingOk = !!got && !!expected && got === expected;
-            if (readingOk && meaningOk) {
-                if (feedback) feedback.innerText = '假名和意思都正确，自动进入下一题。';
-                studyAnswerShown = true;
-                rateCurrent('know');
-                return;
-            }
-            if (feedback) {
-                const readingMsg = readingOk ? '读音写法正确' : `读音必须按词库写法填写：${rawExpected || '—'}`;
-                const meaningMsg = meaningOk ? '意思正确' : `意思可写作「${getMeaning(item) || '—'}」`;
-                feedback.innerText = `${readingMsg}；${meaningMsg}。未全部正确，请看答案后手动评分。`;
-            }
-            revealStudyAnswer();
-        }
-
-        // 背单词卡：点击卡片翻转；点击按钮不触发翻转（解决你说的“点深度解析却翻回去”）
-        (function bindVocabCardFlip() {
-            const card = document.getElementById('vocabCard');
-            if (!card) return;
-            card.addEventListener('click', (e) => {
-                if (e.target && e.target.closest && e.target.closest('button')) return;
-                if (!studyAnswerShown) {
-                    revealStudyAnswer();
-                    return;
-                }
-                card.classList.toggle('is-flipped');
-            });
-        })();
-
-async function rateCurrent(rating) {
-            if (ratingBusy) return;
-            const item = studyQueue[queueIndex];
-            if (!item) return;
-            if (!studyAnswerShown) revealStudyAnswer();
-
-            ratingBusy = true;
-            setRatingButtonsEnabled(false);
-
-            const date = todayStr();
-            if (!authToken) {
-                ratingBusy = false;
-                setRatingButtonsEnabled(true);
-                toggleAuthModal();
-                return;
-            }
-
-            // 关键优化：不要等待服务器返回再翻到下一张卡（Render 冷启动/网络抖动会让用户感觉“卡住”）
-            const wordId = item.id || item.word_id;
-            if (rating === 'dont_know' && !item.retry_round) {
-                studyQueue.push({
-                    ...item,
-                    kind: 'review',
-                    retry_round: true,
-                    study_mode: item.study_mode === 'meaning' ? 'reverse' : 'meaning'
-                });
-            }
-            // 记录“今天已背过”（用于过滤缓存队列，避免重复出现）
-            try {
-                const ratedKey = `ratedToday:${storageUserKey()}:${date}`;
-                const arr = JSON.parse(localStorage.getItem(ratedKey) || '[]');
-                const s = new Set(Array.isArray(arr) ? arr.map(String) : []);
-                if (wordId) s.add(String(wordId));
-                localStorage.setItem(ratedKey, JSON.stringify(Array.from(s).slice(-2000)));
-            } catch (e) {}
-            enqueueRate({ entry_id: wordId, level: currentVocabLevel, rating, date });
-
-            if (rating === 'know') sessionStats.know += 1;
-            else if (rating === 'fuzzy') sessionStats.fuzzy += 1;
-            else sessionStats.dont_know += 1;
-
-            if (item.kind === 'new') sessionStats.newDone += 1;
-            else sessionStats.reviewDone += 1;
-
-            queueIndex += 1;
-            updateSessionProgress();
-
-            if (queueIndex >= studyQueue.length) {
-                showSessionSummary();
-                ratingBusy = false;
-                setRatingButtonsEnabled(true);
-                return;
-            }
-
-            if (queueIndex % batchSize === 0) {
-                openBatchSummary(queueIndex - batchSize, queueIndex);
-                ratingBusy = false;
-                setRatingButtonsEnabled(true);
-                return;
-            }
-
-            showCurrent();
-            // 给一个很短的点击保护，避免连点造成重复提交
-            setTimeout(() => {
-                ratingBusy = false;
-                setRatingButtonsEnabled(true);
-            }, 120);
-        }
-
-        // --- 后台同步评分（不阻塞背词体验） ---
-        const pendingRateKey = () => `pendingRates:${storageUserKey()}`;
-        let pendingRates = [];
-        let flushingRates = false;
-
-        function loadPendingRates() {
-            const merged = [];
-            const seen = new Set();
-            const keys = Array.from(new Set([
-                `pendingRates:${storageUserKey()}`,
-                currentUser ? `pendingRates:${currentUser}` : '',
-                'pendingRates:anon'
-            ].filter(Boolean)));
-            keys.forEach((k) => {
-                try {
-                    const raw = localStorage.getItem(k);
-                    const arr = JSON.parse(raw || '[]');
-                    if (!Array.isArray(arr)) return;
-                    arr.forEach((it) => {
-                        const sig = JSON.stringify([it?.entry_id || '', it?.level || '', it?.rating || '']);
-                        if (seen.has(sig)) return;
-                        seen.add(sig);
-                        merged.push(it);
-                    });
-                } catch (e) {}
-            });
-            pendingRates = merged;
-            try { localStorage.setItem(pendingRateKey(), JSON.stringify(pendingRates.slice(0, 200))); } catch (e) {}
-            updateSyncPill();
-        }
-
-        function ratedTodayKey(date) {
-            return `ratedToday:${storageUserKey()}:${date}`;
-        }
-
-        function getRatedTodaySet(date) {
-            let ratedSet = new Set();
-            try {
-                const arr = JSON.parse(localStorage.getItem(ratedTodayKey(date)) || '[]');
-                if (Array.isArray(arr)) ratedSet = new Set(arr.map(String));
-            } catch (e) {}
-            return ratedSet;
-        }
-
-        function filterQueueByLocalProgress(queue, date) {
-            const ratedSet = getRatedTodaySet(date);
-            const pendingSet = new Set((pendingRates || []).map(x => String(x?.entry_id || '')));
-            return (Array.isArray(queue) ? queue : []).filter(it => {
-                const id = String(getEntryId(it) || '');
-                if (!id) return true;
-                return !ratedSet.has(id) && !pendingSet.has(id);
-            });
-        }
-
-        function savePendingRates() {
-            try { localStorage.setItem(pendingRateKey(), JSON.stringify(pendingRates.slice(0, 200))); } catch (e) {}
-            updateSyncPill();
-        }
-
-        function enqueueRate(payload) {
-            if (!payload || !payload.entry_id) return;
-            pendingRates.push(payload);
-            savePendingRates();
-            flushRatesSoon();
-        }
-
-        let flushTimer = null;
-        function flushRatesSoon() {
-            if (flushTimer) clearTimeout(flushTimer);
-            flushTimer = setTimeout(() => flushPendingRates(), 80);
-        }
-
-        async function flushPendingRates() {
-            if (flushingRates) return;
-            if (!authToken) return;
-            if (!pendingRates.length) return;
-            flushingRates = true;
-            updateSyncPill();
-            try {
-                while (pendingRates.length) {
-                    // 批量提交，减少网络往返（同步会快很多）
-                    const batch = pendingRates.slice(0, 20);
-                    const controller = new AbortController();
-                    const t = setTimeout(() => controller.abort(), 8000);
-                    let res = null;
-                    try {
-                        res = await authFetch('/api/v3/study/rate_batch', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ items: batch }),
-                            signal: controller.signal,
-                            keepalive: true
-                        });
-                    } finally {
-                        clearTimeout(t);
-                    }
-                    if (!res || !res.ok) {
-                        // 401 直接让用户重新登录；其他错误稍后重试
-                        if (res && res.status === 401) throw new Error('unauthorized');
-                        break;
-                    }
-                    // 成功：移除已提交的 batch
-                    pendingRates.splice(0, batch.length);
-                    savePendingRates();
-                }
-            } catch (e) {
-                if (String(e && e.message) === 'unauthorized') {
-                    alert('登录已失效，请重新登录后继续学习。');
-                }
-            } finally {
-                flushingRates = false;
-                updateSyncPill();
-            }
-            if (pendingRates.length) {
-                // 稍后重试（不打断用户背词）
-                setTimeout(() => flushPendingRates(), 1200);
-            }
-        }
-
-        let lastSyncToastTimer = null;
-        function updateSyncPill() {
-            const pill = document.getElementById('syncPill');
-            const text = document.getElementById('syncText');
-            const dot = document.getElementById('syncDot');
-            if (!pill || !text || !dot) return;
-
-            if (pendingRates.length > 0) {
-                pill.classList.remove('hidden');
-                dot.className = 'inline-block w-2 h-2 bg-yellow-400';
-                text.innerText = flushingRates ? `同步中：${pendingRates.length}（发送中）` : `同步中：${pendingRates.length}`;
-                if (lastSyncToastTimer) { clearTimeout(lastSyncToastTimer); lastSyncToastTimer = null; }
-                return;
-            }
-
-            // pending 为空：短暂显示“已同步”，再隐藏
-            if (flushingRates) return;
-            pill.classList.remove('hidden');
-            dot.className = 'inline-block w-2 h-2 bg-green-500';
-            text.innerText = '已同步';
-            if (lastSyncToastTimer) clearTimeout(lastSyncToastTimer);
-            lastSyncToastTimer = setTimeout(() => pill.classList.add('hidden'), 1200);
-        }
-        loadPendingRates();
-
-        // 页面切后台/关闭前，尽量把待同步队列发出去（不打断体验）
-        window.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'hidden') flushPendingRates();
-        });
-        window.addEventListener('beforeunload', () => {
-            try { flushPendingRates(); } catch (e) {}
-        });
-
-        function finishSessionEarly() {
-            try { flushPendingRates(); } catch (e) {}
-            showSessionSummary();
-        }
-
-        function xueTodayKey() { return `xueAiExhausted:${todayStr()}`; }
-        function xueIsExhausted() { try { return localStorage.getItem(xueTodayKey()) === '1'; } catch(e){ return false; } }
-        function xueSetExhausted() { try { localStorage.setItem(xueTodayKey(), '1'); } catch(e){} }
-
-        async function generateVocabTip() {
-            if (!currentVocabData) return;
-            const id = getEntryId(currentVocabData);
-            if (!id) return;
-            if (vocabTipCache.has(String(id))) {
-                document.getElementById('vocabTip').innerText = vocabTipCache.get(String(id));
-                return;
-            }
-            if (xueIsExhausted()) {
-                xuexueliSetState('tired');
-                document.getElementById('vocabTip').innerText = '小雪梨今天回答累了，请明天再来问我吧。';
-                return;
-            }
-            document.getElementById('vocabTip').innerText = '小雪梨正在帮你想记忆技巧...';
-            try {
-                if (!authToken) { toggleAuthModal(); return; }
-                const res = await authFetch(`/api/vocab/tip?word=${encodeURIComponent(currentVocabData.word)}`);
-                if (res.status === 429) {
-                    xueSetExhausted();
-                    xuexueliSetState('tired');
-                    document.getElementById('vocabTip').innerText = '小雪梨今天回答累了，请明天再来问我吧。';
-                    return;
-                }
-                const data = await res.json();
-                const tip = (data && data.tip) ? String(data.tip) : '';
-                if (tip) {
-                    vocabTipCache.set(String(id), tip);
-                    if (vocabTipCache.size > 100) {
-                        const first = vocabTipCache.keys().next().value;
-                        vocabTipCache.delete(first);
-                    }
-                    document.getElementById('vocabTip').innerText = tip;
-                } else {
-                    document.getElementById('vocabTip').innerText = '暂时还没想到合适的记忆技巧。';
-                }
-            } catch (e) {
-                document.getElementById('vocabTip').innerText = '生成失败，请稍后再试。';
-            }
-        }
-
-        let currentBatchSlice = null;
-        function openBatchSummary(from, to) {
-            batchRevealed = {};
-            summaryCoverConfig = { word: false, kana: true, meaning: true };
-            const modal = document.getElementById('batchSummaryModal');
-            const list = document.getElementById('batchList');
-            list.innerHTML = '';
-            const slice = studyQueue.slice(from, to);
-            currentBatchSlice = slice;
-            syncSummaryCoverButtons();
-            slice.forEach((it, idx) => {
-                const row = document.createElement('button');
-                row.className = 'w-full text-left p-3 bg-white border-2 border-gray-100 hover:border-green-300 hover:bg-gray-50 transition-colors';
-                row.onclick = () => {
-                    batchRevealed[idx] = !batchRevealed[idx];
-                    renderBatchList(list, slice);
-                };
-                list.appendChild(row);
-            });
-            renderBatchList(list, slice);
-            modal.classList.remove('hidden');
-            // 旧版为了补全中文释义会批量请求 /api/vocab/meta，这会显著拖慢体验。
-            // 现在主词库 vocab_library 已内置中文释义/词性/例句等信息，所以不再做这一步。
-        }
-
-        function renderBatchList(container, items) {
-            const buttons = Array.from(container.children);
-            items.forEach((it, idx) => {
-                const isRowRevealed = !!batchRevealed[idx];
-                const w = summaryCoverConfig.word && !isRowRevealed ? '？？？' : it.word;
-                const k = summaryCoverConfig.kana && !isRowRevealed ? '？？？' : (it.reading || it.kana || '');
-                const meaningZh = (it.meaning_zh || it.meaning || '').trim();
-                const origin = it.origin || null;
-                const meaningShow = origin ? `${meaningZh}（外来语：${origin}）` : meaningZh;
-                const m = summaryCoverConfig.meaning && !isRowRevealed ? '（回想中文释义）' : meaningShow;
-                buttons[idx].innerHTML = `
-                    <div class="flex justify-between items-center gap-3">
-                        <div class="font-bold text-lg">${w}</div>
-                        <div class="text-[10px] font-bold ${it.kind === 'review' ? 'text-blue-600' : 'text-green-600'}">${it.kind === 'review' ? '复习' : '新词'}</div>
-                    </div>
-                    <div class="text-sm text-gray-500 mt-1">${k}</div>
-                    <div class="text-sm mt-1">${m}</div>
-                    <div class="text-[10px] text-gray-400 mt-2">点击切换遮盖/揭示</div>
-                `;
-            });
-        }
-
-        function closeBatchSummary() {
-            document.getElementById('batchSummaryModal').classList.add('hidden');
-            showCurrent();
-        }
-
-        function setRatingButtonsEnabled(enabled) {
-            const ids = ['rateDontKnowBtn', 'rateFuzzyBtn', 'rateKnowBtn', 'finishSessionBtn'];
-            ids.forEach((id) => {
-                const el = document.getElementById(id);
-                if (!el) return;
-                el.disabled = !enabled;
-                if (enabled) {
-                    el.classList.remove('opacity-50');
-                } else {
-                    el.classList.add('opacity-50');
-                }
-            });
-        }
-
-        document.addEventListener('keydown', (e) => {
-            const authModal = document.getElementById('authModal');
-            const batchModal = document.getElementById('batchSummaryModal');
-            const learningScreen = document.getElementById('vocabLearningScreen');
-            const summaryScreen = document.getElementById('vocabSummaryScreen');
-
-            const active = document.activeElement;
-            const typing = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
-            if (typing) return;
-
-            if (batchModal && !batchModal.classList.contains('hidden')) {
-                if (e.key === 'Escape') closeBatchSummary();
-                return;
-            }
-
-            if (authModal && !authModal.classList.contains('hidden')) {
-                if (e.key === 'Escape') toggleAuthModal();
-                return;
-            }
-
-            const inLearning = learningScreen && !learningScreen.classList.contains('hidden');
-            const inSummary = summaryScreen && !summaryScreen.classList.contains('hidden');
-            if (!inLearning && !inSummary) return;
-
-            if (inLearning) {
-                if (e.key === ' ' || e.code === 'Space') {
-                    e.preventDefault();
-                    const card = document.getElementById('vocabCard');
-                    if (card) card.classList.toggle('is-flipped');
-                    return;
-                }
-                if (e.key === '1') return rateCurrent('dont_know');
-                if (e.key === '2') return rateCurrent('fuzzy');
-                if (e.key === '3') return rateCurrent('know');
-                if (e.key === 'Escape') return finishSessionEarly();
-            }
-        });
-
-        function showSessionSummary() {
-            const now = Date.now();
-            const minutes = sessionStartTs ? Math.max(1, Math.round((now - sessionStartTs) / 60000)) : 0;
-            const done = sessionStats.newDone + sessionStats.reviewDone;
-            document.getElementById('sumDone').innerText = String(done);
-            document.getElementById('sumTime').innerText = `${minutes}m`;
-            document.getElementById('sumKnow').innerText = String(sessionStats.know);
-            document.getElementById('sumFuzzy').innerText = String(sessionStats.fuzzy);
-            document.getElementById('sumDont').innerText = String(sessionStats.dont_know);
-            document.getElementById('sumNew').innerText = String(sessionStats.newDone);
-            document.getElementById('sumReview').innerText = String(sessionStats.reviewDone);
-
-            document.getElementById('vocabLearningScreen').classList.add('hidden');
-            document.getElementById('vocabSummaryScreen').classList.remove('hidden');
-        }
 
         // --- Flow Control ---
-        function openVocabMode() {
-            searchHero.style.display = 'none';
-            searchHero.classList.remove('active');
-            contentView.style.display = 'none';
-            try { if (listView) listView.style.display = 'none'; } catch (_) {}
-            vocabView.style.display = 'block';
-            
-            // Show Level Selector, Hide Learning Screen
-            document.getElementById('vocabLevelSelector').classList.remove('hidden');
-            document.getElementById('vocabLearningScreen').classList.add('hidden');
-            document.getElementById('vocabSummaryScreen').classList.add('hidden');
-            document.getElementById('batchSummaryModal').classList.add('hidden');
-            selectLevel(currentVocabLevel);
-        }
 
-function selectLevel(level) {
-    currentVocabLevel = String(level || '').trim().toUpperCase();
-    try { localStorage.setItem('lastVocabLevel', level); } catch (e) {}
-    // Update UI buttons
-    const levels = ['N5', 'N4', 'N3', 'N2', 'N1'];
-    const jlptBtn = document.getElementById('selJLPT');
-    const kaoyanBtn = document.getElementById('selKAOYAN');
-    const jlptSublevels = document.getElementById('jlptSublevels');
-    const isKaoyan = currentVocabLevel === 'KAOYAN';
-    if (jlptSublevels) jlptSublevels.classList.toggle('hidden', isKaoyan);
-    if (jlptBtn) {
-        if (!isKaoyan) {
-            jlptBtn.classList.add('active', 'bg-green-500', 'text-white');
-            jlptBtn.classList.remove('bg-white');
-        } else {
-            jlptBtn.classList.remove('active', 'bg-green-500', 'text-white');
-            jlptBtn.classList.add('bg-white');
-        }
-    }
-    if (kaoyanBtn) {
-        if (isKaoyan) {
-            kaoyanBtn.classList.add('active', 'bg-green-500', 'text-white');
-            kaoyanBtn.classList.remove('bg-white');
-        } else {
-            kaoyanBtn.classList.remove('active', 'bg-green-500', 'text-white');
-            kaoyanBtn.classList.add('bg-white');
-        }
-    }
-    levels.forEach(l => {
-        const btn = document.getElementById(`sel${l}`);
-        if (!isKaoyan && l === currentVocabLevel) {
-            btn.classList.add('active', 'bg-green-500', 'text-white');
-            btn.classList.remove('bg-white');
-        } else {
-            btn.classList.remove('active', 'bg-green-500', 'text-white');
-            btn.classList.add('bg-white');
-        }
-    });
-    // 切换词书时立即清空旧词展示（避免几秒内还看到上一本的词）
-    currentVocabData = null;
-    const w = document.getElementById('vocabWord');
-    const k = document.getElementById('vocabKana');
-    const m = document.getElementById('vocabMeaning');
-    if (w) w.innerText = '...';
-    if (k) k.innerText = '已切换词书';
-    if (m) m.innerText = isKaoyan ? '正在准备考研词汇的学习内容...' : `正在准备 JLPT ${currentVocabLevel} 的学习内容...`;
 
-}
 
-async function startLearning() {
-    try {
-        if (!authToken) {
-            toggleAuthModal();
-            return;
-        }
-        loadPendingRates();
-        isLearningSession = true;
-
-        sessionTarget = 50;
-
-        sessionStats = { know: 0, fuzzy: 0, dont_know: 0, newDone: 0, reviewDone: 0 };
-        queueIndex = 0;
-        studyQueue = [];
-        sessionStartTs = Date.now();
-        coverConfig = { word: false, kana: false, meaning: false };
-        isRevealed = true;
-
-        document.getElementById('vocabLevelSelector').classList.add('hidden');
-        document.getElementById('vocabSummaryScreen').classList.add('hidden');
-        document.getElementById('vocabLearningScreen').classList.remove('hidden');
-        document.getElementById('batchSummaryModal').classList.add('hidden');
-        document.getElementById('currentLevelBadge').innerText = formatLevelLabel(currentVocabLevel);
-
-        // 先给用户一个”立刻可见”的反馈，避免空白卡顿感
-        currentVocabData = null;
-        document.getElementById('vocabWord').innerText = '...';
-        document.getElementById('vocabKana').innerText = '正在加载';
-        document.getElementById('vocabMeaning').innerText = '正在加载学习队列...';
-        const card = document.getElementById('vocabCard');
-        if (card) card.classList.remove('is-flipped');
-
-        const date = todayStr();
-        const cacheKey = `studyQueue:${storageUserKey()}:${currentVocabLevel}:${date}`;
-        try {
-            const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
-            if (cached && Array.isArray(cached.queue) && cached.queue.length) {
-                studyQueue = prepareStudyQueue(filterQueueByLocalProgress(cached.queue, date));
-            }
-        } catch (e) {}
-
-        // 不阻塞 UI：先进入学习界面，再尽快把待同步评分冲到服务器
-        try {
-            if (pendingRates.length) {
-                await Promise.race([
-                    flushPendingRates(),
-                    new Promise(resolve => setTimeout(resolve, 1200))
-                ]);
-            }
-        } catch (e) {}
-
-        // 同步收藏夹（不阻塞主流程，失败也不影响背词）
-        try {
-            const favRes = await authFetch(`/api/v3/favorites?level=${encodeURIComponent(currentVocabLevel)}`);
-            const favArr = await favRes.json();
-            favoritesSet = new Set(Array.isArray(favArr) ? favArr.map(String) : []);
-        } catch (e) {
-            favoritesSet = new Set();
-        }
-
-        if (!studyQueue.length) {
-            alert(`词书 ${currentVocabLevel} 暂无可学习单词。若你只导入了 N1 词库，请先切换到 N1；或先把该等级词库导入 Supabase。`);
-            backToLevels();
-            return;
-        }
-
-        updateSessionProgress();
-        showCurrent();
-    } catch (e) {
-        console.error('startLearning failed:', e);
-        alert(`开始学习失败：${e && e.message ? e.message : '前端异常'}`);
-        try { backToLevels(); } catch (_) {}
-    }
-}
-        function backToLevels() {
-            isLearningSession = false;
-            try { flushPendingRates(); } catch (e) {}
-            document.getElementById('vocabLevelSelector').classList.remove('hidden');
-            document.getElementById('vocabLearningScreen').classList.add('hidden');
-            document.getElementById('vocabSummaryScreen').classList.add('hidden');
-            document.getElementById('batchSummaryModal').classList.add('hidden');
-        }
-
-        function analyzeVocab() {
-            if (!currentVocabData) return;
-            // 不跳转页面，避免打断背词进程：改为弹窗展示
-            openStudyInsightModal();
-        }
 
         function openStudyInsightModal(dataOverride) {
             const modal = document.getElementById('studyInsightModal');
-            const data = dataOverride || currentVocabData;
+            const data = dataOverride;
             if (!modal || !data) return;
             currentStudyModalData = data;
 
@@ -2861,7 +1674,7 @@ async function startLearning() {
 
             document.getElementById('siWord').innerText = data.word || '—';
             document.getElementById('siReading').innerText = reading;
-            document.getElementById('siLevel').innerText = formatLevelLabel(data.level || currentVocabLevel || '');
+            document.getElementById('siLevel').innerText = formatLevelLabel(data.level || '');
             document.getElementById('siMeaning').innerText = meaning;
             const posWrap = document.getElementById('siPosWrap');
             const posEl = document.getElementById('siPos');
@@ -3088,13 +1901,7 @@ async function startLearning() {
         function goBack() {
             try {
                 if (vocabView && vocabView.style.display === 'block') {
-                    var learnScreen = document.getElementById('vocabLearningScreen');
-                    var summaryScreen = document.getElementById('vocabSummaryScreen');
-                    if ((learnScreen && !learnScreen.classList.contains('hidden')) || (summaryScreen && !summaryScreen.classList.contains('hidden'))) {
-                        backToLevels();
-                    } else {
-                        resetToHome();
-                    }
+                    resetToHome();
                 } else if (listView && listView.style.display === 'block') {
                     // 使用列表视图的返回按钮逻辑
                     if (_listBackLink && _listBackLink.onclick) {
@@ -4377,7 +3184,7 @@ async function startLearning() {
 
             xuexueliSetState('thinking');
             const loadingRow = appendStudyChatLoading();
-            const ctx = currentVocabData || {};
+            const ctx = currentStudyModalData || {};
             // --- 带上下文的对话（保留最近多轮，让 AI 更像“在聊天”）---
             const HISTORY_MAX = 12;
             window.__studyChatHistory = window.__studyChatHistory || [];
@@ -4394,7 +3201,7 @@ async function startLearning() {
                         word: ctx.word || '',
                         kana: ctx.kana || '',
                         meaning: (ctx.meaning_zh || ctx.meaning || ''),
-                        level: currentVocabLevel || '',
+                        level: ctx.level || '',
                         offense_risk: (ctx.offense_risk || 0),
                         social_targets: Array.isArray(ctx.social_targets) ? ctx.social_targets.join(',') : '',
                         register_social: (ctx.register_social || ''),
@@ -4735,7 +3542,7 @@ async function startLearning() {
                     }
                 } else {
                     // 尝试带上“当前单词”上下文（如果刚好在背词中）
-                    const ctx = currentVocabData || {};
+                    const ctx = currentStudyModalData || {};
                     const HISTORY_MAX = 12;
                     window.__miniChatHistory = window.__miniChatHistory || [];
                     window.__miniChatHistory.push({ role: 'user', content: q });
@@ -4750,7 +3557,7 @@ async function startLearning() {
                             word: ctx.word || '',
                             kana: ctx.reading || ctx.kana || '',
                             meaning: ctx.meaning || ctx.meaning_zh || '',
-                            level: ctx.level || currentVocabLevel || ''
+                            level: ctx.level || ''
                         })
                     }, 1, 16000);
                     if (r.status === 429) {
