@@ -3,11 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError, jwt
 from datetime import datetime, timedelta
 # AIService 延迟导入，避免 Render 启动超时
 # DictionaryService 延迟导入，避免 Render 启动超时
-from supabase import create_client
+# supabase / jose 延迟导入，见 _get_supabase_* / JWT 函数内部
 import httpx
 import uvicorn
 import os
@@ -807,8 +806,6 @@ def init_db():
     conn.commit()
     _return_db_conn(conn)
 
-init_db()
-
 
 
 # --- Cache Helpers ---
@@ -835,6 +832,7 @@ app = FastAPI()
 # 启动后后台预加载词库缓存（不阻塞启动，失败不影响服务）
 @app.on_event("startup")
 def _preload_vocab_cache():
+    init_db()
     if SUPABASE_DB_ENABLED:
         threading.Thread(target=_ensure_vocab_cache, daemon=True).start()
         # 预热连接池 + 触发 schema 初始化（建索引等），避免第一个用户请求等待
@@ -891,12 +889,14 @@ _supabase_admin = None
 def _get_supabase_auth():
     global _supabase_auth
     if _supabase_auth is None and SUPABASE_ENABLED:
+        from supabase import create_client  # 延迟导入，避免 Render 启动超时
         _supabase_auth = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
     return _supabase_auth
 
 def _get_supabase_admin():
     global _supabase_admin
     if _supabase_admin is None and SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+        from supabase import create_client  # 延迟导入，避免 Render 启动超时
         _supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     return _supabase_admin
 
@@ -1250,6 +1250,7 @@ def bootstrap_supabase_data() -> Dict[str, Any]:
 
 
 def _decode_supabase_token(token: str) -> Dict[str, Any]:
+    from jose import JWTError, jwt  # 延迟导入，避免 Render 启动超时
     secrets_to_try = []
     if SUPABASE_JWT_SECRET:
         secrets_to_try.append(SUPABASE_JWT_SECRET)
@@ -1266,6 +1267,7 @@ def _decode_supabase_token(token: str) -> Dict[str, Any]:
 
 
 def _mint_invite_recovery_session(user_id: str, email: str = "") -> Dict[str, Any]:
+    from jose import jwt  # 延迟导入，避免 Render 启动超时
     now = datetime.utcnow()
     exp = now + timedelta(days=30)
     payload = {

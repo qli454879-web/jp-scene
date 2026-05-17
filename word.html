@@ -533,6 +533,11 @@
       if (!isGaming) {
         renderHeatmap(data.heatmap_data || {});
       }
+      // 替代表达 + 同义词：仅日常语境有意义
+      var replaceSection = document.getElementById('replaceSection');
+      if (replaceSection) replaceSection.style.display = isGaming ? 'none' : '';
+      var synSection = document.getElementById('synonymSection');
+      if (synSection) synSection.style.display = isGaming ? 'none' : '';
       // examples 两种语境均显示
       renderExamples(data.examples || null);
     }
@@ -577,6 +582,7 @@
     const _WCACHE_TTL = 300000;
 
     async function fetchSynonyms(word, level) {
+      if (_activeContext === 'gaming') return;
       const sec = document.getElementById('synonymSection');
       const list = document.getElementById('synonymList');
       if (!sec || !list) return;
@@ -621,6 +627,7 @@
     }
 
     async function fetchReplacements(word, level) {
+      if (_activeContext === 'gaming') return;
       const sec = document.getElementById('replaceSection');
       const list = document.getElementById('replaceList');
       if (!sec || !list) return;

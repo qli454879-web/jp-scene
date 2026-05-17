@@ -3912,7 +3912,15 @@ async function startLearning() {
                             renderSubCategories(group, group.tags);
                         }
                     })
-                    .catch(function() {});
+                    .catch(function() {
+                        // 降级：即使 tags API 失败，仍渲染子分类（计数为 0）
+                        _listTagsCache = [];
+                        if (group.subGroups && group.subGroups.length) {
+                            renderGames(group);
+                        } else if (group.tags && group.tags.length) {
+                            renderSubCategories(group, group.tags);
+                        }
+                    });
                 return;
             }
             if (group.subGroups && group.subGroups.length) {
