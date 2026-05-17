@@ -4212,51 +4212,99 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
 
 @app.get("/api/library/tags")
 async def list_tags():
-    """列出所有标签及对应词数（从 SQLite 快照统计，< 50ms）。"""
+    """列出所有标签及对应词数（快照优先，失败回退 DB 直查）。"""
     _ensure_snapshot_available()
-    if not os.path.exists(_VOCAB_SNAPSHOT_DB):
-        return {"tags": []}
-    db = _snapshot_open()
+    if os.path.exists(_VOCAB_SNAPSHOT_DB):
+        db = _snapshot_open()
+        try:
+            tag_counts: Dict[str, int] = {}
+            for row in db.execute("SELECT tags FROM vocab_snapshot"):
+                tags_raw = row["tags"] or ""
+                for t in tags_raw.split(","):
+                    t = t.strip()
+                    if t:
+                        tag_counts[t] = tag_counts.get(t, 0) + 1
+            tags = [{"name": tag, "count": cnt}
+                    for tag, cnt in sorted(tag_counts.items(), key=lambda x: -x[1])]
+            return {"tags": tags}
+        finally:
+            db.close()
+    # DB fallback
     try:
-        tag_counts: Dict[str, int] = {}
-        for row in db.execute("SELECT tags FROM vocab_snapshot"):
-            tags_raw = row["tags"] or ""
-            for t in tags_raw.split(","):
-                t = t.strip()
-                if t:
-                    tag_counts[t] = tag_counts.get(t, 0) + 1
-        tags = [{"name": tag, "count": cnt}
-                for tag, cnt in sorted(tag_counts.items(), key=lambda x: -x[1])]
+        conn = _get_db_conn()
+        if conn is None:
+            return {"tags": []}
+    except Exception:
+        return {"tags": []}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT unnest(tags) as t, count(*) FROM vocab_library WHERE tags IS NOT NULL GROUP BY t ORDER BY count(*) DESC")
+            tags = [{"name": r[0], "count": r[1]} for r in cur.fetchall()]
         return {"tags": tags}
+    except Exception:
+        return {"tags": []}
     finally:
-        db.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/library/words/by-tag")
 async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
-    """按标签分页取词（SQLite 直查，< 10ms）。"""
+    """按标签分页取词（快照优先，失败回退 DB 直查）。"""
     _ensure_snapshot_available()
     tag_clean = tag.strip()
-    if not os.path.exists(_VOCAB_SNAPSHOT_DB):
-        return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
-    db = _snapshot_open()
+    if os.path.exists(_VOCAB_SNAPSHOT_DB):
+        db = _snapshot_open()
+        try:
+            count_row = db.execute(
+                "SELECT COUNT(*) as cnt FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ?",
+                ('%,' + tag_clean + ',%',)
+            ).fetchone()
+            total = count_row["cnt"] if count_row else 0
+            rows = db.execute(
+                "SELECT * FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ? ORDER BY word LIMIT ? OFFSET ?",
+                ('%,' + tag_clean + ',%', int(limit), int(offset))
+            ).fetchall()
+            words = [_snapshot_row_to_dict(r) for r in rows]
+            return {"tag": tag_clean, "total": total, "offset": offset, "words": words}
+        finally:
+            db.close()
+    # DB fallback
     try:
-        # 逗号分隔格式：精确匹配标签
-        like_pattern = '%' + tag_clean + '%'
-        # 更精确：匹配逗号分隔的完整标签
-        count_row = db.execute(
-            "SELECT COUNT(*) as cnt FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ?",
-            ('%,' + tag_clean + ',%',)
-        ).fetchone()
-        total = count_row["cnt"] if count_row else 0
-        rows = db.execute(
-            "SELECT * FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ? ORDER BY word LIMIT ? OFFSET ?",
-            ('%,' + tag_clean + ',%', int(limit), int(offset))
-        ).fetchall()
-        words = [_snapshot_row_to_dict(r) for r in rows]
+        conn = _get_db_conn()
+        if conn is None:
+            return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
+    except Exception:
+        return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
+    try:
+        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute("SELECT count(*) FROM vocab_library WHERE %s = ANY(tags)", (tag_clean,))
+            total = cur.fetchone()["count"]
+            cur.execute(
+                """SELECT id::text, level, word, reading, pos, frequency,
+                   COALESCE(length(insight_text), 0) as insight_len,
+                   is_ai_enriched, order_no, COALESCE(meaning, ''),
+                   COALESCE(tags, '{}'::text[]) as tags
+                FROM vocab_library WHERE %s = ANY(tags)
+                ORDER BY word LIMIT %s OFFSET %s""",
+                (tag_clean, int(limit), int(offset))
+            )
+            rows = cur.fetchall()
+        words = []
+        for r in rows:
+            words.append({
+                "id": str(r["id"]), "level": r["level"] or "", "word": r["word"] or "",
+                "reading": r["reading"] or "", "pos": r["pos"] or "",
+                "frequency": r["frequency"] or 0, "examples_count": 0,
+                "insight_len": r["insight_len"] or 0, "is_ai_enriched": r["is_ai_enriched"] or False,
+                "order_no": r["order_no"] or 0, "meaning": r["meaning"] or "",
+                "mp3": "", "audio_url": "", "image_url": "",
+                "tags": list(r["tags"] or []),
+            })
         return {"tag": tag_clean, "total": total, "offset": offset, "words": words}
+    except Exception:
+        return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
     finally:
-        db.close()
+        _return_db_conn(conn)
 
 
 @app.get("/api/library/replacements")
