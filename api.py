@@ -70,7 +70,7 @@ _PUBLIC_ANALYZE_HITS: Dict[str, List[float]] = {}
 # 搜索缓存（进程内 TTL）
 _search_cache: Dict[Tuple[str, int], Tuple[float, list]] = {}
 _SEARCH_CACHE_TTL = 120  # seconds
-_SEARCH_CACHE_MAX = 500
+_SEARCH_CACHE_MAX = 200
 
 # ── HTML 文件缓存（进程生命周期内不变，避免每次请求读磁盘）──
 _html_file_cache: Dict[str, str] = {}
@@ -189,6 +189,15 @@ def _return_db_conn(conn):
 
 # ── 词库快照（SQLite 直查，无内存缓存）──
 
+_snapshot_conn_local = threading.local()
+
+def _snapshot_conn():
+    """线程本地 SQLite 连接（复用，防止并发搜索各开 8MB 页缓存导致 OOM）。"""
+    if not hasattr(_snapshot_conn_local, 'db') or _snapshot_conn_local.db is None:
+        _snapshot_conn_local.db = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
+        _snapshot_conn_local.db.row_factory = sqlite3.Row
+    return _snapshot_conn_local.db
+
 def _snapshot_open():
     """打开快照 SQLite，确认表存在后返回连接。"""
     db = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
@@ -286,13 +295,15 @@ def _ensure_snapshot_available():
             except Exception:
                 pass
 
-        # Tier 2: 从 Supabase DB 重建快照（后台线程，不阻塞）
-        _snapshot_ready = True  # 先标记就绪，让请求走 DB fallback
-        threading.Thread(target=_rebuild_snapshot_from_db, daemon=True).start()
+        # Tier 2: 从 Supabase Storage 下载失败 → 走 DB 直查 fallback（不自动重建，防止 OOM）
+        # 手动重建请调用 POST /admin/rebuild-snapshot
+        _snapshot_ready = True  # 标记就绪，让请求走 DB fallback
+        if not os.path.exists(_VOCAB_SNAPSHOT_DB):
+            logging.warning("Snapshot unavailable, using DB fallback for search")
 
 
 def _rebuild_snapshot_from_db():
-    """从 Supabase DB 全量拉取词库，写入本地快照 + 上传 Storage。后台线程。"""
+    """从 Supabase DB 分批拉取词库写入本地快照 + 上传 Storage。后台线程，内存友好。"""
     global _snapshot_ready
     try:
         conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=10)
@@ -300,7 +311,7 @@ def _rebuild_snapshot_from_db():
         return
     try:
         with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = '60s'")
+            cur.execute("SET statement_timeout = '120s'")
             cur.execute(
                 """SELECT id::text, level, word, reading, pos, frequency,
                           COALESCE(CASE WHEN jsonb_typeof(examples) = 'array'
@@ -311,12 +322,24 @@ def _rebuild_snapshot_from_db():
                           COALESCE(tags, '{}'::text[])
                    FROM vocab_library"""
             )
-            rows = cur.fetchall()
-            if rows:
-                _save_local_snapshot(rows)
-                del rows
+            # 分批获取，每批 5000 行，避免一次性 load 198K 行进内存
+            batch_size = 5000
+            first_batch = True
+            total_rows = 0
+            while True:
+                rows = cur.fetchmany(batch_size)
+                if not rows:
+                    break
+                _save_local_snapshot(rows, first_batch=first_batch)
+                first_batch = False
+                total_rows += len(rows)
+            if total_rows > 0:
+                # 更新 row_count
+                lite = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
+                lite.execute("INSERT OR REPLACE INTO snapshot_meta VALUES ('row_count', ?)", (str(total_rows),))
+                lite.commit()
+                lite.close()
                 _upload_snapshot_to_storage()
-                # 重开快照并建立索引
                 if os.path.exists(_VOCAB_SNAPSHOT_DB):
                     db = _snapshot_open()
                     _ensure_snapshot_indexes(db)
@@ -335,12 +358,12 @@ def _rebuild_snapshot_from_db():
 # 详情缓存：避免每次搜索都新建 DB 连接查询 mp3
 _detail_cache: Dict[str, tuple] = {}  # id -> (expires_at, {mp3})
 _DETAIL_CACHE_TTL = 300
-_DETAIL_CACHE_MAX = 5000  # 防止无上限增长
+_DETAIL_CACHE_MAX = 1000  # 防止无上限增长（512MB 容器限制）
 
 # 单词详情全量缓存（减少 detail 页 DB 查询）
 _word_detail_cache: Dict[str, tuple] = {}  # slug -> (expires_at, dict)
 _WORD_DETAIL_CACHE_TTL = 600  # 10分钟，词库数据极少变动
-_WORD_DETAIL_CACHE_MAX = 2000
+_WORD_DETAIL_CACHE_MAX = 300  # 512MB 容器，防止 OOM
 
 def _trim_word_detail_cache():
     """清理过期的详情缓存条目，防止 OOM"""
@@ -468,27 +491,27 @@ def _download_snapshot_from_storage() -> Optional[str]:
 
 
 
-def _save_local_snapshot(rows: list):
-    """将 8 列紧凑格式写入本地 SQLite 快照。tags 列存逗号分隔字符串（便于 LIKE 过滤）。"""
+def _save_local_snapshot(rows: list, first_batch: bool = True):
+    """将 8 列紧凑格式写入本地 SQLite 快照。
+    first_batch=True 时重建表，False 时追加写入（用于分批重建）。"""
     try:
         lite = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
         cur = lite.cursor()
-        cur.execute("DROP TABLE IF EXISTS vocab_snapshot")
-        cur.execute("DROP TABLE IF EXISTS snapshot_meta")
-        cur.execute("""CREATE TABLE vocab_snapshot (
-            id TEXT, level TEXT, word TEXT, reading TEXT, pos TEXT,
-            packed INTEGER, meaning TEXT, tags TEXT
-        )""")
-        cur.execute("CREATE TABLE snapshot_meta (key TEXT PRIMARY KEY, value TEXT)")
-        cur.execute("INSERT INTO snapshot_meta VALUES ('loaded_at', ?)", (str(time.time()),))
-        cur.execute("INSERT INTO snapshot_meta VALUES ('row_count', ?)", (str(len(rows)),))
-        cur.execute("INSERT INTO snapshot_meta VALUES ('version', ?)", (str(_VOCAB_SNAPSHOT_VERSION),))
+        if first_batch:
+            cur.execute("DROP TABLE IF EXISTS vocab_snapshot")
+            cur.execute("DROP TABLE IF EXISTS snapshot_meta")
+            cur.execute("""CREATE TABLE vocab_snapshot (
+                id TEXT, level TEXT, word TEXT, reading TEXT, pos TEXT,
+                packed INTEGER, meaning TEXT, tags TEXT
+            )""")
+            cur.execute("CREATE TABLE snapshot_meta (key TEXT PRIMARY KEY, value TEXT)")
+            cur.execute("INSERT INTO snapshot_meta VALUES ('loaded_at', ?)", (str(time.time()),))
+            cur.execute("INSERT INTO snapshot_meta VALUES ('version', ?)", (str(_VOCAB_SNAPSHOT_VERSION),))
 
         def _gen():
             for r in rows:
                 t = tuple(r) if not isinstance(r, tuple) else r
                 if len(t) > 8:
-                    # 来自 DB 的 12 列 → 打包为 8 列
                     packed = _pack_ints(t[5], t[6], t[7], t[8], t[9])
                     t = (t[0], t[1], t[2], t[3], t[4], packed, t[10], t[11])
                 tags_val = t[7] if len(t) > 7 else []
@@ -4009,7 +4032,7 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
     if not os.path.exists(_VOCAB_SNAPSHOT_DB):
         return _search_db_direct(qq, int(limit))
 
-    db = _snapshot_open()
+    db = _snapshot_conn()
     seen: set = set()
     results: List[Dict[str, Any]] = []
 
@@ -4026,45 +4049,42 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
     if has_jp_variant:
         patterns.append(qq_j.lower())
 
-    try:
-        # Tier 1: 精确匹配 word/reading
-        for p in patterns:
-            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(word) = ? LIMIT ?", (p, int(limit))):
-                _add_dict(_snapshot_row_to_dict(row), 0, "word_exact")
-            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(reading) = ? LIMIT ?", (p, int(limit))):
-                _add_dict(_snapshot_row_to_dict(row), 10, "reading_exact")
+    # Tier 1: 精确匹配 word/reading
+    for p in patterns:
+        for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(word) = ? LIMIT ?", (p, int(limit))):
+            _add_dict(_snapshot_row_to_dict(row), 0, "word_exact")
+        for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(reading) = ? LIMIT ?", (p, int(limit))):
+            _add_dict(_snapshot_row_to_dict(row), 10, "reading_exact")
 
-        # Tier 2: 前缀匹配
-        for p in patterns:
-            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(word) LIKE ? LIMIT ?", (p + '%', int(limit))):
-                _add_dict(_snapshot_row_to_dict(row), 2, "word_prefix")
-            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(reading) LIKE ? LIMIT ?", (p + '%', int(limit))):
-                _add_dict(_snapshot_row_to_dict(row), 12, "reading_prefix")
+    # Tier 2: 前缀匹配
+    for p in patterns:
+        for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(word) LIKE ? LIMIT ?", (p + '%', int(limit))):
+            _add_dict(_snapshot_row_to_dict(row), 2, "word_prefix")
+        for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(reading) LIKE ? LIMIT ?", (p + '%', int(limit))):
+            _add_dict(_snapshot_row_to_dict(row), 12, "reading_prefix")
 
-        # Tier 3: 包含匹配 + 释义
-        need_meaning = chinese_chars >= 1 or (not has_kana and len(qq) >= 2)
-        scan_limit = int(limit) * 5
-        if len(results) < int(limit) * 2:
+    # Tier 3: 包含匹配 + 释义
+    need_meaning = chinese_chars >= 1 or (not has_kana and len(qq) >= 2)
+    scan_limit = int(limit) * 5
+    if len(results) < int(limit) * 2:
+        for p in patterns:
+            for row in db.execute(
+                "SELECT * FROM vocab_snapshot WHERE LOWER(word) LIKE ? AND LOWER(word) NOT LIKE ? LIMIT ?",
+                ('%' + p + '%', p + '%', scan_limit)
+            ):
+                _add_dict(_snapshot_row_to_dict(row), 5, "word_partial")
+            for row in db.execute(
+                "SELECT * FROM vocab_snapshot WHERE LOWER(reading) LIKE ? AND LOWER(reading) NOT LIKE ? LIMIT ?",
+                ('%' + p + '%', p + '%', scan_limit)
+            ):
+                _add_dict(_snapshot_row_to_dict(row), 15, "reading_partial")
+        if need_meaning and len(results) < scan_limit:
             for p in patterns:
                 for row in db.execute(
-                    "SELECT * FROM vocab_snapshot WHERE LOWER(word) LIKE ? AND LOWER(word) NOT LIKE ? LIMIT ?",
-                    ('%' + p + '%', p + '%', scan_limit)
+                    "SELECT * FROM vocab_snapshot WHERE LOWER(meaning) LIKE ? LIMIT ?",
+                    ('%' + p + '%', scan_limit)
                 ):
-                    _add_dict(_snapshot_row_to_dict(row), 5, "word_partial")
-                for row in db.execute(
-                    "SELECT * FROM vocab_snapshot WHERE LOWER(reading) LIKE ? AND LOWER(reading) NOT LIKE ? LIMIT ?",
-                    ('%' + p + '%', p + '%', scan_limit)
-                ):
-                    _add_dict(_snapshot_row_to_dict(row), 15, "reading_partial")
-            if need_meaning and len(results) < scan_limit:
-                for p in patterns:
-                    for row in db.execute(
-                        "SELECT * FROM vocab_snapshot WHERE LOWER(meaning) LIKE ? LIMIT ?",
-                        ('%' + p + '%', scan_limit)
-                    ):
-                        _add_dict(_snapshot_row_to_dict(row), 30, "meaning_partial")
-    finally:
-        db.close()
+                    _add_dict(_snapshot_row_to_dict(row), 30, "meaning_partial")
 
     t_match = time.time() - t0
 
@@ -4123,7 +4143,7 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
     has_jp_variant = qq_j != qq
     is_kana_only = _is_kana_only(qq)
 
-    db = _snapshot_open()
+    db = _snapshot_conn()
     seen: set = set()
     matched: List[Dict[str, Any]] = []
 
@@ -4135,33 +4155,30 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
         d["_rank"] = rank
         matched.append(d)
 
-    try:
-        patterns = [qq_lower]
-        if has_jp_variant:
-            patterns.append(qq_j.lower())
+    patterns = [qq_lower]
+    if has_jp_variant:
+        patterns.append(qq_j.lower())
 
-        # Exact match
+    # Exact match
+    for p in patterns:
+        for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(word) = ? LIMIT ?", (p, int(limit))):
+            _add_dict(_snapshot_row_to_dict(row), 0)
+        for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(reading) = ? LIMIT ?", (p, int(limit))):
+            _add_dict(_snapshot_row_to_dict(row), 3)
+
+    # Prefix match
+    for p in patterns:
+        for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(word) LIKE ? AND LOWER(word) != ? LIMIT ?", (p + '%', p, int(limit))):
+            _add_dict(_snapshot_row_to_dict(row), 1)
+        for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(reading) LIKE ? AND LOWER(reading) != ? LIMIT ?", (p + '%', p, int(limit))):
+            _add_dict(_snapshot_row_to_dict(row), 2)
+
+    # Meaning suggest for Chinese queries
+    chinese_chars = len(re.findall(r"[一-鿿]", qq))
+    if chinese_chars >= 1 and len(matched) < 3:
         for p in patterns:
-            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(word) = ? LIMIT ?", (p, int(limit))):
-                _add_dict(_snapshot_row_to_dict(row), 0)
-            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(reading) = ? LIMIT ?", (p, int(limit))):
-                _add_dict(_snapshot_row_to_dict(row), 3)
-
-        # Prefix match
-        for p in patterns:
-            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(word) LIKE ? AND LOWER(word) != ? LIMIT ?", (p + '%', p, int(limit))):
-                _add_dict(_snapshot_row_to_dict(row), 1)
-            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(reading) LIKE ? AND LOWER(reading) != ? LIMIT ?", (p + '%', p, int(limit))):
-                _add_dict(_snapshot_row_to_dict(row), 2)
-
-        # Meaning suggest for Chinese queries
-        chinese_chars = len(re.findall(r"[一-鿿]", qq))
-        if chinese_chars >= 1 and len(matched) < 3:
-            for p in patterns:
-                for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(meaning) LIKE ? LIMIT 8", ('%' + p + '%',)):
-                    _add_dict(_snapshot_row_to_dict(row), 10)
-    finally:
-        db.close()
+            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(meaning) LIKE ? LIMIT 8", ('%' + p + '%',)):
+                _add_dict(_snapshot_row_to_dict(row), 10)
 
     def _lv_rank(lv: str) -> int:
         m = {"N5": 1, "N4": 2, "N3": 3, "N2": 4, "N1": 5}
