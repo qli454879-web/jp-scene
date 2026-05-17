@@ -200,18 +200,12 @@ def _snapshot_conn():
     if not hasattr(_snapshot_conn_local, 'db') or _snapshot_conn_local.db is None:
         _snapshot_conn_local.db = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
         _snapshot_conn_local.db.row_factory = sqlite3.Row
-        _snapshot_conn_local.db.execute("PRAGMA journal_mode=WAL")
-        _snapshot_conn_local.db.execute("PRAGMA synchronous=NORMAL")
-        _snapshot_conn_local.db.execute("PRAGMA mmap_size=268435456")
     return _snapshot_conn_local.db
 
 def _snapshot_open():
     """打开快照 SQLite，确认表存在后返回连接。"""
     db = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
     db.row_factory = sqlite3.Row
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("PRAGMA synchronous=NORMAL")
-    db.execute("PRAGMA mmap_size=268435456")
     return db
 
 
