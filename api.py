@@ -3515,15 +3515,24 @@ async def list_tags():
 
 @app.get("/api/library/words/by-tag")
 async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
-    """按标签分页取词（快照优先，走 snapshot_tags 索引；失败回退 DB 直查）。"""
+    """按标签分页取词（快照优先，失败回退 DB 直查）。"""
     _ensure_snapshot_available()
     tag_clean = tag.strip()
     if os.path.exists(_VOCAB_SNAPSHOT_DB):
-        db = _snapshot_conn()
+        # 每次打开独立连接，设置超时防止死锁，走 snapshot_tags 索引或 LIKE fallback
+        db = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA query_timeout=5000")  # 5 秒超时，防止阻塞
         try:
-            # 优先用 snapshot_tags 索引表（精确 JOIN，避免 LIKE 全表扫描）
-            cnt = db.execute("SELECT COUNT(*) as c FROM snapshot_tags").fetchone()["c"]
-            if cnt > 0:
+            # 检查 snapshot_tags 表是否存在
+            has_tags_table = False
+            try:
+                cnt_row = db.execute("SELECT COUNT(*) as c FROM snapshot_tags").fetchone()
+                has_tags_table = cnt_row["c"] > 0
+            except Exception:
+                pass
+
+            if has_tags_table:
                 total_row = db.execute(
                     "SELECT COUNT(*) as cnt FROM snapshot_tags WHERE tag = ?", (tag_clean,)
                 ).fetchone()
@@ -3537,7 +3546,6 @@ async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limi
                     (tag_clean, int(limit), int(offset))
                 ).fetchall()
             else:
-                # fallback: LIKE 扫描（旧快照未建 snapshot_tags 表时）
                 total_row = db.execute(
                     "SELECT COUNT(*) as cnt FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ?",
                     ('%,' + tag_clean + ',%',)
@@ -3551,6 +3559,11 @@ async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limi
             return {"tag": tag_clean, "total": total, "offset": offset, "words": words}
         except Exception:
             pass
+        finally:
+            try:
+                db.close()
+            except Exception:
+                pass
     # DB fallback
     try:
         conn = _get_db_conn()
