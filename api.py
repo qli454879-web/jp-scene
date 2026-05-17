@@ -3502,7 +3502,7 @@ async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limi
             cur.execute(
                 f"""SELECT id::text, level, word, reading, pos, frequency,
                    COALESCE(length(insight_text), 0) as insight_len,
-                   is_ai_enriched, order_no, COALESCE(meaning, ''),
+                   is_ai_enriched, order_no, COALESCE(meaning, '') as meaning,
                    COALESCE(tags, '{{}}'::text[]) as tags
                 FROM vocab_library WHERE '{tag_clean}' = ANY(tags)
                 ORDER BY word LIMIT %s OFFSET %s""",
