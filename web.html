@@ -427,16 +427,13 @@
         </div>
     </div>
 
-    <!-- Floating Actions (右下角：小雪梨 / 收藏夹 / 错词本 / 反馈) -->
+    <!-- Floating Actions (右下角：小雪梨 / 收藏夹 / 反馈) -->
     <div id="floatingActions" class="fixed z-50 flex flex-col gap-3 items-end" style="bottom: var(--fab-bottom); right: var(--fab-right);">
         <button title="小雪梨" onclick="toggleXueMini()" class="w-12 h-12 bg-white border-2 border-gray-800 flex items-center justify-center text-xl shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
             <img id="xueFabIcon" src="/xuexueli_avatar_64.png" alt="小雪梨" class="w-8 h-8" style="image-rendering: pixelated;" />
         </button>
         <button title="收藏夹" onclick="openFavoritesModal()" class="w-12 h-12 bg-white border-2 border-gray-800 flex items-center justify-center text-xl shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
             <i class="fa-solid fa-heart text-red-500"></i>
-        </button>
-        <button title="错词本" onclick="openWrongbookModal()" class="w-12 h-12 bg-white border-2 border-gray-800 flex items-center justify-center text-xl shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
-            <i class="fa-solid fa-book-open text-gray-700"></i>
         </button>
         <button title="问题反馈" onclick="toggleFeedback()" class="w-12 h-12 bg-white border-2 border-gray-800 flex items-center justify-center text-xl shadow-[4px_4px_0px_#333] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all">
             <i class="fa-solid fa-triangle-exclamation text-yellow-500"></i>
@@ -612,15 +609,7 @@
             </div>
 
             <div class="card-pixel !p-6 mb-8 text-left">
-                <div class="text-[10px] font-bold tracking-widest uppercase text-gray-400 mb-3">今日目标 / Daily Goal</div>
-                <div class="flex items-center gap-3">
-                    <input id="dailyTargetInput" type="number" min="10" max="200" value="50" class="w-24 border-2 border-gray-800 p-2 text-sm font-bold outline-none focus:border-green-500">
-                    <span class="text-[10px] text-gray-400">个（新词 + 复习）</span>
-                </div>
-                <div class="text-[10px] text-gray-400 mt-3">查词对所有人开放；背单词需要登录以保存进度。</div>
-                <div id="forecastBox" class="mt-4 p-3 bg-blue-50 border-2 border-blue-200 text-[11px] text-blue-800">
-                    学习计划：登录后可查看预计背完日期。
-                </div>
+                <div class="text-[10px] text-gray-400">查词对所有人开放；背单词需要登录以保存进度。</div>
             </div>
 
             <button onclick="startLearning()" class="w-full max-w-xs bg-gray-800 text-white py-4 font-bold pixel-font text-xl shadow-[6px_6px_0px_#10B981] hover:bg-green-600 transition-all">
@@ -911,20 +900,7 @@
         </div>
     </div>
 
-    <!-- Wrongbook Modal（错词本） -->
-    <div id="wrongbookModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-[640] p-4">
-        <div class="card-pixel w-full max-w-2xl reveal !p-0 bg-white">
-            <div class="p-4 border-b-3 border-[#333] flex items-center justify-between">
-                <div class="pixel-font text-xl">错词本</div>
-                <button onclick="closeWrongbookModal()" class="text-gray-500 hover:text-gray-800"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <div class="p-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
-                <div id="wrongbookList" class="space-y-2 text-left text-sm text-gray-600">正在加载...</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Content Section (Analysis) -->
+<!-- Content Section (Analysis) -->
     <main id="contentView" class="content-view !pt-32">
         <div class="back-btn" onclick="goBack()">
             <i class="fa-solid fa-arrow-left"></i> BACK
@@ -1277,7 +1253,6 @@
                     }
                 }
                 updateUserUI();
-                refreshForecast();
 
                 if (!supabaseClient) return;
                 supabaseClient.auth.onAuthStateChange(async (_event, session2) => {
@@ -1310,8 +1285,7 @@
                         localStorage.removeItem('currentUserKey');
                     }
                     updateUserUI();
-                    refreshForecast();
-                });
+                    });
             } catch (e) {
             }
         }
@@ -1371,7 +1345,6 @@
                 await loadProfile();
                 updateUserUI();
                 toggleAuthModal();
-                refreshForecast();
             } catch (e) {
                 alert('注册失败，请稍后重试');
             }
@@ -1393,7 +1366,6 @@
                 updateUserUI();
                 toggleAuthModal();
                 alert('登录成功！刷新页面也不会掉线。');
-                refreshForecast();
             } catch (e) {
                 alert('登录失败，请稍后重试');
             }
@@ -1570,8 +1542,7 @@
                     }
                     await loadProfile();
                     updateUserUI();
-                    refreshForecast();
-                    alert('登录成功，已恢复账号会话。');
+                        alert('登录成功，已恢复账号会话。');
                 }
             } catch (e) {
                 const msg = (e && e.name === 'AbortError') ? '登录超时，请检查网络后重试' : '邀请码登录失败，请稍后重试';
@@ -1639,7 +1610,6 @@
                 toggleCodeProfileModal(false);
                 await loadProfile();
                 updateUserUI();
-                refreshForecast();
                 alert('欢迎进入日语社交实战背词系统！');
             } catch (e) {
                 alert('资料提交失败，请稍后重试');
@@ -1715,7 +1685,7 @@
         // 启动后尝试把上次没发完的评分同步出去（用户担心“退出后像没背过”）
         setTimeout(() => { try { flushPendingRates(); } catch (e) {} }, 900);
 
-        // 支持从其他页面跳回首页后自动打开收藏夹/错词本（保持右下角入口一致）
+        // 支持从其他页面跳回首页后自动打开收藏夹（保持右下角入口一致）
         (function handleOpenParam() {
             try {
                 const params = new URLSearchParams(window.location.search || '');
@@ -1724,7 +1694,6 @@
                 // 延迟一点，等 authToken / DOM 就绪
                 setTimeout(() => {
                     if (open === 'favorites') openFavoritesModal();
-                    if (open === 'wrongbook') openWrongbookModal();
                 }, 350);
             } catch (e) {}
         })();
@@ -1757,7 +1726,6 @@
         const vocabMetaCache = new Map();
         const vocabTipCache = new Map(); // 小雪梨提示缓存（避免重复消耗）
         let favoritesSet = new Set();
-        let wrongbookSet = new Set();
         let currentStudyMode = 'meaning';
         let studyAnswerShown = false;
         let manualCardFlipEnabled = false;
@@ -2331,31 +2299,7 @@
             });
         })();
 
-        async function refreshForecast() {
-            const box = document.getElementById('forecastBox');
-            if (!box) return;
-            if (!authToken) {
-                box.innerText = '学习计划：登录后可查看预计背完日期。';
-                return;
-            }
-            try {
-                const planDate = todayStr();
-                // 用轻量 forecast 接口，避免频繁刷新造成卡顿；若未部署该接口则回退 tasks
-                let res = await authFetch(`/api/v3/forecast?level=${encodeURIComponent(currentVocabLevel)}&plan_date=${encodeURIComponent(planDate)}`);
-                if (!res.ok) {
-                    res = await authFetch(`/api/v3/tasks?level=${encodeURIComponent(currentVocabLevel)}&plan_date=${encodeURIComponent(planDate)}`);
-                }
-                const data = await res.json();
-                const remaining = data.remaining_new_words ?? 0;
-                const daysLeft = data.estimated_days_left ?? 0;
-                const dailyNew = data.daily_new_count ?? 50;
-                box.innerText = `学习计划：剩余 ${remaining} 个新词。按每日新词 ${dailyNew} 个，预计 ${daysLeft} 天完成。`;
-            } catch (e) {
-                box.innerText = '学习计划：暂时无法获取预计完成日期。';
-            }
-        }
-
-        async function rateCurrent(rating) {
+async function rateCurrent(rating) {
             if (ratingBusy) return;
             const item = studyQueue[queueIndex];
             if (!item) return;
@@ -2374,9 +2318,6 @@
 
             // 关键优化：不要等待服务器返回再翻到下一张卡（Render 冷启动/网络抖动会让用户感觉“卡住”）
             const wordId = item.id || item.word_id;
-            if (rating === 'dont_know' && wordId) {
-                wrongbookSet.add(String(wordId));
-            }
             if (rating === 'dont_know' && !item.retry_round) {
                 studyQueue.push({
                     ...item,
@@ -2764,38 +2705,7 @@
             selectLevel(currentVocabLevel);
         }
 
-        // 学习目标（每日新词）修改：即时更新学习计划 + 预测（防卡顿：debounce + 轻量 forecast）
-        (function bindDailyTargetInput() {
-            const input = document.getElementById('dailyTargetInput');
-            const box = document.getElementById('forecastBox');
-            if (!input || !box) return;
-            let timer = null;
-            input.addEventListener('input', () => {
-                const parsed = parseInt(input.value, 10);
-                const target = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 10), 200) : 50;
-                // 立刻给反馈（无卡顿）
-                box.innerText = `学习计划：每日新词 ${target} 个（正在保存...）`;
-                if (timer) clearTimeout(timer);
-                timer = setTimeout(async () => {
-                    if (!authToken) { refreshForecast(); return; }
-                    const date = todayStr();
-                    try {
-                        await authFetch('/api/v3/plan', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ level: currentVocabLevel, plan_date: date, daily_new_count: target })
-                        });
-                    } catch (e) {
-                        // 保存失败不阻塞使用
-                    }
-                    refreshForecast();
-                    // 目标变了也预取一下（下一次开始学习更快）
-                    prefetchStudyQueue(currentVocabLevel);
-                }, 380);
-            });
-        })();
-
-        function selectLevel(level) {
+function selectLevel(level) {
     currentVocabLevel = String(level || '').trim().toUpperCase();
     try { localStorage.setItem('lastVocabLevel', level); } catch (e) {}
     // Update UI buttons
@@ -2842,44 +2752,6 @@
     if (k) k.innerText = '已切换词书';
     if (m) m.innerText = isKaoyan ? '正在准备考研词汇的学习内容...' : `正在准备 JLPT ${currentVocabLevel} 的学习内容...`;
 
-    refreshForecast();
-    // 预取新等级队列（不阻塞 UI）
-    prefetchStudyQueue(currentVocabLevel);
-}
-
-// 预取队列（用于“切换词书后马上能出来”）
-window.__prefetchedQueues = window.__prefetchedQueues || new Map();
-let __prefetchTimer = null;
-async function prefetchStudyQueue(level) {
-    if (!authToken) return;
-    const date = todayStr();
-    const input = document.getElementById('dailyTargetInput');
-    const parsed = parseInt(input?.value || '50', 10);
-    const target = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 10), 200) : 50;
-    const key = `${level}:${date}:${target}`;
-
-    if (__prefetchTimer) clearTimeout(__prefetchTimer);
-    __prefetchTimer = setTimeout(async () => {
-        try {
-            // 先把计划同步到后端（让 tasks 生成队列时用正确 daily_new_count）
-            await authFetch('/api/v3/plan', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ level, plan_date: date, daily_new_count: target })
-            });
-            const res = await authFetch(`/api/v3/tasks?level=${encodeURIComponent(level)}&plan_date=${encodeURIComponent(date)}`);
-            const data = await res.json();
-            const q = prepareStudyQueue(filterQueueByLocalProgress(Array.isArray(data.queue) ? data.queue : [], date));
-            window.__prefetchedQueues.set(level, { queue: q, saved_at: Date.now(), key });
-            // 也写入本地缓存，防止刷新/返回后再慢
-            try {
-                const cacheKey = `studyQueue:${storageUserKey()}:${level}:${date}`;
-                localStorage.setItem(cacheKey, JSON.stringify({ queue: q, saved_at: Date.now() }));
-            } catch (e) {}
-        } catch (e) {
-            // 预取失败不影响正常学习
-        }
-    }, 250);
 }
 
 async function startLearning() {
@@ -2891,10 +2763,7 @@ async function startLearning() {
         loadPendingRates();
         isLearningSession = true;
 
-        const input = document.getElementById('dailyTargetInput');
-        const parsed = parseInt(input?.value || '50', 10);
-        sessionTarget = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 10), 200) : 50;
-        if (input) input.value = String(sessionTarget);
+        sessionTarget = 50;
 
         sessionStats = { know: 0, fuzzy: 0, dont_know: 0, newDone: 0, reviewDone: 0 };
         queueIndex = 0;
@@ -2909,21 +2778,20 @@ async function startLearning() {
         document.getElementById('batchSummaryModal').classList.add('hidden');
         document.getElementById('currentLevelBadge').innerText = formatLevelLabel(currentVocabLevel);
 
-        // 先给用户一个“立刻可见”的反馈，避免空白卡顿感
+        // 先给用户一个”立刻可见”的反馈，避免空白卡顿感
         currentVocabData = null;
         document.getElementById('vocabWord').innerText = '...';
         document.getElementById('vocabKana').innerText = '正在加载';
-        document.getElementById('vocabMeaning').innerText = '正在生成学习队列（首次可能较慢）';
+        document.getElementById('vocabMeaning').innerText = '正在加载学习队列...';
         const card = document.getElementById('vocabCard');
         if (card) card.classList.remove('is-flipped');
 
         const date = todayStr();
         const cacheKey = `studyQueue:${storageUserKey()}:${currentVocabLevel}:${date}`;
-        let fallbackQueue = [];
         try {
             const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
             if (cached && Array.isArray(cached.queue) && cached.queue.length) {
-                fallbackQueue = prepareStudyQueue(filterQueueByLocalProgress(cached.queue, date));
+                studyQueue = prepareStudyQueue(filterQueueByLocalProgress(cached.queue, date));
             }
         } catch (e) {}
 
@@ -2937,82 +2805,13 @@ async function startLearning() {
             }
         } catch (e) {}
 
+        // 同步收藏夹（不阻塞主流程，失败也不影响背词）
         try {
-            await authFetch('/api/v3/plan', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    level: currentVocabLevel,
-                    plan_date: date,
-                    daily_new_count: sessionTarget
-                })
-            });
+            const favRes = await authFetch(`/api/v3/favorites?level=${encodeURIComponent(currentVocabLevel)}`);
+            const favArr = await favRes.json();
+            favoritesSet = new Set(Array.isArray(favArr) ? favArr.map(String) : []);
         } catch (e) {
-            if (String(e && e.message) === 'unauthorized') {
-                alert('登录已失效，请重新登录后开始学习。');
-                backToLevels();
-                return;
-            }
-            console.error(e);
-        }
-
-        try {
-            // 如果已预取该等级队列，则直接使用，减少“切换词书后还显示旧词”的时间窗口
-            if (window.__prefetchedQueues && window.__prefetchedQueues.has(currentVocabLevel)) {
-                const pre = window.__prefetchedQueues.get(currentVocabLevel);
-                if (pre && Array.isArray(pre.queue) && pre.queue.length) {
-                    fallbackQueue = prepareStudyQueue(filterQueueByLocalProgress(pre.queue, date));
-                }
-            }
-            const res = await authFetch(`/api/v3/tasks?level=${encodeURIComponent(currentVocabLevel)}&plan_date=${encodeURIComponent(date)}`);
-            
-            if (!res.ok) {
-                let msg = `学习队列生成失败（${res.status}）`;
-                try {
-                    const err = await res.json();
-                    if (err && err.detail) msg = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
-                } catch (e) {}
-                alert(msg);
-                backToLevels();
-                return;
-            }
-            const data = await res.json();
-            studyQueue = prepareStudyQueue(filterQueueByLocalProgress(Array.isArray(data.queue) ? data.queue : [], date));
-            try {
-                localStorage.setItem(cacheKey, JSON.stringify({ queue: studyQueue, saved_at: Date.now() }));
-            } catch (e) {}
-
-            // 同步错词本/收藏夹（不阻塞主流程，失败也不影响背词）
-            try {
-                const favRes = await authFetch(`/api/v3/favorites?level=${encodeURIComponent(currentVocabLevel)}`);
-                const favArr = await favRes.json();
-                favoritesSet = new Set(Array.isArray(favArr) ? favArr.map(String) : []);
-            } catch (e) {
-                favoritesSet = new Set();
-            }
-            try {
-                const wRes = await authFetch(`/api/v3/wrongbook?level=${encodeURIComponent(currentVocabLevel)}`);
-                const wArr = await wRes.json();
-                wrongbookSet = new Set(Array.isArray(wArr) ? wArr.map(String) : []);
-            } catch (e) {
-                wrongbookSet = new Set();
-            }
-        } catch (e) {
-            if (String(e && e.message) === 'unauthorized') {
-                alert('登录已失效，请重新登录后开始学习。');
-                backToLevels();
-                return;
-            }
-            console.error(e);
-            studyQueue = fallbackQueue.slice();
-        }
-
-        if (!studyQueue.length) {
-            if (fallbackQueue.length) {
-                studyQueue = fallbackQueue.slice();
-            }
+            favoritesSet = new Set();
         }
 
         if (!studyQueue.length) {
@@ -3023,7 +2822,6 @@ async function startLearning() {
 
         updateSessionProgress();
         showCurrent();
-        refreshForecast();
     } catch (e) {
         console.error('startLearning failed:', e);
         alert(`开始学习失败：${e && e.message ? e.message : '前端异常'}`);
@@ -3176,20 +2974,11 @@ async function startLearning() {
             if (m1) m1.addEventListener('click', (e) => { if (e.target === m1) closeStudyInsightModal(); });
             const m2 = document.getElementById('favoritesModal');
             if (m2) m2.addEventListener('click', (e) => { if (e.target === m2) closeFavoritesModal(); });
-            const m3 = document.getElementById('wrongbookModal');
-            if (m3) m3.addEventListener('click', (e) => { if (e.target === m3) closeWrongbookModal(); });
         })();
 
-        // --- 收藏夹 / 错词本（不打断背词进程）---
+        // --- 收藏夹（不打断背词进程）---
         function closeFavoritesModal() {
             const m = document.getElementById('favoritesModal');
-            if (!m) return;
-            m.classList.add('hidden');
-            m.classList.remove('flex');
-        }
-
-        function closeWrongbookModal() {
-            const m = document.getElementById('wrongbookModal');
             if (!m) return;
             m.classList.add('hidden');
             m.classList.remove('flex');
@@ -3208,24 +2997,6 @@ async function startLearning() {
                 const data = await res.json();
                 if (!res.ok) throw new Error(data?.detail || '加载失败');
                 renderEntryList(box, Array.isArray(data) ? data : [], 'favorite');
-            } catch (e) {
-                box.innerHTML = `<div class="text-red-500">加载失败：${(e && e.message) ? e.message : ''}</div>`;
-            }
-        }
-
-        async function openWrongbookModal() {
-            if (!authToken) { toggleAuthModal(); return; }
-            const m = document.getElementById('wrongbookModal');
-            const box = document.getElementById('wrongbookList');
-            if (!m || !box) return;
-            m.classList.remove('hidden');
-            m.classList.add('flex');
-            box.innerHTML = '正在加载...';
-            try {
-                const res = await authFetch(`/api/v3/wrongbook/items?level=${encodeURIComponent(currentVocabLevel)}&limit=200`);
-                const data = await res.json();
-                if (!res.ok) throw new Error(data?.detail || '加载失败');
-                renderEntryList(box, Array.isArray(data) ? data : [], 'wrongbook');
             } catch (e) {
                 box.innerHTML = `<div class="text-red-500">加载失败：${(e && e.message) ? e.message : ''}</div>`;
             }
@@ -3272,20 +3043,16 @@ async function startLearning() {
                 if (delBtn) delBtn.onclick = () => {
                     // 乐观移除：先隐藏DOM行，再调API
                     row.style.display = 'none';
-                    if (kind === 'favorite') favoritesSet.delete(String(id));
-                    else wrongbookSet.delete(String(id));
-                    authFetch(`/api/v3/${kind === 'favorite' ? 'favorites' : 'wrongbook'}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+                    favoritesSet.delete(String(id));
+                    authFetch(`/api/v3/favorites/${encodeURIComponent(id)}`, { method: 'DELETE' })
                         .then(() => {
                             const favCount = document.getElementById('favoritesCount');
-                            const wbCount = document.getElementById('wrongbookCount');
-                            if (kind === 'favorite' && favCount) favCount.innerText = `(${favoritesSet.size})`;
-                            if (kind !== 'favorite' && wbCount) wbCount.innerText = `(${wrongbookSet.size})`;
+                            if (favCount) favCount.innerText = `(${favoritesSet.size})`;
                         })
                         .catch(() => {
                             // 失败恢复
                             row.style.display = '';
-                            if (kind === 'favorite') favoritesSet.add(String(id));
-                            else wrongbookSet.add(String(id));
+                            favoritesSet.add(String(id));
                             alert('移除失败，请稍后再试');
                         });
                 };
@@ -3309,17 +3076,10 @@ async function startLearning() {
             if (!authToken) return;
             if (!id) return;
             try {
-                if (kind === 'favorite') {
-                    await authFetch(`/api/v3/favorites/${encodeURIComponent(id)}`, { method: 'DELETE' });
-                    favoritesSet.delete(String(id));
-                    const favCount = document.getElementById('favoritesCount');
-                    if (favCount) favCount.innerText = `(${favoritesSet.size})`;
-                } else {
-                    await authFetch(`/api/v3/wrongbook/${encodeURIComponent(id)}`, { method: 'DELETE' });
-                    wrongbookSet.delete(String(id));
-                    const wbCount = document.getElementById('wrongbookCount');
-                    if (wbCount) wbCount.innerText = `(${wrongbookSet.size})`;
-                }
+                await authFetch(`/api/v3/favorites/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                favoritesSet.delete(String(id));
+                const favCount = document.getElementById('favoritesCount');
+                if (favCount) favCount.innerText = `(${favoritesSet.size})`;
             } catch (e) {
                 alert('移除失败，请稍后再试');
             }

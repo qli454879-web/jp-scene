@@ -1014,17 +1014,6 @@ def init_supabase_schema():
       UNIQUE(user_id, entry_id)
     );
 
-    CREATE TABLE IF NOT EXISTS library_plans (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id UUID NOT NULL,
-      level TEXT NOT NULL,
-      plan_date DATE NOT NULL,
-      daily_new_count INTEGER NOT NULL DEFAULT 50,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE(user_id, level, plan_date)
-    );
-
     CREATE TABLE IF NOT EXISTS user_progress (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id UUID NOT NULL,
@@ -1041,20 +1030,6 @@ def init_supabase_schema():
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE(user_id, word_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS user_plans (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id UUID NOT NULL,
-      level TEXT NOT NULL,
-      plan_date DATE NOT NULL,
-      daily_new_count INTEGER NOT NULL DEFAULT 50,
-      daily_review_count INTEGER NOT NULL DEFAULT 0,
-      generated_count INTEGER NOT NULL DEFAULT 0,
-      estimated_finish_date DATE,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE(user_id, level, plan_date)
     );
 
     CREATE TABLE IF NOT EXISTS forum_posts (
@@ -1216,258 +1191,6 @@ def _compute_next_review(repetition: int, rating: str) -> Tuple[int, int, float]
         repetition = min(repetition + 1, len(SRS_INTERVAL_DAYS) - 1)
     interval_days = SRS_INTERVAL_DAYS[repetition]
     return repetition, interval_days, ease
-
-
-def _build_daily_task_queue_pg(user_id: str, level: str, daily_new_count: int) -> Dict[str, Any]:
-    now_ts = time.time()
-    conn = _pg_conn()
-    try:
-        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            review_limit = max(1, int(daily_new_count))
-            cur.execute(
-                """
-                SELECT w.id, w.word, w.kana, w.meaning_zh, w.origin, w.social_targets, w.offense_risk, w.usage_frequency,
-                       w.scene_tags, w.register_social, w.scene_deep_dive, w.example_ja, w.example_zh,
-                       w.usage_frequency_note, w.audio_filename, w.image_prompt
-                FROM user_progress up
-                JOIN words w ON w.id = up.word_id
-                WHERE up.user_id = %s::uuid
-                  AND up.level = %s
-                  AND up.next_review_at IS NOT NULL
-                  AND up.next_review_at <= NOW()
-                ORDER BY up.next_review_at ASC
-                LIMIT %s
-                """,
-                (user_id, level, review_limit),
-            )
-            review_rows = cur.fetchall()
-            due_count = len(review_rows)
-
-            # 如果今天没有到期复习词，仍优先给用户一批"学过的词"做开场复习，
-            # 避免一进入背词就直接开始新词。
-            if len(review_rows) < review_limit:
-                cur.execute(
-                    """
-                    SELECT w.id, w.word, w.kana, w.meaning_zh, w.origin, w.social_targets, w.offense_risk, w.usage_frequency,
-                           w.scene_tags, w.register_social, w.scene_deep_dive, w.example_ja, w.example_zh,
-                           w.usage_frequency_note, w.audio_filename, w.image_prompt
-                    FROM user_progress up
-                    JOIN words w ON w.id = up.word_id
-                    WHERE up.user_id = %s::uuid
-                      AND up.level = %s
-                      AND (up.next_review_at IS NULL OR up.next_review_at > NOW())
-                    ORDER BY COALESCE(up.last_review_at, up.updated_at, up.next_review_at) ASC NULLS FIRST
-                    LIMIT %s
-                    """,
-                    (user_id, level, max(review_limit * 4, 20)),
-                )
-                seen_ids = {str(row.get("id")) for row in review_rows}
-                for row in cur.fetchall():
-                    row_id = str(row.get("id"))
-                    if row_id in seen_ids:
-                        continue
-                    row["kind"] = "review"
-                    review_rows.append(row)
-                    seen_ids.add(row_id)
-                    if len(review_rows) >= review_limit:
-                        break
-
-            cur.execute(
-                """
-                SELECT w.id, w.word, w.kana, w.meaning_zh, w.origin, w.social_targets, w.offense_risk, w.usage_frequency,
-                       w.scene_tags, w.register_social, w.scene_deep_dive, w.example_ja, w.example_zh,
-                       w.usage_frequency_note, w.audio_filename, w.image_prompt
-                FROM words w
-                WHERE w.level = %s
-                  AND NOT EXISTS (
-                    SELECT 1 FROM user_progress up
-                    WHERE up.user_id = %s::uuid AND up.word_id = w.id
-                  )
-                ORDER BY w.order_no ASC
-                LIMIT %s
-                """,
-                (level, user_id, review_limit),
-            )
-            new_rows = cur.fetchall()
-
-            queue = []
-            for row in review_rows:
-                row["kind"] = "review"
-                queue.append(row)
-            for row in new_rows:
-                row["kind"] = "new"
-                queue.append(row)
-
-            cur.execute("SELECT COUNT(*) AS c FROM words WHERE level=%s", (level,))
-            total_words = int((cur.fetchone() or {}).get("c") or 0)
-            cur.execute(
-                """
-                SELECT COUNT(*) AS c
-                FROM user_progress up
-                JOIN words w ON w.id = up.word_id
-                WHERE up.user_id = %s::uuid AND w.level=%s
-                """,
-                (user_id, level),
-            )
-            learned_words = int((cur.fetchone() or {}).get("c") or 0)
-
-            remaining = max(total_words - learned_words, 0)
-            days_left = max((remaining + max(1, daily_new_count) - 1) // max(1, daily_new_count), 0)
-            return {
-                "queue": queue,
-                "total": len(queue),
-                "due": due_count,
-                "new": len(new_rows),
-                "remaining_new_words": remaining,
-                "estimated_days_left": days_left,
-                "generated_at": now_ts,
-            }
-    finally:
-        _return_db_conn(conn)
-
-
-def _build_daily_task_queue_library_pg(user_id: str, level: str, daily_new_count: int) -> Dict[str, Any]:
-    now_ts = time.time()
-    selector = _normalize_library_selector(level)
-    conn = _pg_conn()
-    try:
-        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            review_limit = max(1, int(daily_new_count))
-            if _is_kaoyan_selector(selector):
-                cur.execute("SELECT COUNT(*) AS c FROM vocab_library WHERE 'kaoyan' = ANY(tags)")
-            else:
-                cur.execute("SELECT COUNT(*) AS c FROM vocab_library WHERE level=%s", (selector,))
-            total_words = int((cur.fetchone() or {}).get("c") or 0)
-            if total_words == 0:
-                return {"queue": [], "total": 0, "due": 0, "new": 0, "remaining_new_words": 0, "estimated_days_left": 0, "generated_at": now_ts}
-
-            # due review
-            cur.execute(
-                """
-                SELECT v.id, v.level, v.word, v.reading, v.meaning, v.mp3,
-                       v.pos, v.frequency, v.examples,
-                       v.social_context, v.heatmap_data, v.insight_text, v.image_url, v.is_ai_enriched, v.order_no
-                FROM library_progress lp
-                JOIN vocab_library v ON v.id = lp.entry_id
-                WHERE lp.user_id = %s::uuid
-                  AND lp.level = %s
-                  AND lp.next_review_at IS NOT NULL
-                  AND lp.next_review_at <= NOW()
-                ORDER BY lp.next_review_at ASC
-                LIMIT %s
-                """,
-                (user_id, selector, review_limit),
-            )
-            review_rows = cur.fetchall()
-            due_count = len(review_rows)
-
-            # 若没有到期复习，也优先抽取一批已学过词汇做复习开场。
-            if len(review_rows) < review_limit:
-                cur.execute(
-                    """
-                    SELECT v.id, v.level, v.word, v.reading, v.meaning, v.mp3,
-                           v.pos, v.frequency, v.examples,
-                           v.social_context, v.heatmap_data, v.insight_text, v.image_url, v.is_ai_enriched, v.order_no
-                    FROM library_progress lp
-                    JOIN vocab_library v ON v.id = lp.entry_id
-                    WHERE lp.user_id = %s::uuid
-                      AND lp.level = %s
-                      AND (lp.next_review_at IS NULL OR lp.next_review_at > NOW())
-                    ORDER BY COALESCE(lp.last_review_at, lp.updated_at, lp.next_review_at) ASC NULLS FIRST
-                    LIMIT %s
-                    """,
-                    (user_id, selector, max(review_limit * 4, 20)),
-                )
-                seen_ids = {str(row.get("id")) for row in review_rows}
-                for row in cur.fetchall():
-                    row_id = str(row.get("id"))
-                    if row_id in seen_ids:
-                        continue
-                    row["kind"] = "review"
-                    review_rows.append(row)
-                    seen_ids.add(row_id)
-                    if len(review_rows) >= review_limit:
-                        break
-
-            if _is_kaoyan_selector(selector):
-                cur.execute(
-                    """
-                    SELECT v.id, v.level, v.word, v.reading, v.meaning, v.mp3,
-                           v.pos, v.frequency, v.examples,
-                           v.social_context, v.heatmap_data, v.insight_text, v.image_url, v.is_ai_enriched, v.order_no
-                    FROM vocab_library v
-                    WHERE 'kaoyan' = ANY(v.tags)
-                      AND NOT EXISTS (
-                        SELECT 1 FROM library_progress lp
-                        WHERE lp.user_id = %s::uuid AND lp.entry_id = v.id
-                      )
-                    ORDER BY v.level ASC, v.order_no ASC
-                    LIMIT %s
-                    """,
-                    (user_id, review_limit),
-                )
-            else:
-                cur.execute(
-                    """
-                    SELECT v.id, v.level, v.word, v.reading, v.meaning, v.mp3,
-                           v.pos, v.frequency, v.examples,
-                           v.social_context, v.heatmap_data, v.insight_text, v.image_url, v.is_ai_enriched, v.order_no
-                    FROM vocab_library v
-                    WHERE v.level = %s
-                      AND NOT EXISTS (
-                        SELECT 1 FROM library_progress lp
-                        WHERE lp.user_id = %s::uuid AND lp.entry_id = v.id
-                      )
-                    ORDER BY v.order_no ASC
-                    LIMIT %s
-                    """,
-                    (selector, user_id, review_limit),
-                )
-            new_rows = cur.fetchall()
-
-            queue: List[Dict[str, Any]] = []
-            for row in review_rows:
-                row["kind"] = "review"
-                queue.append(row)
-            for row in new_rows:
-                row["kind"] = "new"
-                queue.append(row)
-
-            if _is_kaoyan_selector(selector):
-                cur.execute(
-                    """
-                    SELECT COUNT(*) AS c
-                    FROM library_progress lp
-                    JOIN vocab_library v ON v.id = lp.entry_id
-                    WHERE lp.user_id = %s::uuid AND 'kaoyan' = ANY(v.tags)
-                    """,
-                    (user_id,),
-                )
-            else:
-                cur.execute(
-                    """
-                    SELECT COUNT(*) AS c
-                    FROM library_progress lp
-                    JOIN vocab_library v ON v.id = lp.entry_id
-                    WHERE lp.user_id = %s::uuid AND v.level = %s
-                    """,
-                    (user_id, selector),
-                )
-            learned_words = int((cur.fetchone() or {}).get("c") or 0)
-            remaining = max(total_words - learned_words, 0)
-            days_left = max((remaining + max(1, daily_new_count) - 1) // max(1, daily_new_count), 0)
-            return {
-                "queue": queue,
-                "total": len(queue),
-                "due": due_count,
-                "new": len(new_rows),
-                "remaining_new_words": remaining,
-                "estimated_days_left": days_left,
-                "generated_at": now_ts,
-            }
-    finally:
-        _return_db_conn(conn)
-
 
 def _ensure_invitation_codes_extra_columns() -> None:
     """邀请码：支持'首次使用后 7 天内可重复登录，过期失效'"""
@@ -2476,70 +2199,6 @@ async def admin_invitation_codes_v2(current_user: Dict[str, Any] = Depends(requi
         _return_db_conn(conn)
 
 
-@app.post("/api/v2/plan")
-async def set_plan_v2(
-    level: str = Body(...),
-    plan_date: str = Body(...),
-    daily_new_count: int = Body(...),
-    current_user: Dict[str, Any] = Depends(get_current_supabase_user),
-):
-    user_id = current_user["id"]
-    conn = _pg_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO user_plans (user_id, level, plan_date, daily_new_count, updated_at)
-                VALUES (%s::uuid, %s, %s::date, %s, NOW())
-                ON CONFLICT (user_id, level, plan_date)
-                DO UPDATE SET daily_new_count=EXCLUDED.daily_new_count, updated_at=NOW()
-                """,
-                (user_id, level, plan_date, int(daily_new_count)),
-            )
-        conn.commit()
-        return {"status": "success"}
-    finally:
-        _return_db_conn(conn)
-
-
-@app.get("/api/v2/tasks")
-async def get_tasks_v2(
-    level: str = Query(...),
-    plan_date: str = Query(...),
-    current_user: Dict[str, Any] = Depends(get_current_supabase_user),
-):
-    user_id = current_user["id"]
-    conn = _pg_conn()
-    try:
-        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            cur.execute("SELECT COUNT(*) AS c FROM words WHERE level=%s", (level,))
-            total_for_level = int((cur.fetchone() or {}).get("c") or 0)
-            if total_for_level == 0:
-                raise HTTPException(status_code=404, detail=f"词书 {level} 暂无词条，请先导入该等级词库后再学习")
-
-            cur.execute(
-                "SELECT daily_new_count FROM user_plans WHERE user_id=%s::uuid AND level=%s AND plan_date=%s::date",
-                (user_id, level, plan_date),
-            )
-            row = cur.fetchone()
-            daily_new_count = int((row or {}).get("daily_new_count") or 50)
-            if not row:
-                cur.execute(
-                    """
-                    INSERT INTO user_plans (user_id, level, plan_date, daily_new_count, updated_at)
-                    VALUES (%s::uuid, %s, %s::date, %s, NOW())
-                    ON CONFLICT (user_id, level, plan_date) DO NOTHING
-                    """,
-                    (user_id, level, plan_date, daily_new_count),
-                )
-                conn.commit()
-    finally:
-        _return_db_conn(conn)
-
-    queue_payload = _build_daily_task_queue_pg(user_id=user_id, level=level, daily_new_count=daily_new_count)
-    return {"plan_date": plan_date, "daily_new_count": daily_new_count, **queue_payload}
-
-
 @app.post("/api/v2/study/rate")
 async def rate_v2(
     word_id: str = Body(...),
@@ -2594,141 +2253,6 @@ async def rate_v2(
         _return_db_conn(conn)
 
 
-# --- Stage 2: Use vocab_library as unified study source ---
-@app.post("/api/v3/plan")
-async def set_plan_v3(
-    level: str = Body(...),
-    plan_date: str = Body(...),
-    daily_new_count: int = Body(...),
-    current_user: Dict[str, Any] = Depends(get_current_supabase_user),
-):
-    user_id = current_user["id"]
-    selector = _normalize_library_selector(level)
-    conn = _pg_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO library_plans (user_id, level, plan_date, daily_new_count, updated_at)
-                VALUES (%s::uuid, %s, %s::date, %s, NOW())
-                ON CONFLICT (user_id, level, plan_date)
-                DO UPDATE SET daily_new_count=EXCLUDED.daily_new_count, updated_at=NOW()
-                """,
-                (user_id, selector, plan_date, int(daily_new_count)),
-            )
-        conn.commit()
-        return {"status": "success"}
-    finally:
-        _return_db_conn(conn)
-
-
-@app.get("/api/v3/tasks")
-async def get_tasks_v3(
-    level: str = Query(...),
-    plan_date: str = Query(...),
-    current_user: Dict[str, Any] = Depends(get_current_supabase_user),
-):
-    user_id = current_user["id"]
-    selector = _normalize_library_selector(level)
-    conn = _pg_conn()
-    try:
-        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            if _is_kaoyan_selector(selector):
-                cur.execute("SELECT COUNT(*) AS c FROM vocab_library WHERE 'kaoyan' = ANY(tags)")
-            else:
-                cur.execute("SELECT COUNT(*) AS c FROM vocab_library WHERE level=%s", (selector,))
-            total_for_level = int((cur.fetchone() or {}).get("c") or 0)
-            if total_for_level == 0:
-                raise HTTPException(status_code=404, detail=f"词书 {selector} 暂无词条，请先导入该等级词库后再学习")
-
-            cur.execute(
-                "SELECT daily_new_count FROM library_plans WHERE user_id=%s::uuid AND level=%s AND plan_date=%s::date",
-                (user_id, selector, plan_date),
-            )
-            row = cur.fetchone()
-            daily_new_count = int((row or {}).get("daily_new_count") or 50)
-            if not row:
-                cur.execute(
-                    """
-                    INSERT INTO library_plans (user_id, level, plan_date, daily_new_count, updated_at)
-                    VALUES (%s::uuid, %s, %s::date, %s, NOW())
-                    ON CONFLICT (user_id, level, plan_date) DO NOTHING
-                    """,
-                    (user_id, selector, plan_date, daily_new_count),
-                )
-                conn.commit()
-    finally:
-        _return_db_conn(conn)
-
-    queue_payload = _build_daily_task_queue_library_pg(user_id=user_id, level=selector, daily_new_count=daily_new_count)
-    return {"plan_date": plan_date, "daily_new_count": daily_new_count, **queue_payload}
-
-
-@app.get("/api/v3/forecast")
-async def get_forecast_v3(
-    level: str = Query(...),
-    plan_date: str = Query(...),
-    current_user: Dict[str, Any] = Depends(get_current_supabase_user),
-):
-    """
-    轻量学习计划预测（不生成学习队列，避免前端频繁修改目标时卡顿）：
-    - 返回 remaining_new_words / estimated_days_left / daily_new_count
-    """
-    user_id = current_user["id"]
-    selector = _normalize_library_selector(level)
-    conn = _pg_conn()
-    try:
-        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            if _is_kaoyan_selector(selector):
-                cur.execute("SELECT COUNT(*) AS c FROM vocab_library WHERE 'kaoyan' = ANY(tags)")
-            else:
-                cur.execute("SELECT COUNT(*) AS c FROM vocab_library WHERE level=%s", (selector,))
-            total_words = int((cur.fetchone() or {}).get("c") or 0)
-            if total_words == 0:
-                raise HTTPException(status_code=404, detail=f"词书 {selector} 暂无词条，请先导入该等级词库后再学习")
-
-            cur.execute(
-                "SELECT daily_new_count FROM library_plans WHERE user_id=%s::uuid AND level=%s AND plan_date=%s::date",
-                (user_id, selector, plan_date),
-            )
-            row = cur.fetchone()
-            daily_new_count = int((row or {}).get("daily_new_count") or 50)
-
-            if _is_kaoyan_selector(selector):
-                cur.execute(
-                    """
-                    SELECT COUNT(*) AS c
-                    FROM library_progress lp
-                    JOIN vocab_library v ON v.id = lp.entry_id
-                    WHERE lp.user_id = %s::uuid AND 'kaoyan' = ANY(v.tags)
-                    """,
-                    (user_id,),
-                )
-            else:
-                cur.execute(
-                    """
-                    SELECT COUNT(*) AS c
-                    FROM library_progress lp
-                    JOIN vocab_library v ON v.id = lp.entry_id
-                    WHERE lp.user_id = %s::uuid AND v.level = %s
-                    """,
-                    (user_id, selector),
-                )
-            learned_words = int((cur.fetchone() or {}).get("c") or 0)
-
-        remaining = max(total_words - learned_words, 0)
-        days_left = max((remaining + max(1, daily_new_count) - 1) // max(1, daily_new_count), 0)
-        return {
-            "level": selector,
-            "plan_date": plan_date,
-            "daily_new_count": daily_new_count,
-            "remaining_new_words": remaining,
-            "estimated_days_left": days_left,
-        }
-    finally:
-        _return_db_conn(conn)
-
-
 @app.post("/api/v3/study/rate")
 async def rate_v3(
     entry_id: str = Body(...),
@@ -2779,16 +2303,6 @@ async def rate_v3(
                 """,
                 (user_id, entry_id, selector, repetition, interval_days, ease, rating, interval_days, rating, rating),
             )
-            # 错词本：只要点了"不认识"，就自动加入（可在错词本里删除）
-            if rating == "dont_know":
-                cur.execute(
-                    """
-                    INSERT INTO public.library_wrongbook (user_id, entry_id, level)
-                    VALUES (%s::uuid, %s::uuid, %s)
-                    ON CONFLICT (user_id, entry_id) DO NOTHING
-                    """,
-                    (user_id, entry_id, selector),
-                )
         conn.commit()
         return {"status": "success", "repetition": repetition, "interval_days": interval_days}
     finally:
@@ -2860,15 +2374,6 @@ async def rate_batch_v3(
                     """,
                     (user_id, entry_id, level, repetition, interval_days, ease, rating, interval_days, rating, rating),
                 )
-                if rating == "dont_know":
-                    cur.execute(
-                        """
-                        INSERT INTO public.library_wrongbook (user_id, entry_id, level)
-                        VALUES (%s::uuid, %s::uuid, %s)
-                        ON CONFLICT (user_id, entry_id) DO NOTHING
-                        """,
-                        (user_id, entry_id, level),
-                    )
         conn.commit()
         return {"status": "success", "accepted": len(items)}
     finally:
@@ -2876,7 +2381,7 @@ async def rate_batch_v3(
 
 
 def _ensure_library_user_lists_tables(conn) -> None:
-    """错词本/收藏夹（均为"用户-词条"关系表）。"""
+    """收藏夹（用户-词条关系表）。"""
     global _LIBRARY_USER_LISTS_SCHEMA_OK
     if _LIBRARY_USER_LISTS_SCHEMA_OK:
         return
@@ -2893,19 +2398,7 @@ def _ensure_library_user_lists_tables(conn) -> None:
                 );
                 """
             )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS public.library_wrongbook (
-                  user_id uuid NOT NULL,
-                  entry_id uuid NOT NULL,
-                  level text NOT NULL,
-                  created_at timestamptz NOT NULL DEFAULT now(),
-                  PRIMARY KEY (user_id, entry_id)
-                );
-                """
-            )
             cur.execute("CREATE INDEX IF NOT EXISTS library_favorites_user_level_idx ON public.library_favorites(user_id, level);")
-            cur.execute("CREATE INDEX IF NOT EXISTS library_wrongbook_user_level_idx ON public.library_wrongbook(user_id, level);")
         conn.commit()
         _LIBRARY_USER_LISTS_SCHEMA_OK = True
     except Exception:
@@ -3008,97 +2501,6 @@ async def remove_favorite_v3(entry_id: str, current_user: Dict[str, Any] = Depen
         _return_db_conn(conn)
 
 
-@app.get("/api/v3/wrongbook")
-async def list_wrongbook_v3(level: str = Query(...), current_user: Dict[str, Any] = Depends(get_current_supabase_user)):
-    user_id = current_user["id"]
-    conn = _pg_conn()
-    try:
-        _ensure_library_user_lists_tables(conn)
-        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            cur.execute(
-                "SELECT entry_id FROM public.library_wrongbook WHERE user_id=%s::uuid AND level=%s",
-                (user_id, level),
-            )
-            rows = cur.fetchall() or []
-        return [str(r["entry_id"]) for r in rows if r.get("entry_id")]
-    finally:
-        _return_db_conn(conn)
-
-
-@app.get("/api/v3/wrongbook/items")
-async def list_wrongbook_items_v3(
-    level: str = Query(...),
-    limit: int = Query(200, ge=1, le=500),
-    current_user: Dict[str, Any] = Depends(get_current_supabase_user),
-):
-    """错词本条目（带词条信息，供前端列表展示）。"""
-    user_id = current_user["id"]
-    conn = _pg_conn()
-    try:
-        _ensure_library_user_lists_tables(conn)
-        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            cur.execute(
-                """
-                SELECT v.id, v.level, v.word, v.reading, v.meaning, v.pos, v.frequency, v.image_url
-                FROM public.library_wrongbook w
-                JOIN public.vocab_library v ON v.id = w.entry_id
-                WHERE w.user_id=%s::uuid AND w.level=%s
-                ORDER BY w.created_at DESC
-                LIMIT %s
-                """,
-                (user_id, level, int(limit)),
-            )
-            rows = cur.fetchall() or []
-        out = []
-        for r in rows:
-            d = dict(r)
-            d["id"] = str(d.get("id"))
-            out.append(d)
-        return out
-    finally:
-        _return_db_conn(conn)
-
-
-@app.post("/api/v3/wrongbook")
-async def add_wrongbook_v3(
-    entry_id: str = Body(...),
-    level: str = Body(...),
-    current_user: Dict[str, Any] = Depends(get_current_supabase_user),
-):
-    user_id = current_user["id"]
-    conn = _pg_conn()
-    try:
-        _ensure_library_user_lists_tables(conn)
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO public.library_wrongbook (user_id, entry_id, level)
-                VALUES (%s::uuid, %s::uuid, %s)
-                ON CONFLICT (user_id, entry_id) DO NOTHING
-                """,
-                (user_id, entry_id, level),
-            )
-        conn.commit()
-        return {"status": "ok"}
-    finally:
-        _return_db_conn(conn)
-
-
-@app.delete("/api/v3/wrongbook/{entry_id}")
-async def remove_wrongbook_v3(entry_id: str, current_user: Dict[str, Any] = Depends(get_current_supabase_user)):
-    user_id = current_user["id"]
-    conn = _pg_conn()
-    try:
-        _ensure_library_user_lists_tables(conn)
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM public.library_wrongbook WHERE user_id=%s::uuid AND entry_id=%s::uuid",
-                (user_id, entry_id),
-            )
-        conn.commit()
-        return {"status": "ok"}
-    finally:
-        _return_db_conn(conn)
 
 
 @app.get("/api/vocab/audio/{filename}")
