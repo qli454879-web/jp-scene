@@ -3477,39 +3477,15 @@ async def list_tags():
 
 @app.get("/api/library/words/by-tag")
 async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
-    """按标签分页取词（快照 LIKE 查询，失败回退 DB 直查）。"""
-    _ensure_snapshot_available()
+    """按标签分页取词（DB 直查，跳过快照避免文件锁问题）。"""
     tag_clean = tag.strip()
-    if os.path.exists(_VOCAB_SNAPSHOT_DB):
-        db = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
-        db.row_factory = sqlite3.Row
-        try:
-            total_row = db.execute(
-                "SELECT COUNT(*) as cnt FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ?",
-                ('%,' + tag_clean + ',%',)
-            ).fetchone()
-            total = total_row["cnt"] if total_row else 0
-            rows = db.execute(
-                "SELECT * FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ? ORDER BY word LIMIT ? OFFSET ?",
-                ('%,' + tag_clean + ',%', int(limit), int(offset))
-            ).fetchall()
-            words = [_snapshot_row_to_dict(r) for r in rows]
-            return {"tag": tag_clean, "total": total, "offset": offset, "words": words}
-        except Exception:
-            pass
-        finally:
-            try:
-                db.close()
-            except Exception:
-                pass
-    # DB fallback
-    try:
-        conn = _get_db_conn()
-        if conn is None:
-            return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
-    except Exception:
+    if not SUPABASE_DB_ENABLED:
         return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
+    conn = None
     try:
+        # 直连 DB，不走连接池（避免池耗尽导致的超时）
+        conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=8)
+        conn.autocommit = True
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute("SELECT count(*) FROM vocab_library WHERE %s = ANY(tags)", (tag_clean,))
             total = cur.fetchone()["count"]
@@ -3538,7 +3514,11 @@ async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limi
     except Exception:
         return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
     finally:
-        _return_db_conn(conn)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 @app.get("/api/library/replacements")
