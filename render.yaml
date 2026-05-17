@@ -5,5 +5,5 @@ services:
     startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 30
     healthCheckPath: /api/healthz
     healthCheckTimeout: 60
-    healthCheckGracePeriodSeconds: 90
+    healthCheckGracePeriodSeconds: 120
     autoDeploy: true

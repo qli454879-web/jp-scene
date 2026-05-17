@@ -77,8 +77,7 @@ _html_file_cache: Dict[str, str] = {}
 
 # ── 本地持久化缓存（SQLite），重启/关机后秒级恢复，不用重新从 Supabase 加载 20 万条 ──
 _VOCAB_SNAPSHOT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vocab_snapshot.db")
-_VOCAB_SNAPSHOT_TTL = 86400  # 24 小时内有效，超时则从 Supabase 刷新
-_VOCAB_SNAPSHOT_VERSION = 5  # v5: 8 列格式，int 打包 + 去 image_url
+_VOCAB_SNAPSHOT_VERSION = 6  # v6: tags 改为逗号分隔字符串（非 JSON），支持 SQLite LIKE 精确过滤
 
 # ── Supabase Storage 快照（Render 冷启动时本地文件丢失，从 Storage 下载恢复）──
 _VOCAB_SNAPSHOT_BUCKET = (os.getenv("VOCAB_SNAPSHOT_BUCKET") or "vocab-snapshots").strip()
@@ -108,12 +107,9 @@ def _unpack(p):
         p & 0x1F,
     )
 
-_vocab_cache: list = []  # List[Tuple] — 每行 10 字段
-_vocab_cache_loaded_at: float = 0
-_vocab_cache_loading: bool = False
-_vocab_cache_lock = threading.Lock()
-_vocab_cache_ready = threading.Event()
-_VOCAB_CACHE_TTL = 3600  # 1小时，词库数据变动不频繁，避免每5分钟重新加载200K记录
+# 词库快照（SQLite 直查替代内存缓存，OOM 问题彻底解决）
+_snapshot_ready: bool = False
+_snapshot_lock = threading.Lock()
 
 # psycopg 连接池（避免每次查询都重新建立连接，Render 上 TLS 握手 5-10s）
 _db_pool = None
@@ -191,18 +187,27 @@ def _return_db_conn(conn):
     except Exception:
         pass
 
-# 搜索索引 — 仅存整数索引，不复制字符串，查找时回查 _vocab_cache
-_word_index: List[int] = []   # indices sorted by (word_lower, idx)
-_reading_index: List[int] = []  # indices sorted by (reading_lower, idx)
-_tag_index: Dict[str, List[int]] = {}  # tag → [idx, ...] 标签反向索引
+# ── 词库快照（SQLite 直查，无内存缓存）──
+
+def _snapshot_open():
+    """打开快照 SQLite，确认表存在后返回连接。"""
+    db = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
+    db.row_factory = sqlite3.Row
+    return db
+
+
+def _ensure_snapshot_indexes(db):
+    """确保快照表有查询索引（幂等，CREATE IF NOT EXISTS）。"""
+    db.execute("CREATE INDEX IF NOT EXISTS idx_snap_word ON vocab_snapshot(word)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_snap_reading ON vocab_snapshot(reading)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_snap_level ON vocab_snapshot(level)")
+    db.commit()
 
 
 def _build_audio_url(mp3: str) -> str:
-    """返回音频的 Supabase Storage 公开 URL（若mp3已是完整URL则直接返回）。"""
-    mp3 = (mp3 or "").strip()
+    """从 mp3 文件名构建完整的音频 URL。"""
     if not mp3:
         return ""
-    # mp3 字段中存的有可能是完整URL
     if mp3.startswith("http"):
         return mp3
     if not SUPABASE_URL or not VOCAB_AUDIO_BUCKET:
@@ -211,32 +216,120 @@ def _build_audio_url(mp3: str) -> str:
     return f"{SUPABASE_URL}/storage/v1/object/public/{VOCAB_AUDIO_BUCKET}/{obj_path}"
 
 
-def _row_to_dict(idx: int) -> dict:
-    r = _vocab_cache[idx]
-    rid = r[_VF.ID]
-    freq, ec, il, ai, order = _unpack(r[_VF.PACKED]) if len(r) > _VF.PACKED else (0,0,0,False,0)
-    # mp3/image_url 从详情缓存获取（无则留空，不额外查 DB）
+def _snapshot_row_to_dict(r) -> dict:
+    """将快照 SQLite 行转为与旧 _row_to_dict 兼容的 dict。"""
+    rid = str(r["id"])
+    freq, ec, il, ai, order = _unpack(r["packed"]) if r["packed"] is not None else (0, 0, 0, False, 0)
     detail = _detail_cache.get(rid)
     mp3 = ""
     if detail is not None and time.time() < detail[0]:
         mp3 = detail[1].get("mp3") or ""
+    tags_raw = r["tags"] or ""
+    tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
     return {
         "id": rid,
-        "level": r[_VF.LEVEL],
-        "word": r[_VF.WORD],
-        "reading": r[_VF.READING],
-        "pos": r[_VF.POS],
+        "level": r["level"] or "",
+        "word": r["word"] or "",
+        "reading": r["reading"] or "",
+        "pos": r["pos"] or "",
         "frequency": freq,
         "examples_count": ec,
         "insight_len": il,
         "is_ai_enriched": ai,
         "order_no": order,
-        "meaning": r[_VF.MEANING] if len(r) > _VF.MEANING else "",
+        "meaning": r["meaning"] or "",
         "mp3": mp3,
         "audio_url": _build_audio_url(mp3),
         "image_url": "",
-        "tags": list(r[_VF.TAGS]) if len(r) > _VF.TAGS and r[_VF.TAGS] else [],
+        "tags": tags,
     }
+
+
+def _ensure_snapshot_available():
+    """确保本地快照 SQLite 存在并已建立索引。
+    优先本地文件 → 不存在则从 Supabase Storage 下载 → 失败则从 DB 重建。
+    不加载全量数据到内存，仅建索引。"""
+    global _snapshot_ready
+    if _snapshot_ready and os.path.exists(_VOCAB_SNAPSHOT_DB):
+        return
+    with _snapshot_lock:
+        if _snapshot_ready and os.path.exists(_VOCAB_SNAPSHOT_DB):
+            return
+        # Tier 0: 本地文件存在且有效
+        if os.path.exists(_VOCAB_SNAPSHOT_DB):
+            try:
+                db = _snapshot_open()
+                cur = db.execute("SELECT value FROM snapshot_meta WHERE key='version'")
+                ver_row = cur.fetchone()
+                if ver_row and int(ver_row[0]) == _VOCAB_SNAPSHOT_VERSION:
+                    _ensure_snapshot_indexes(db)
+                    db.close()
+                    _snapshot_ready = True
+                    return
+                db.close()
+            except Exception:
+                pass
+
+        # Tier 1: 从 Supabase Storage 下载
+        _download_snapshot_from_storage()
+        if os.path.exists(_VOCAB_SNAPSHOT_DB):
+            try:
+                db = _snapshot_open()
+                cur = db.execute("SELECT value FROM snapshot_meta WHERE key='version'")
+                ver_row = cur.fetchone()
+                if ver_row and int(ver_row[0]) == _VOCAB_SNAPSHOT_VERSION:
+                    _ensure_snapshot_indexes(db)
+                    db.close()
+                    _snapshot_ready = True
+                    return
+                db.close()
+            except Exception:
+                pass
+
+        # Tier 2: 从 Supabase DB 重建快照（后台线程，不阻塞）
+        _snapshot_ready = True  # 先标记就绪，让请求走 DB fallback
+        threading.Thread(target=_rebuild_snapshot_from_db, daemon=True).start()
+
+
+def _rebuild_snapshot_from_db():
+    """从 Supabase DB 全量拉取词库，写入本地快照 + 上传 Storage。后台线程。"""
+    global _snapshot_ready
+    try:
+        conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=10)
+    except Exception:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = '60s'")
+            cur.execute(
+                """SELECT id::text, level, word, reading, pos, frequency,
+                          COALESCE(CASE WHEN jsonb_typeof(examples) = 'array'
+                                   THEN jsonb_array_length(examples) ELSE 0 END, 0),
+                          COALESCE(length(insight_text), 0),
+                          is_ai_enriched, order_no,
+                          COALESCE(meaning, ''),
+                          COALESCE(tags, '{}'::text[])
+                   FROM vocab_library"""
+            )
+            rows = cur.fetchall()
+            if rows:
+                _save_local_snapshot(rows)
+                del rows
+                _upload_snapshot_to_storage()
+                # 重开快照并建立索引
+                if os.path.exists(_VOCAB_SNAPSHOT_DB):
+                    db = _snapshot_open()
+                    _ensure_snapshot_indexes(db)
+                    db.close()
+                    _snapshot_ready = True
+    except Exception:
+        pass
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
 
 
 # 详情缓存：避免每次搜索都新建 DB 连接查询 mp3
@@ -373,53 +466,10 @@ def _download_snapshot_from_storage() -> Optional[str]:
         return None
 
 
-def _load_local_snapshot() -> Optional[List[tuple]]:
-    """从本地 SQLite 读取词库快照，若有效则返回 rows，否则返回 None。"""
-    if not os.path.exists(_VOCAB_SNAPSHOT_DB):
-        return None
-    try:
-        lite = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
-        cur = lite.cursor()
-        cur.execute("SELECT value FROM snapshot_meta WHERE key='loaded_at'")
-        row = cur.fetchone()
-        if not row:
-            lite.close()
-            return None
-        loaded_at = float(row[0])
-        if time.time() - loaded_at > _VOCAB_SNAPSHOT_TTL:
-            lite.close()
-            return None
-        # 版本检查：代码更新后废弃旧格式快照
-        cur.execute("SELECT value FROM snapshot_meta WHERE key='version'")
-        ver_row = cur.fetchone()
-        if not ver_row or int(ver_row[0]) != _VOCAB_SNAPSHOT_VERSION:
-            lite.close()
-            return None
-        # v5 格式：8 列 (id,level,word,reading,pos,packed,meaning,tags)
-        cur.execute("SELECT id, level, word, reading, pos, packed, meaning, tags FROM vocab_snapshot ORDER BY rowid")
-        rows = []
-        import json as _json
-        for r in cur.fetchall():
-            t = tuple(r)
-            # tags 在 index 7，反序列化 JSON
-            if len(t) >= 8 and isinstance(t[7], str) and t[7].strip():
-                try:
-                    t = t[:7] + (_json.loads(t[7]),)
-                except Exception:
-                    t = t[:7] + ([],)
-            elif len(t) < 8:
-                t = t + tuple([[]] * max(0, 8 - len(t)))
-            rows.append(t)
-        lite.close()
-        if rows:
-            return rows
-        return None
-    except Exception:
-        return None
 
 
 def _save_local_snapshot(rows: list):
-    """将 8 列紧凑格式写入本地 SQLite 快照。tags 列序列化为 JSON。"""
+    """将 8 列紧凑格式写入本地 SQLite 快照。tags 列存逗号分隔字符串（便于 LIKE 过滤）。"""
     try:
         lite = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
         cur = lite.cursor()
@@ -433,7 +483,6 @@ def _save_local_snapshot(rows: list):
         cur.execute("INSERT INTO snapshot_meta VALUES ('loaded_at', ?)", (str(time.time()),))
         cur.execute("INSERT INTO snapshot_meta VALUES ('row_count', ?)", (str(len(rows)),))
         cur.execute("INSERT INTO snapshot_meta VALUES ('version', ?)", (str(_VOCAB_SNAPSHOT_VERSION),))
-        import json as _json
 
         def _gen():
             for r in rows:
@@ -444,9 +493,9 @@ def _save_local_snapshot(rows: list):
                     t = (t[0], t[1], t[2], t[3], t[4], packed, t[10], t[11])
                 tags_val = t[7] if len(t) > 7 else []
                 if isinstance(tags_val, list):
-                    tags_val = _json.dumps(tags_val, ensure_ascii=False)
+                    tags_val = ','.join(str(x) for x in tags_val)
                 else:
-                    tags_val = str(tags_val)
+                    tags_val = str(tags_val) if tags_val else ''
                 yield (t[0], t[1], t[2], t[3], t[4], t[5], t[6], tags_val)
 
         cur.executemany(
@@ -481,165 +530,6 @@ def _upload_snapshot_to_storage() -> bool:
         return False
 
 
-def _save_and_upload_snapshot(rows: list):
-    """保存本地快照后异步上传到 Supabase Storage。"""
-    _save_local_snapshot(rows)
-    threading.Thread(target=_upload_snapshot_to_storage, daemon=True).start()
-
-
-def _safe_snapshot():
-    """异常安全地保存快照，防止后台线程崩溃拖垮主进程。"""
-    try:
-        _save_and_upload_snapshot(_vocab_cache)
-    except Exception:
-        pass
-
-
-def _build_indexes(rows: list, now_s: float):
-    """从 rows 构建内存索引（8 列紧凑格式，5 个 int 打包为 1）。
-    兼容两种输入：DB 12 列 或快照 8 列（自动检测）。"""
-    global _vocab_cache, _vocab_cache_loaded_at
-    global _word_index, _reading_index, _tag_index
-    entries = []
-    wi: List[int] = []
-    ri: List[int] = []
-    ti: Dict[str, List[int]] = {}  # tag → [idx, ...]
-    for i, row in enumerate(rows):
-        rlen = len(row) if hasattr(row, '__len__') else 0
-        if rlen >= 12:
-            # DB 12 列格式 → 打包为 8 列
-            if isinstance(row, tuple):
-                packed = _pack_ints(row[5], row[6], row[7], row[8], row[9])
-                t = (row[0], row[1], row[2], row[3], row[4], packed, row[10], row[11])
-            else:
-                packed = _pack_ints(row[5], row[6], row[7], row[8], row[9])
-                t = (row[0], row[1], row[2], row[3], row[4], packed, row[10], row[11])
-        else:
-            # 快照 8 列格式（已打包）→ 直接使用
-            t = row if isinstance(row, tuple) else tuple(row)
-        entries.append(t)
-        wl = (t[2] or "").lower()
-        rl = (t[3] or "").lower()
-        if wl:
-            wi.append(i)
-        if rl:
-            ri.append(i)
-        tags = list(t[_VF.TAGS]) if len(t) > _VF.TAGS and t[_VF.TAGS] else []
-        for tag in tags:
-            tag = tag.strip()
-            if tag:
-                ti.setdefault(tag, []).append(i)
-    wi.sort(key=lambda i: (entries[i][_VF.WORD] or "").lower())
-    ri.sort(key=lambda i: (entries[i][_VF.READING] or "").lower())
-    _vocab_cache = entries
-    _word_index = wi
-    _reading_index = ri
-    _tag_index = ti
-    _vocab_cache_loaded_at = now_s
-
-
-def _ensure_vocab_cache():
-    """加载词库到内存并构建索引。
-    优先从本地 SQLite 快照加载（< 1s），无效则从 Supabase 拉取并持久化。
-    并发安全：若已有线程在加载，短暂等待（2s），未完成则走 DB 直查 fallback。"""
-    global _vocab_cache, _vocab_cache_loaded_at, _vocab_cache_loading
-    now_s = time.time()
-    if _vocab_cache and (now_s - _vocab_cache_loaded_at) < _VOCAB_CACHE_TTL:
-        return
-    if _vocab_cache_loading:
-        return
-    with _vocab_cache_lock:
-        now_s = time.time()
-        if _vocab_cache and (now_s - _vocab_cache_loaded_at) < _VOCAB_CACHE_TTL:
-            return
-        if _vocab_cache_loading:
-            return
-        _vocab_cache_ready.clear()
-        _vocab_cache_loading = True
-        try:
-            # Tier 0：本地快照不存在时，尝试从 Supabase Storage 下载（Render 冷启动恢复）
-            if not os.path.exists(_VOCAB_SNAPSHOT_DB):
-                _download_snapshot_from_storage()
-
-            # Tier 1：本地 SQLite 快照（秒级恢复）
-            local_rows = _load_local_snapshot()
-            if local_rows:
-                _build_indexes(local_rows, now_s)
-                return
-
-            # Tier 2：从 Supabase 加载并保存快照 + 上传到 Storage
-            try:
-                conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=10)
-            except Exception:
-                _vocab_cache_ready.set()
-                return
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("SET statement_timeout = '30s'")
-                    cur.execute(
-                        """SELECT id::text, level, word, reading, pos, frequency,
-                                  CASE WHEN jsonb_typeof(examples) = 'array'
-                                       THEN jsonb_array_length(examples) ELSE 0 END,
-                                  COALESCE(length(insight_text), 0),
-                                  is_ai_enriched, order_no,
-                                  COALESCE(meaning, ''),
-                                  COALESCE(tags, '{}'::text[])
-                           FROM vocab_library"""
-                    )
-                    rows = cur.fetchall()
-                    if rows:
-                        # 先清旧缓存释放内存，再建新索引，避免内存翻倍
-                        _vocab_cache = []
-                        _word_index = []
-                        _reading_index = []
-                        _tag_index.clear()
-                        _build_indexes(rows, now_s)
-                        del rows
-                        # 异步写本地快照 + 上传到 Supabase Storage（异常安全）
-                        threading.Thread(target=_safe_snapshot, daemon=True).start()
-            except Exception:
-                pass
-            finally:
-                try:
-                    _return_db_conn(conn)
-                except Exception:
-                    pass
-        finally:
-            _vocab_cache_loading = False
-            _vocab_cache_ready.set()
-
-
-def _invalidate_vocab_cache():
-    global _vocab_cache, _word_index, _reading_index
-    _vocab_cache = []
-    _word_index = []
-    _reading_index = []
-
-
-def _index_lookup(index_list: List[int], key_lower: str, field_idx: int, exact: bool = False):
-    """在索引列表中二分查找 exact 或 prefix 匹配。
-    index_list 存的是 _vocab_cache 的索引，按 field_idx 字段的 lowercase 排序。
-    返回 generator of (matched_value_lower, idx) tuples。
-    """
-    if not index_list or not key_lower:
-        return
-    lo, hi = 0, len(index_list)
-    while lo < hi:
-        mid = (lo + hi) // 2
-        idx = index_list[mid]
-        val = (_vocab_cache[idx][field_idx] or "").lower()
-        if val < key_lower:
-            lo = mid + 1
-        else:
-            hi = mid
-    for i in range(lo, len(index_list)):
-        idx = index_list[i]
-        val = (_vocab_cache[idx][field_idx] or "").lower()
-        if exact and val != key_lower:
-            break
-        if not exact and not val.startswith(key_lower):
-            break
-        yield val, idx
 
 
 # 简体→日文常用汉字映射（可按需要持续扩充；避免引入冷门第三方库）
@@ -829,13 +719,13 @@ def save_to_cache(word, result):
 
 app = FastAPI()
 
-# 启动后后台预加载词库缓存（不阻塞启动，失败不影响服务）
+# 启动后后台预加载快照（不阻塞启动，失败不影响服务）
 @app.on_event("startup")
-def _preload_vocab_cache():
+def _preload_snapshot():
     init_db()
     if SUPABASE_DB_ENABLED:
-        threading.Thread(target=_ensure_vocab_cache, daemon=True).start()
-        # 预热连接池 + 触发 schema 初始化（建索引等），避免第一个用户请求等待
+        threading.Thread(target=_ensure_snapshot_available, daemon=True).start()
+        # 预热连接池，避免第一个用户请求等待
         def _warmup_pool():
             try:
                 conn = _pg_conn()
@@ -4089,10 +3979,7 @@ def _suggest_db_direct(qq: str, limit: int) -> list:
 
 @app.get("/api/library/search")
 async def search_library(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=50), _debug: int = Query(0, ge=0, le=1)):
-    """
-    词库搜索（索引加速 + tuple 存储，200K 级适用）：
-    - 精确匹配：dict O(1) / 前缀：二分 O(log n) / 包含/释义：扫描跳过已命中
-    """
+    """词库搜索（SQLite 快照直查，零内存缓存，内存友好）。"""
     if not SUPABASE_DB_ENABLED:
         raise HTTPException(status_code=500, detail="SUPABASE_DB_URL is not configured")
     qq = (q or "").strip()
@@ -4109,92 +3996,75 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
         del _search_cache[cache_key]
 
     t0 = time.time()
-    _ensure_vocab_cache()
+    _ensure_snapshot_available()
     t_load = time.time() - t0
 
-    # 缓存未就绪：不使用内存索引，直接走 DB 查询（1s 内返回，不阻塞用户）
-    if not _vocab_cache:
-        return _search_db_direct(qq, int(limit))
-
     qq_lower = qq.lower()
-    is_kana_only = _is_kana_only(qq)
     has_kana = bool(re.search(r"[぀-ゟ゠-ヿー]", qq))
     chinese_chars = len(re.findall(r"[一-鿿]", qq))
-    enable_contains = len(qq) >= 3 or chinese_chars >= 1
     qq_j = _map_s2j(qq)
     has_jp_variant = qq_j != qq
-    qq_j_lower = qq_j.lower()
 
+    # 快照未就绪 → DB fallback
+    if not os.path.exists(_VOCAB_SNAPSHOT_DB):
+        return _search_db_direct(qq, int(limit))
+
+    db = _snapshot_open()
     seen: set = set()
     results: List[Dict[str, Any]] = []
 
-    def _add(idx: int, rank: int, kind: str, kw_pos: int = 9999):
-        if idx in seen:
+    def _add_dict(d: dict, rank: int, kind: str):
+        wkey = str(d.get("word") or "").strip()
+        if not wkey or wkey in seen:
             return
-        seen.add(idx)
-        d = _row_to_dict(idx)
+        seen.add(wkey)
         d["match_rank"] = rank
         d["match_kind"] = kind
-        if kw_pos < 9999:
-            d["_kw_pos"] = kw_pos
         results.append(d)
 
-    # Tier 1: 精确匹配 (index binary search, O(log n) — compact memory format)
-    for val, idx in _index_lookup(_word_index, qq_lower, _VF.WORD, exact=True):
-        _add(idx, 0, "word_exact")
+    patterns = [qq_lower]
     if has_jp_variant:
-        for val, idx in _index_lookup(_word_index, qq_j_lower, _VF.WORD, exact=True):
-            _add(idx, 1, "word_exact_jp")
-    for val, idx in _index_lookup(_reading_index, qq_lower, _VF.READING, exact=True):
-        _add(idx, 10, "reading_exact")
-    if has_jp_variant:
-        for val, idx in _index_lookup(_reading_index, qq_j_lower, _VF.READING, exact=True):
-            _add(idx, 11, "reading_exact_jp")
+        patterns.append(qq_j.lower())
 
-    # Tier 2: 前缀匹配 (index binary search, O(log n + k))
-    for val, idx in _index_lookup(_word_index, qq_j_lower if has_jp_variant else qq_lower, _VF.WORD, exact=False):
-        _add(idx, 2 if has_jp_variant else 3, "word_prefix" + ("_jp" if has_jp_variant else ""))
-    if has_jp_variant:
-        for val, idx in _index_lookup(_word_index, qq_lower, _VF.WORD, exact=False):
-            _add(idx, 3, "word_prefix")
-    for val, idx in _index_lookup(_reading_index, qq_j_lower if has_jp_variant else qq_lower, _VF.READING, exact=False):
-        _add(idx, 12 if has_jp_variant else 13, "reading_prefix" + ("_jp" if has_jp_variant else ""))
-    if has_jp_variant:
-        for val, idx in _index_lookup(_reading_index, qq_lower, _VF.READING, exact=False):
-            _add(idx, 13, "reading_prefix")
+    try:
+        # Tier 1: 精确匹配 word/reading
+        for p in patterns:
+            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(word) = ? LIMIT ?", (p, int(limit))):
+                _add_dict(_snapshot_row_to_dict(row), 0, "word_exact")
+            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(reading) = ? LIMIT ?", (p, int(limit))):
+                _add_dict(_snapshot_row_to_dict(row), 10, "reading_exact")
 
-    # Tier 3: 包含匹配 + 释义搜索（合并为单次扫描，避免重复遍历 200K 条目）
-    _NEED_SCAN = int(limit) * 2  # 已有足够结果则跳过全扫描
-    _need_meaning = chinese_chars >= 1 or (not has_kana and len(qq) >= 2)
-    if enable_contains and len(results) < _NEED_SCAN:
-        _scan_limit = int(limit) * 5  # 为词/读+释义匹配提供充足空间
-        for idx in range(len(_vocab_cache)):
-            if idx in seen:
-                continue
-            r = _vocab_cache[idx]
-            wl = (r[_VF.WORD] or "").lower()
-            rl = (r[_VF.READING] or "").lower()
+        # Tier 2: 前缀匹配
+        for p in patterns:
+            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(word) LIKE ? LIMIT ?", (p + '%', int(limit))):
+                _add_dict(_snapshot_row_to_dict(row), 2, "word_prefix")
+            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(reading) LIKE ? LIMIT ?", (p + '%', int(limit))):
+                _add_dict(_snapshot_row_to_dict(row), 12, "reading_prefix")
 
-            # Sub-pass A: 词/读包含匹配
-            if has_jp_variant and qq_j_lower in wl:
-                _add(idx, 4, "word_partial_jp")
-            elif qq_lower in wl:
-                _add(idx, 5, "word_partial")
-            elif has_jp_variant and qq_j_lower in rl:
-                _add(idx, 14, "reading_partial_jp")
-            elif qq_lower in rl:
-                _add(idx, 15, "reading_partial")
-
-            # Sub-pass B: 释义匹配（同一轮迭代，仅在词/读未命中时）
-            if _need_meaning and idx not in seen:
-                ml = (r[_VF.MEANING] or "").lower() if len(r) > _VF.MEANING else ""
-                if qq_lower in ml:
-                    _add(idx, 30, "meaning_partial")
-                elif has_jp_variant and qq_j_lower in ml:
-                    _add(idx, 31, "meaning_partial_jp")
-
-            if len(results) >= _scan_limit:
-                break
+        # Tier 3: 包含匹配 + 释义
+        need_meaning = chinese_chars >= 1 or (not has_kana and len(qq) >= 2)
+        scan_limit = int(limit) * 5
+        if len(results) < int(limit) * 2:
+            for p in patterns:
+                for row in db.execute(
+                    "SELECT * FROM vocab_snapshot WHERE LOWER(word) LIKE ? AND LOWER(word) NOT LIKE ? LIMIT ?",
+                    ('%' + p + '%', p + '%', scan_limit)
+                ):
+                    _add_dict(_snapshot_row_to_dict(row), 5, "word_partial")
+                for row in db.execute(
+                    "SELECT * FROM vocab_snapshot WHERE LOWER(reading) LIKE ? AND LOWER(reading) NOT LIKE ? LIMIT ?",
+                    ('%' + p + '%', p + '%', scan_limit)
+                ):
+                    _add_dict(_snapshot_row_to_dict(row), 15, "reading_partial")
+            if need_meaning and len(results) < scan_limit:
+                for p in patterns:
+                    for row in db.execute(
+                        "SELECT * FROM vocab_snapshot WHERE LOWER(meaning) LIKE ? LIMIT ?",
+                        ('%' + p + '%', scan_limit)
+                    ):
+                        _add_dict(_snapshot_row_to_dict(row), 30, "meaning_partial")
+    finally:
+        db.close()
 
     t_match = time.time() - t0
 
@@ -4205,42 +4075,16 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
     def _sort_key(d):
         return (
             d["match_rank"],
-            d.get("_kw_pos", 9999),
             -_int0(d.get("frequency")),
             -int(d.get("insight_len") or 0),
             -_lv_rank(str(d.get("level") or "")),
         )
 
     results.sort(key=_sort_key)
-
-    # 去重
-    def _score(d):
-        return (
-            int(d.get("insight_len") or 0),
-            1 if bool(d.get("is_ai_enriched") or False) else 0,
-            _int0(d.get("frequency")),
-            _lv_rank(str(d.get("level") or "")),
-        )
-
-    by_word: Dict[str, Dict[str, Any]] = {}
-    for d in results:
-        wkey = str(d.get("word") or "").strip()
-        if not wkey:
-            continue
-        prev = by_word.get(wkey)
-        if prev is None or _score(d) > _score(prev):
-            by_word[wkey] = d
-
-    out = list(by_word.values())
-    out.sort(key=_sort_key)
-    out = out[:int(limit)]
-
-    # meaning/mp3/image_url 已在内存缓存中，无需额外 DB 查询
+    out = results[:int(limit)]
 
     for d in out:
-        d.pop("scene_deep_dive", None)
         d.pop("insight_len", None)
-        d.pop("_kw_pos", None)
 
     if _debug:
         return {
@@ -4249,7 +4093,6 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
                 "t_load": round(t_load, 3),
                 "t_match": round(t_match, 3),
                 "t_total": round(time.time() - t0, 3),
-                "cache_size": len(_vocab_cache),
                 "total_matched": len(results),
                 "out_count": len(out),
             },
@@ -4264,98 +4107,68 @@ async def search_library(q: str = Query(..., min_length=1), limit: int = Query(2
 
 @app.get("/api/library/suggest")
 async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(10, ge=1, le=30)):
-    """
-    实时联想（索引加速 + tuple 存储，纯前缀匹配）。
-    """
+    """实时联想（SQLite 快照直查，前缀匹配为主）。"""
     if not SUPABASE_DB_ENABLED:
         raise HTTPException(status_code=500, detail="SUPABASE_DB_URL is not configured")
     qq = (q or "").strip()
     if not qq:
         return []
 
-    _ensure_vocab_cache()
-    if not _vocab_cache:
+    _ensure_snapshot_available()
+    if not os.path.exists(_VOCAB_SNAPSHOT_DB):
         return _suggest_db_direct(qq, int(limit))
 
     qq_lower = qq.lower()
     qq_j = _map_s2j(qq)
-    qq_j_lower = qq_j.lower()
     has_jp_variant = qq_j != qq
     is_kana_only = _is_kana_only(qq)
 
+    db = _snapshot_open()
     seen: set = set()
     matched: List[Dict[str, Any]] = []
 
-    def _add(idx: int, rank: int):
-        if idx in seen:
+    def _add_dict(d: dict, rank: int):
+        wkey = str(d.get("word") or "").strip()
+        if not wkey or wkey in seen:
             return
-        seen.add(idx)
-        d = _row_to_dict(idx)
+        seen.add(wkey)
         d["_rank"] = rank
         matched.append(d)
 
-    for val, idx in _index_lookup(_word_index, qq_lower, _VF.WORD, exact=True):
-        _add(idx, 0)
-    if has_jp_variant:
-        for val, idx in _index_lookup(_word_index, qq_j_lower, _VF.WORD, exact=True):
-            _add(idx, 0)
-    for val, idx in _index_lookup(_reading_index, qq_lower, _VF.READING, exact=True):
-        _add(idx, 3)
-    if has_jp_variant:
-        for val, idx in _index_lookup(_reading_index, qq_j_lower, _VF.READING, exact=True):
-            _add(idx, 3)
+    try:
+        patterns = [qq_lower]
+        if has_jp_variant:
+            patterns.append(qq_j.lower())
 
-    for val, idx in _index_lookup(_word_index, qq_j_lower if has_jp_variant else qq_lower, _VF.WORD, exact=False):
-        _add(idx, 1)
-    if has_jp_variant:
-        for val, idx in _index_lookup(_word_index, qq_lower, _VF.WORD, exact=False):
-            _add(idx, 1)
-    for val, idx in _index_lookup(_reading_index, qq_j_lower if has_jp_variant else qq_lower, _VF.READING, exact=False):
-        _add(idx, 2)
-    if has_jp_variant:
-        for val, idx in _index_lookup(_reading_index, qq_lower, _VF.READING, exact=False):
-            _add(idx, 2)
+        # Exact match
+        for p in patterns:
+            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(word) = ? LIMIT ?", (p, int(limit))):
+                _add_dict(_snapshot_row_to_dict(row), 0)
+            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(reading) = ? LIMIT ?", (p, int(limit))):
+                _add_dict(_snapshot_row_to_dict(row), 3)
 
-    # 释义联想：中文查询且前缀匹配不足时，扫描 meaning（低优先级，限 8 条避免噪音）
-    chinese_chars = len(re.findall(r"[一-鿿]", qq))
-    if chinese_chars >= 1 and len(matched) < 3:
-        _meaning_limit = min(int(limit), 8)
-        for idx in range(len(_vocab_cache)):
-            if idx in seen:
-                continue
-            r = _vocab_cache[idx]
-            ml = (r[_VF.MEANING] or "").lower() if len(r) > _VF.MEANING else ""
-            if qq_lower in ml:
-                _add(idx, 10)
-            elif has_jp_variant and qq_j_lower in ml:
-                _add(idx, 10)
-            if len(matched) >= _meaning_limit:
-                break
+        # Prefix match
+        for p in patterns:
+            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(word) LIKE ? AND LOWER(word) != ? LIMIT ?", (p + '%', p, int(limit))):
+                _add_dict(_snapshot_row_to_dict(row), 1)
+            for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(reading) LIKE ? AND LOWER(reading) != ? LIMIT ?", (p + '%', p, int(limit))):
+                _add_dict(_snapshot_row_to_dict(row), 2)
+
+        # Meaning suggest for Chinese queries
+        chinese_chars = len(re.findall(r"[一-鿿]", qq))
+        if chinese_chars >= 1 and len(matched) < 3:
+            for p in patterns:
+                for row in db.execute("SELECT * FROM vocab_snapshot WHERE LOWER(meaning) LIKE ? LIMIT 8", ('%' + p + '%',)):
+                    _add_dict(_snapshot_row_to_dict(row), 10)
+    finally:
+        db.close()
 
     def _lv_rank(lv: str) -> int:
         m = {"N5": 1, "N4": 2, "N3": 3, "N2": 4, "N1": 5}
         return m.get((lv or "").upper(), 0)
 
-    def _score(d):
-        return (
-            int(d.get("insight_len") or 0),
-            1 if bool(d.get("is_ai_enriched") or False) else 0,
-            _lv_rank(str(d.get("level") or "")),
-        )
-
-    by_word: Dict[str, Dict[str, Any]] = {}
-    for d in matched:
-        wkey = str(d.get("word") or "").strip()
-        if not wkey:
-            continue
-        prev = by_word.get(wkey)
-        if prev is None or _score(d) > _score(prev):
-            by_word[wkey] = d
-
-    out = list(by_word.values())
-
     if is_kana_only:
-        out.sort(key=lambda x: (
+        matched.sort(key=lambda x: (
             int(x.get("_rank", 9)),
             -_int0(x.get("frequency")),
             -int(x.get("insight_len") or 0),
@@ -4363,7 +4176,7 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
             str(x.get("word") or ""),
         ))
     else:
-        out.sort(key=lambda x: (
+        matched.sort(key=lambda x: (
             int(x.get("_rank", 9)),
             -int(x.get("insight_len") or 0),
             -_int0(x.get("frequency")),
@@ -4371,8 +4184,7 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
             str(x.get("word") or ""),
         ))
 
-    out = out[:int(limit)]
-
+    out = matched[:int(limit)]
     for d in out:
         d.pop("insight_len", None)
         d.pop("is_ai_enriched", None)
@@ -4383,27 +4195,51 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
 
 @app.get("/api/library/tags")
 async def list_tags():
-    """列出所有标签及对应词数（从内存缓存，<1ms）。"""
-    _ensure_vocab_cache()
-    if not _vocab_cache:
+    """列出所有标签及对应词数（从 SQLite 快照统计，< 50ms）。"""
+    _ensure_snapshot_available()
+    if not os.path.exists(_VOCAB_SNAPSHOT_DB):
         return {"tags": []}
-    tags = [{"name": tag, "count": len(idxs)}
-            for tag, idxs in sorted(_tag_index.items(),
-                                     key=lambda x: -len(x[1]))]
-    return {"tags": tags}
+    db = _snapshot_open()
+    try:
+        tag_counts: Dict[str, int] = {}
+        for row in db.execute("SELECT tags FROM vocab_snapshot"):
+            tags_raw = row["tags"] or ""
+            for t in tags_raw.split(","):
+                t = t.strip()
+                if t:
+                    tag_counts[t] = tag_counts.get(t, 0) + 1
+        tags = [{"name": tag, "count": cnt}
+                for tag, cnt in sorted(tag_counts.items(), key=lambda x: -x[1])]
+        return {"tags": tags}
+    finally:
+        db.close()
 
 
 @app.get("/api/library/words/by-tag")
 async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
-    """按标签分页取词（从内存缓存，<1ms，不占 DB 连接）。"""
-    _ensure_vocab_cache()
-    if not _tag_index:
-        return {"tag": tag, "total": 0, "offset": offset, "words": []}
-    idxs = _tag_index.get(tag.strip(), [])
-    total = len(idxs)
-    page = idxs[offset:offset + limit]
-    words = [_row_to_dict(i) for i in page]
-    return {"tag": tag, "total": total, "offset": offset, "words": words}
+    """按标签分页取词（SQLite 直查，< 10ms）。"""
+    _ensure_snapshot_available()
+    tag_clean = tag.strip()
+    if not os.path.exists(_VOCAB_SNAPSHOT_DB):
+        return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
+    db = _snapshot_open()
+    try:
+        # 逗号分隔格式：精确匹配标签
+        like_pattern = '%' + tag_clean + '%'
+        # 更精确：匹配逗号分隔的完整标签
+        count_row = db.execute(
+            "SELECT COUNT(*) as cnt FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ?",
+            ('%,' + tag_clean + ',%',)
+        ).fetchone()
+        total = count_row["cnt"] if count_row else 0
+        rows = db.execute(
+            "SELECT * FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ? ORDER BY word LIMIT ? OFFSET ?",
+            ('%,' + tag_clean + ',%', int(limit), int(offset))
+        ).fetchall()
+        words = [_snapshot_row_to_dict(r) for r in rows]
+        return {"tag": tag_clean, "total": total, "offset": offset, "words": words}
+    finally:
+        db.close()
 
 
 @app.get("/api/library/replacements")
