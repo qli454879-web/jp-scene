@@ -3433,10 +3433,11 @@ async def list_tags():
     if _tags_cache and now_s < _tags_cache.get("expires_at", 0):
         return {"tags": _tags_cache["tags"]}
 
-    _ensure_snapshot_available()
+    # 快照路径：仅在缓存为空且快照存在时尝试。异常/超时不阻塞，直接回退 DB
     if os.path.exists(_VOCAB_SNAPSHOT_DB):
-        db = _snapshot_open()
+        db = None
         try:
+            db = _snapshot_open()
             tag_counts: Dict[str, int] = {}
             for row in db.execute("SELECT tags FROM vocab_snapshot"):
                 tags_raw = row["tags"] or ""
@@ -3452,10 +3453,11 @@ async def list_tags():
         except Exception:
             pass
         finally:
-            try:
-                db.close()
-            except Exception:
-                pass
+            if db:
+                try:
+                    db.close()
+                except Exception:
+                    pass
     # DB fallback
     try:
         conn = _get_db_conn()
@@ -3477,48 +3479,54 @@ async def list_tags():
 
 @app.get("/api/library/words/by-tag")
 async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
-    """按标签分页取词（DB 直查，跳过快照避免文件锁问题）。"""
+    """按标签分页取词（DB 连接池直查，不走快照以避免 Render 环境 SQLite 死锁）。"""
+    from psycopg import sql as psql
     tag_clean = tag.strip()
-    if not SUPABASE_DB_ENABLED:
+    if not tag_clean:
         return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
-    conn = None
     try:
-        # 直连 DB，不走连接池（避免池耗尽导致的超时）
-        conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=8)
-        conn.autocommit = True
-        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            cur.execute("SELECT count(*) FROM vocab_library WHERE %s = ANY(tags)", (tag_clean,))
-            total = cur.fetchone()["count"]
+        conn = _get_db_conn()
+        if conn is None:
+            return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
+    except Exception:
+        return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
+    try:
+        with conn.cursor() as cur:
+            # sql.Literal 安全插值 + @> GIN 索引操作符
+            tag_literal = psql.Literal(tag_clean)
             cur.execute(
-                """SELECT id::text, level, word, reading, pos, frequency,
-                   COALESCE(length(insight_text), 0) as insight_len,
-                   is_ai_enriched, order_no, COALESCE(meaning, ''),
-                   COALESCE(tags, '{}'::text[]) as tags
-                FROM vocab_library WHERE %s = ANY(tags)
-                ORDER BY word LIMIT %s OFFSET %s""",
-                (tag_clean, int(limit), int(offset))
+                psql.SQL("SELECT count(*) FROM vocab_library WHERE tags @> ARRAY[{}]").format(tag_literal)
+            )
+            total = cur.fetchone()[0]
+            offset_literal = psql.Literal(int(offset))
+            limit_literal = psql.Literal(int(limit))
+            cur.execute(
+                psql.SQL(
+                    """SELECT id::text, level, word, reading, pos, frequency,
+                       COALESCE(length(insight_text), 0) as insight_len,
+                       is_ai_enriched, order_no, COALESCE(meaning, ''),
+                       COALESCE(tags, '{}'::text[]) as tags
+                    FROM vocab_library WHERE tags @> ARRAY[{}]
+                    ORDER BY word LIMIT {} OFFSET {}"""
+                ).format(tag_literal, limit_literal, offset_literal)
             )
             rows = cur.fetchall()
         words = []
         for r in rows:
             words.append({
-                "id": str(r["id"]), "level": r["level"] or "", "word": r["word"] or "",
-                "reading": r["reading"] or "", "pos": r["pos"] or "",
-                "frequency": r["frequency"] or 0, "examples_count": 0,
-                "insight_len": r["insight_len"] or 0, "is_ai_enriched": r["is_ai_enriched"] or False,
-                "order_no": r["order_no"] or 0, "meaning": r["meaning"] or "",
+                "id": str(r[0]), "level": r[1] or "", "word": r[2] or "",
+                "reading": r[3] or "", "pos": r[4] or "",
+                "frequency": r[5] or 0, "examples_count": 0,
+                "insight_len": r[6] or 0, "is_ai_enriched": r[7] or False,
+                "order_no": r[8] or 0, "meaning": r[9] or "",
                 "mp3": "", "audio_url": "", "image_url": "",
-                "tags": list(r["tags"] or []),
+                "tags": list(r[10] or []),
             })
         return {"tag": tag_clean, "total": total, "offset": offset, "words": words}
-    except Exception:
-        return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
+    except Exception as e:
+        return {"tag": tag_clean, "total": 0, "offset": offset, "words": [], "error": str(e)}
     finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
+        _return_db_conn(conn)
 
 
 @app.get("/api/library/replacements")
