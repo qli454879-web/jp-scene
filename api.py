@@ -3480,9 +3480,11 @@ async def list_tags():
 @app.get("/api/library/words/by-tag")
 async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
     """按标签分页取词（DB 连接池直查，不走快照以避免 Render 环境 SQLite 死锁）。"""
-    from psycopg import sql as psql
     tag_clean = tag.strip()
     if not tag_clean:
+        return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
+    # 安全校验：标签仅含 ASCII 字母数字下划线连字符
+    if not re.match(r'^[a-zA-Z0-9_-]+$', tag_clean):
         return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
     try:
         conn = _get_db_conn()
@@ -3491,36 +3493,32 @@ async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limi
     except Exception:
         return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
     try:
-        with conn.cursor() as cur:
-            # sql.Literal 安全插值 + @> GIN 索引操作符
-            tag_literal = psql.Literal(tag_clean)
+        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            # 校验后的 tag 直接拼 SQL，避免 psycopg3 参数类型推断导致 = ANY(tags) 返回 0
             cur.execute(
-                psql.SQL("SELECT count(*) FROM vocab_library WHERE tags @> ARRAY[{}]").format(tag_literal)
+                f"SELECT count(*) FROM vocab_library WHERE '{tag_clean}' = ANY(tags)"
             )
-            total = cur.fetchone()[0]
-            offset_literal = psql.Literal(int(offset))
-            limit_literal = psql.Literal(int(limit))
+            total = cur.fetchone()["count"]
             cur.execute(
-                psql.SQL(
-                    """SELECT id::text, level, word, reading, pos, frequency,
-                       COALESCE(length(insight_text), 0) as insight_len,
-                       is_ai_enriched, order_no, COALESCE(meaning, ''),
-                       COALESCE(tags, '{}'::text[]) as tags
-                    FROM vocab_library WHERE tags @> ARRAY[{}]
-                    ORDER BY word LIMIT {} OFFSET {}"""
-                ).format(tag_literal, limit_literal, offset_literal)
+                f"""SELECT id::text, level, word, reading, pos, frequency,
+                   COALESCE(length(insight_text), 0) as insight_len,
+                   is_ai_enriched, order_no, COALESCE(meaning, ''),
+                   COALESCE(tags, '{{}}'::text[]) as tags
+                FROM vocab_library WHERE '{tag_clean}' = ANY(tags)
+                ORDER BY word LIMIT %s OFFSET %s""",
+                (int(limit), int(offset))
             )
             rows = cur.fetchall()
         words = []
         for r in rows:
             words.append({
-                "id": str(r[0]), "level": r[1] or "", "word": r[2] or "",
-                "reading": r[3] or "", "pos": r[4] or "",
-                "frequency": r[5] or 0, "examples_count": 0,
-                "insight_len": r[6] or 0, "is_ai_enriched": r[7] or False,
-                "order_no": r[8] or 0, "meaning": r[9] or "",
+                "id": str(r["id"]), "level": r["level"] or "", "word": r["word"] or "",
+                "reading": r["reading"] or "", "pos": r["pos"] or "",
+                "frequency": r["frequency"] or 0, "examples_count": 0,
+                "insight_len": r["insight_len"] or 0, "is_ai_enriched": r["is_ai_enriched"] or False,
+                "order_no": r["order_no"] or 0, "meaning": r["meaning"] or "",
                 "mp3": "", "audio_url": "", "image_url": "",
-                "tags": list(r[10] or []),
+                "tags": list(r["tags"] or []),
             })
         return {"tag": tag_clean, "total": total, "offset": offset, "words": words}
     except Exception as e:
