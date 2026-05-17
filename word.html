@@ -414,14 +414,17 @@
       var tags = data.tags || [];
       var labels = _deriveContextLabels(tags, data.level);
       var ctxEl = document.getElementById('contextSwitch');
+      var levelEl = document.getElementById('levelBadge');
       if (ctxEl) {
         if (labels.gaming) {
           ctxEl.classList.remove('hidden');
           ctxEl.innerHTML =
             '<button id="ctxDailyBtn" class="badge-pixel px-3 py-1 text-[10px] font-bold cursor-pointer bg-gray-200 border-gray-600 text-gray-800" onclick="switchContext(\'daily\')">' + labels.daily + '</button>' +
             '<button id="ctxGamingBtn" class="badge-pixel px-3 py-1 text-[10px] font-bold cursor-pointer bg-white border-gray-300 text-gray-400 hover:bg-purple-50 hover:border-purple-300 hover:text-purple-700" onclick="switchContext(\'gaming\')">' + labels.gaming + '</button>';
+          if (levelEl) levelEl.style.display = 'none';
         } else {
           ctxEl.classList.add('hidden');
+          if (levelEl) levelEl.style.display = '';
         }
       }
       document.getElementById('wordTitle').innerText = data.word || '---';
