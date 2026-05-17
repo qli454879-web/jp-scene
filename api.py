@@ -193,6 +193,10 @@ def _return_db_conn(conn):
 _tags_cache: dict = {}          # {"tags": [...], "expires_at": float}
 _TAGS_CACHE_TTL = 300           # 5 分钟，词库标签极少变动
 
+# 按标签分页缓存（避免 Render → Supabase 网络延迟导致 15s+ 响应）
+_words_by_tag_cache: dict = {}          # {(tag, offset, limit): {"data": {...}, "expires_at": float}}
+_WORDS_BY_TAG_CACHE_TTL = 60            # 1 分钟，分页数据短时间内不变
+
 _snapshot_conn_local = threading.local()
 
 def _snapshot_conn():
@@ -3479,13 +3483,19 @@ async def list_tags():
 
 @app.get("/api/library/words/by-tag")
 async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
-    """按标签分页取词（DB 连接池直查，不走快照以避免 Render 环境 SQLite 死锁）。"""
+    """按标签分页取词（DB 连接池直查，1 分钟缓存）。"""
+    global _words_by_tag_cache
     tag_clean = tag.strip()
     if not tag_clean:
         return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
     # 安全校验：标签仅含 ASCII 字母数字下划线连字符
     if not re.match(r'^[a-zA-Z0-9_-]+$', tag_clean):
         return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
+    cache_key = (tag_clean, int(offset), int(limit))
+    now_s = time.time()
+    entry = _words_by_tag_cache.get(cache_key)
+    if entry is not None and now_s < entry["expires_at"]:
+        return entry["data"]
     try:
         conn = _get_db_conn()
         if conn is None:
@@ -3520,7 +3530,18 @@ async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limi
                 "mp3": "", "audio_url": "", "image_url": "",
                 "tags": list(r["tags"] or []),
             })
-        return {"tag": tag_clean, "total": total, "offset": offset, "words": words}
+        data = {"tag": tag_clean, "total": total, "offset": offset, "words": words}
+        _words_by_tag_cache[cache_key] = {"data": data, "expires_at": now_s + _WORDS_BY_TAG_CACHE_TTL}
+        # 限制缓存条目数，防止内存膨胀
+        if len(_words_by_tag_cache) > 200:
+            stale = [k for k, v in _words_by_tag_cache.items() if now_s >= v["expires_at"]]
+            for k in stale:
+                _words_by_tag_cache.pop(k, None)
+            if len(_words_by_tag_cache) > 200:
+                sorted_items = sorted(_words_by_tag_cache.items(), key=lambda x: x[1]["expires_at"])
+                for k, _ in sorted_items[:len(sorted_items) - 100]:
+                    _words_by_tag_cache.pop(k, None)
+        return data
     except Exception as e:
         return {"tag": tag_clean, "total": 0, "offset": offset, "words": [], "error": str(e)}
     finally:
