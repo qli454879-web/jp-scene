@@ -77,7 +77,7 @@ _html_file_cache: Dict[str, str] = {}
 
 # ── 本地持久化缓存（SQLite），重启/关机后秒级恢复，不用重新从 Supabase 加载 20 万条 ──
 _VOCAB_SNAPSHOT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vocab_snapshot.db")
-_VOCAB_SNAPSHOT_VERSION = 7  # v7: tem8_vocab 只保留 level=专八 的 677 词，惯用语独立分类
+_VOCAB_SNAPSHOT_VERSION = 8  # v8: JLPT N1-N5 严格对齐用户CSV单词表，去多余补缺失
 
 # ── Supabase Storage 快照（Render 冷启动时本地文件丢失，从 Storage 下载恢复）──
 _VOCAB_SNAPSHOT_BUCKET = (os.getenv("VOCAB_SNAPSHOT_BUCKET") or "vocab-snapshots").strip()
