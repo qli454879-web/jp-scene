@@ -3540,16 +3540,16 @@ async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limi
         return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
     try:
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            cur.execute(f"SELECT count(*) FROM vocab_library WHERE '{tag_clean}' = ANY(tags)")
+            cur.execute("SELECT count(*) FROM vocab_library WHERE %s = ANY(tags)", (tag_clean,))
             total = cur.fetchone()["count"]
             cur.execute(
-                f"""SELECT id::text, level, word, reading, pos, frequency,
+                """SELECT id::text, level, word, reading, pos, frequency,
                    COALESCE(length(insight_text), 0) as insight_len,
                    is_ai_enriched, order_no, COALESCE(meaning, '') as meaning,
-                   COALESCE(tags, '{{}}'::text[]) as tags
-                FROM vocab_library WHERE '{tag_clean}' = ANY(tags)
+                   COALESCE(tags, '{}'::text[]) as tags
+                FROM vocab_library WHERE %s = ANY(tags)
                 ORDER BY word LIMIT %s OFFSET %s""",
-                (int(limit), int(offset))
+                (tag_clean, int(limit), int(offset))
             )
             rows = cur.fetchall()
         words = []
@@ -3939,8 +3939,9 @@ async def healthz():
 
 
 @app.get("/api/debug/storage-bucket")
-async def debug_storage_bucket():
+async def debug_storage_bucket(x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key")):
     """调试端点：测试 Storage bucket 创建/上传状态。"""
+    _require_admin_key(x_admin_key)
     bucket_exists = False
     snapshot_uploaded = False
     error_msg = ""
@@ -4031,13 +4032,15 @@ async def study_prototype_v2_page():
         )
 
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_page():
+async def admin_page(x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key")):
+    _require_admin_key(x_admin_key)
     return _read_local_file("admin.html")
 
 @app.post("/admin/rebuild-snapshot")
-async def admin_rebuild_snapshot():
+async def admin_rebuild_snapshot(x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key")):
     """手动触发快照重建（从 DB 拉取 → 本地 SQLite → 上传 Storage）。
     仅在快照丢失时使用，避免 Render OOM 的自动重建。"""
+    _require_admin_key(x_admin_key)
     if not SUPABASE_DB_ENABLED:
         raise HTTPException(status_code=503, detail="DB not configured")
     # 在后台线程中执行，避免 HTTP 超时
