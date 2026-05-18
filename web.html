@@ -2284,20 +2284,20 @@
             {
                 id:'jlpt', name:'JLPT 日语能力考',
                 subGroups: [
-                    { id:'jlpt_n1', name:'N1 高级', tags:['jlpt_n1'] },
-                    { id:'jlpt_n2', name:'N2 中高级', tags:['jlpt_n2'] },
-                    { id:'jlpt_n3', name:'N3 中级', tags:['jlpt_n3'] },
-                    { id:'jlpt_n4', name:'N4 初级', tags:['jlpt_n4'] },
-                    { id:'jlpt_n5', name:'N5 入门', tags:['jlpt_n5'] },
+                    { id:'jlpt_n1', name:'N1', tags:['jlpt_n1'] },
+                    { id:'jlpt_n2', name:'N2', tags:['jlpt_n2'] },
+                    { id:'jlpt_n3', name:'N3', tags:['jlpt_n3'] },
+                    { id:'jlpt_n4', name:'N4', tags:['jlpt_n4'] },
+                    { id:'jlpt_n5', name:'N5', tags:['jlpt_n5'] },
                 ]
             },
             {
                 id:'tem8', name:'专八日语',
                 subGroups: [
                     { id:'tem8_vocab', name:'专八词汇', tags:['tem8_vocab'] },
-                    { id:'tem8_idiom', name:'惯用语·谚语', tags:['tem8_idiom'] },
                 ]
             },
+            { id:'idiom', name:'惯用语·谚语', tags:['tem8_idiom'] },
             { id:'kaoyan', name:'考研词汇', tags:['kaoyan'] },
             { id:'yoji_jukugo', name:'四字熟语', tags:['yoji_jukugo'] },
             { id:'loanword', name:'外来语', tags:['loanword'] },
@@ -2320,21 +2320,17 @@
 
         // 子分类名映射
         var TAG_META = {
-            // JLPT
-            'jlpt_n1': {cn:'JLPT N1 高级词汇'},
-            'jlpt_n2': {cn:'JLPT N2 中高级词汇'},
-            'jlpt_n3': {cn:'JLPT N3 中级词汇'},
-            'jlpt_n4': {cn:'JLPT N4 初级词汇'},
-            'jlpt_n5': {cn:'JLPT N5 入门词汇'},
-            // 专八
+            'jlpt_n1': {cn:'N1 词汇'},
+            'jlpt_n2': {cn:'N2 词汇'},
+            'jlpt_n3': {cn:'N3 词汇'},
+            'jlpt_n4': {cn:'N4 词汇'},
+            'jlpt_n5': {cn:'N5 词汇'},
             'tem8_vocab': {cn:'专八核心词汇'},
             'tem8_idiom': {cn:'惯用语·谚语'},
-            // 考研
-            'kaoyan': {cn:'中国考研日语高频词'},
-            // 通用
+            'kaoyan': {cn:'考研日语高频词'},
             'loanword': {cn:'カタカナ外来语'},
             'yoji_jukugo': {cn:'四字熟语'},
-            'onomatopoeia': {cn:'オノマトペ（拟声拟态语）'},
+            'onomatopoeia': {cn:'拟声拟态语'},
             'slang': {cn:'网络·若者言葉'},
             // 游戏 - 瓦罗兰特
             'gaming_val_agents': {cn:'特工名称与特工技能'},
@@ -2583,12 +2579,17 @@
             });
             if (!foundGame) return;
             _listCurrentGame = foundGame.name;
+            _listOffset = 0;
+            // 子组只有 1 个 tag → 直接展示单词列表，跳过中间层
+            if (foundGame.tags && foundGame.tags.length === 1) {
+                openListWords(foundGame.tags[0]);
+                return;
+            }
             _listCurrentTag = '';
             _listCurrentAgent = '';
             _listCurrentAgentCN = '';
             _listCurrentTagName = '';
             _listAllAgentWords = null;
-            _listOffset = 0;
             renderSubCategories({ name: foundGame.name }, foundGame.tags);
         }
 
