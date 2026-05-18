@@ -110,6 +110,7 @@ def _unpack(p):
 # 词库快照（SQLite 直查替代内存缓存，OOM 问题彻底解决）
 _snapshot_ready: bool = False
 _snapshot_lock = threading.Lock()
+_snapshot_rebuild_running: bool = False  # 防止并发重建
 
 # psycopg 连接池（避免每次查询都重新建立连接，Render 上 TLS 握手 5-10s）
 _db_pool = None
@@ -309,20 +310,25 @@ def _ensure_snapshot_available():
             except Exception:
                 pass
 
-        # Tier 2: 快照不可用，走 DB fallback
+        # Tier 2: 快照不可用，启动后台重建（分批拉取，内存安全）
         _snapshot_ready = True
-        if not os.path.exists(_VOCAB_SNAPSHOT_DB):
-            logging.warning("Snapshot unavailable, using DB fallback for search")
+        if not os.path.exists(_VOCAB_SNAPSHOT_DB) and not _snapshot_rebuild_running:
+            logging.warning("Snapshot unavailable, starting background rebuild")
+            threading.Thread(target=_rebuild_snapshot_from_db, daemon=True).start()
     finally:
         _snapshot_lock.release()
 
 
 def _rebuild_snapshot_from_db():
     """从 Supabase DB 分批拉取词库写入本地快照 + 上传 Storage。后台线程，内存友好。"""
-    global _snapshot_ready
+    global _snapshot_ready, _snapshot_rebuild_running
+    if _snapshot_rebuild_running:
+        return
+    _snapshot_rebuild_running = True
     try:
         conn = psycopg.connect(SUPABASE_DB_URL, prepare_threshold=None, connect_timeout=10)
     except Exception:
+        _snapshot_rebuild_running = False
         return
     try:
         with conn.cursor() as cur:
@@ -366,6 +372,7 @@ def _rebuild_snapshot_from_db():
             conn.close()
         except Exception:
             pass
+        _snapshot_rebuild_running = False
 
 
 
