@@ -2294,7 +2294,11 @@
                     ]},
                 ]
             },
+            { id:'loanword', name:'外来语', tags:['loanword'] },
             { id:'slang', name:'日语流行语', tags:['slang'] },
+            { id:'yoji_jukugo', name:'四字熟语', tags:['yoji_jukugo'] },
+            { id:'onomatopoeia', name:'拟声拟态语', tags:['onomatopoeia'] },
+            { id:'kaoyan', name:'考研词汇', tags:['kaoyan'] },
         ];
 
         // 子分类名映射
@@ -2311,6 +2315,10 @@
             'gaming_lol_roles': {cn:'位置与职责'},
             'gaming_lol_objectives': {cn:'地图资源与目标'},
             'slang': {cn:'网络·若者言葉'},
+            'loanword': {cn:'カタカナ外来语'},
+            'yoji_jukugo': {cn:'四字熟语'},
+            'onomatopoeia': {cn:'オノマトペ（拟声拟态语）'},
+            'kaoyan': {cn:'中国考研日语高频词'},
         };
 
         // ── Valorant 特工数据（中文名、日文名、定位、关联关键词）──
@@ -2810,23 +2818,33 @@
             }
             var loadBtn = document.getElementById('listWordsLoadBtn');
             if (loadBtn) { loadBtn.disabled = true; loadBtn.textContent = '加载中...'; }
-            try {
-                var ctrl = new AbortController();
-                var tid = setTimeout(function() { ctrl.abort(); }, 15000);
-                var res = await fetch('/api/library/words/by-tag?tag=' + encodeURIComponent(tag) + '&offset=' + offset + '&limit=50', { signal: ctrl.signal });
-                clearTimeout(tid);
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                var data = await res.json();
-                _listWordsCache[cacheKey] = data;
-                renderListWords(data, offset === 0);
-            } catch (_) {
-                if (offset === 0) {
-                    var container = document.getElementById('listWordsContainer');
-                    if (container) container.innerHTML = '<p class="text-red-500 text-center py-8">加载失败，<a href="javascript:void(0)" class="underline" onclick="fetchListWords(\'' + _listCurrentTag + '\',0)">点此重试</a></p>';
+            var lastErr = null;
+            var maxAttempts = 3;
+            for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+                try {
+                    var ctrl = new AbortController();
+                    var tid = setTimeout(function() { ctrl.abort(); }, 8000);
+                    var res = await fetch('/api/library/words/by-tag?tag=' + encodeURIComponent(tag) + '&offset=' + offset + '&limit=50', { signal: ctrl.signal });
+                    clearTimeout(tid);
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    var data = await res.json();
+                    _listWordsCache[cacheKey] = data;
+                    renderListWords(data, offset === 0);
+                    if (loadBtn) { loadBtn.disabled = false; loadBtn.textContent = '加载更多'; }
+                    return;
+                } catch (e) {
+                    lastErr = e;
+                    if (attempt < maxAttempts) {
+                        await new Promise(function(r) { setTimeout(r, attempt * 1000); });
+                    }
                 }
-            } finally {
-                if (loadBtn) { loadBtn.disabled = false; loadBtn.textContent = '加载更多'; }
             }
+            // All attempts failed
+            if (offset === 0) {
+                var container = document.getElementById('listWordsContainer');
+                if (container) container.innerHTML = '<p class="text-red-500 text-center py-8">加载失败，<a href="javascript:void(0)" class="underline" onclick="fetchListWords(\'' + _listCurrentTag + '\',0)">点此重试</a></p>';
+            }
+            if (loadBtn) { loadBtn.disabled = false; loadBtn.textContent = '加载更多'; }
         }
 
         function renderListWords(data, isFirstPage) {

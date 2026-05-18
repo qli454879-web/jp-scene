@@ -814,10 +814,22 @@
       const slug = getSlug();
       if (!slug) return;
       let data = null;
-      try {
-        data = await fetchWord(slug);
-      } catch (e) {
-        if (e && e.message === 'not_found') {
+      var maxAttempts = 3;
+      var lastErr = null;
+      for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          data = await fetchWord(slug);
+          break;
+        } catch (e) {
+          lastErr = e;
+          if (e && e.message === 'not_found') break;
+          if (attempt < maxAttempts) {
+            await new Promise(function(r) { setTimeout(r, attempt * 800); });
+          }
+        }
+      }
+      if (!data) {
+        if (lastErr && lastErr.message === 'not_found') {
           document.getElementById('wordTitle').innerText = '未找到';
           document.getElementById('meaningText').innerText = '该词不在词库中';
         } else {
