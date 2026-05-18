@@ -4087,6 +4087,7 @@ _ALLOWED_STATIC = {
     "styles.css",
     "arigatou_256.png",
     "xiaohongshu.jpg",
+    "coffee.jpg",
     # 小雪梨头像资源
     "xuexueli_avatar_64.png",
     "xuexueli_idle_64.png",
