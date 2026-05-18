@@ -193,21 +193,25 @@ def _return_db_conn(conn):
 _tags_cache: dict = {}          # {"tags": [...], "expires_at": float}
 _TAGS_CACHE_TTL = 300           # 5 分钟，词库标签极少变动
 
-# 按标签分页缓存（避免 Render → Supabase 网络延迟导致 15s+ 响应）
-_words_by_tag_cache: dict = {}          # {(tag, offset, limit): {"data": {...}, "expires_at": float}}
-_WORDS_BY_TAG_CACHE_TTL = 60            # 1 分钟，分页数据短时间内不变
-
 _snapshot_conn_local = threading.local()
+_SNAPSHOT_URI = f"file:{_VOCAB_SNAPSHOT_DB}?mode=ro"
 
 def _snapshot_conn():
-    """线程本地 SQLite 连接（复用，防止并发搜索各开 8MB 页缓存导致 OOM）。"""
+    """线程本地 SQLite 连接（只读模式，无文件锁，多线程并发安全）。"""
     if not hasattr(_snapshot_conn_local, 'db') or _snapshot_conn_local.db is None:
-        _snapshot_conn_local.db = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
+        _snapshot_conn_local.db = sqlite3.connect(_SNAPSHOT_URI, uri=True)
         _snapshot_conn_local.db.row_factory = sqlite3.Row
     return _snapshot_conn_local.db
 
 def _snapshot_open():
-    """打开快照 SQLite，确认表存在后返回连接。"""
+    """打开快照 SQLite（只读模式，无文件锁，并发查询零竞争）。"""
+    db = sqlite3.connect(_SNAPSHOT_URI, uri=True)
+    db.row_factory = sqlite3.Row
+    return db
+
+# 重建快照时使用读写模式（仅 admin 手动触发）
+def _snapshot_open_rw():
+    """打开快照 SQLite（读写模式，仅重建快照时使用）。"""
     db = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
     db.row_factory = sqlite3.Row
     return db
@@ -263,23 +267,25 @@ def _snapshot_row_to_dict(r) -> dict:
 
 
 def _ensure_snapshot_available():
-    """确保本地快照 SQLite 存在并已建立索引。
-    优先本地文件 → 不存在则从 Supabase Storage 下载 → 失败则从 DB 重建。
-    不加载全量数据到内存，仅建索引。"""
+    """确保本地快照 SQLite 存在且版本正确（只读校验，不写索引）。
+    优先本地文件 → 不存在则从 Supabase Storage 下载 → 失败则走 DB fallback。"""
     global _snapshot_ready
     if _snapshot_ready and os.path.exists(_VOCAB_SNAPSHOT_DB):
         return
-    with _snapshot_lock:
+    # 非阻塞获取锁：如果后台线程正在下载，不等待，直接走 DB fallback
+    acquired = _snapshot_lock.acquire(blocking=False)
+    if not acquired:
+        return  # 下载进行中，本次请求走 DB fallback
+    try:
         if _snapshot_ready and os.path.exists(_VOCAB_SNAPSHOT_DB):
             return
-        # Tier 0: 本地文件存在且有效
+        # Tier 0: 本地文件存在且版本正确
         if os.path.exists(_VOCAB_SNAPSHOT_DB):
             try:
                 db = _snapshot_open()
                 cur = db.execute("SELECT value FROM snapshot_meta WHERE key='version'")
                 ver_row = cur.fetchone()
                 if ver_row and int(ver_row[0]) == _VOCAB_SNAPSHOT_VERSION:
-                    _ensure_snapshot_indexes(db)
                     db.close()
                     _snapshot_ready = True
                     return
@@ -295,7 +301,6 @@ def _ensure_snapshot_available():
                 cur = db.execute("SELECT value FROM snapshot_meta WHERE key='version'")
                 ver_row = cur.fetchone()
                 if ver_row and int(ver_row[0]) == _VOCAB_SNAPSHOT_VERSION:
-                    _ensure_snapshot_indexes(db)
                     db.close()
                     _snapshot_ready = True
                     _tags_cache.clear()
@@ -304,11 +309,12 @@ def _ensure_snapshot_available():
             except Exception:
                 pass
 
-        # Tier 2: 从 Supabase Storage 下载失败 → 走 DB 直查 fallback（不自动重建，防止 OOM）
-        # 手动重建请调用 POST /admin/rebuild-snapshot
-        _snapshot_ready = True  # 标记就绪，让请求走 DB fallback
+        # Tier 2: 快照不可用，走 DB fallback
+        _snapshot_ready = True
         if not os.path.exists(_VOCAB_SNAPSHOT_DB):
             logging.warning("Snapshot unavailable, using DB fallback for search")
+    finally:
+        _snapshot_lock.release()
 
 
 def _rebuild_snapshot_from_db():
@@ -343,18 +349,16 @@ def _rebuild_snapshot_from_db():
                 first_batch = False
                 total_rows += len(rows)
             if total_rows > 0:
-                # 更新 row_count
-                lite = sqlite3.connect(_VOCAB_SNAPSHOT_DB)
+                # 更新 row_count（读写模式）
+                lite = _snapshot_open_rw()
                 lite.execute("INSERT OR REPLACE INTO snapshot_meta VALUES ('row_count', ?)", (str(total_rows),))
                 lite.commit()
+                # 建索引（读写模式，仅重建时）
+                _ensure_snapshot_indexes(lite)
                 lite.close()
                 _upload_snapshot_to_storage()
-                if os.path.exists(_VOCAB_SNAPSHOT_DB):
-                    db = _snapshot_open()
-                    _ensure_snapshot_indexes(db)
-                    db.close()
-                    _snapshot_ready = True
-                    _tags_cache.clear()  # 快照重建后刷新标签缓存 + 关闭旧连接
+                _snapshot_ready = True
+                _tags_cache.clear()  # 快照重建后刷新标签缓存
     except Exception:
         pass
     finally:
@@ -3431,13 +3435,14 @@ async def suggest_library(q: str = Query(..., min_length=1), limit: int = Query(
 
 @app.get("/api/library/tags")
 async def list_tags():
-    """列出所有标签及对应词数（内存缓存 → 快照 schema 表 → DB fallback）。"""
+    """列出所有标签及对应词数（SQLite 只读快照 → 5分钟内存缓存 → DB fallback）。"""
     global _tags_cache
     now_s = time.time()
     if _tags_cache and now_s < _tags_cache.get("expires_at", 0):
         return {"tags": _tags_cache["tags"]}
 
-    # 快照路径：仅在缓存为空且快照存在时尝试。异常/超时不阻塞，直接回退 DB
+    _ensure_snapshot_available()
+    # 快照路径：只读 SQLite，全表扫描 198K 行约 100-300ms
     if os.path.exists(_VOCAB_SNAPSHOT_DB):
         db = None
         try:
@@ -3483,19 +3488,41 @@ async def list_tags():
 
 @app.get("/api/library/words/by-tag")
 async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
-    """按标签分页取词（DB 连接池直查，1 分钟缓存）。"""
-    global _words_by_tag_cache
+    """按标签分页取词（SQLite 只读快照 ~50ms，失败回退 DB 连接池）。"""
     tag_clean = tag.strip()
     if not tag_clean:
         return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
-    # 安全校验：标签仅含 ASCII 字母数字下划线连字符
     if not re.match(r'^[a-zA-Z0-9_-]+$', tag_clean):
         return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
-    cache_key = (tag_clean, int(offset), int(limit))
-    now_s = time.time()
-    entry = _words_by_tag_cache.get(cache_key)
-    if entry is not None and now_s < entry["expires_at"]:
-        return entry["data"]
+
+    _ensure_snapshot_available()
+    # 路径 1: SQLite 只读快照（本地查询，~50-200ms，Render 环境也稳定）
+    if os.path.exists(_VOCAB_SNAPSHOT_DB):
+        db = None
+        try:
+            db = _snapshot_open()
+            pattern = f"%,{tag_clean},%"
+            total_row = db.execute(
+                "SELECT COUNT(*) as cnt FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ?",
+                (pattern,)
+            ).fetchone()
+            total = total_row["cnt"] if total_row else 0
+            if total > 0:
+                rows = db.execute(
+                    "SELECT * FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ? ORDER BY word LIMIT ? OFFSET ?",
+                    (pattern, int(limit), int(offset))
+                ).fetchall()
+                words = [_snapshot_row_to_dict(r) for r in rows]
+                return {"tag": tag_clean, "total": total, "offset": offset, "words": words}
+            return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
+        except Exception:
+            pass
+        finally:
+            if db:
+                try: db.close()
+                except Exception: pass
+
+    # 路径 2: DB 连接池 fallback（快照不存在或异常时）
     try:
         conn = _get_db_conn()
         if conn is None:
@@ -3504,10 +3531,7 @@ async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limi
         return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
     try:
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            # 校验后的 tag 直接拼 SQL，避免 psycopg3 参数类型推断导致 = ANY(tags) 返回 0
-            cur.execute(
-                f"SELECT count(*) FROM vocab_library WHERE '{tag_clean}' = ANY(tags)"
-            )
+            cur.execute(f"SELECT count(*) FROM vocab_library WHERE '{tag_clean}' = ANY(tags)")
             total = cur.fetchone()["count"]
             cur.execute(
                 f"""SELECT id::text, level, word, reading, pos, frequency,
@@ -3530,20 +3554,9 @@ async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limi
                 "mp3": "", "audio_url": "", "image_url": "",
                 "tags": list(r["tags"] or []),
             })
-        data = {"tag": tag_clean, "total": total, "offset": offset, "words": words}
-        _words_by_tag_cache[cache_key] = {"data": data, "expires_at": now_s + _WORDS_BY_TAG_CACHE_TTL}
-        # 限制缓存条目数，防止内存膨胀
-        if len(_words_by_tag_cache) > 200:
-            stale = [k for k, v in _words_by_tag_cache.items() if now_s >= v["expires_at"]]
-            for k in stale:
-                _words_by_tag_cache.pop(k, None)
-            if len(_words_by_tag_cache) > 200:
-                sorted_items = sorted(_words_by_tag_cache.items(), key=lambda x: x[1]["expires_at"])
-                for k, _ in sorted_items[:len(sorted_items) - 100]:
-                    _words_by_tag_cache.pop(k, None)
-        return data
-    except Exception as e:
-        return {"tag": tag_clean, "total": 0, "offset": offset, "words": [], "error": str(e)}
+        return {"tag": tag_clean, "total": total, "offset": offset, "words": words}
+    except Exception:
+        return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
     finally:
         _return_db_conn(conn)
 
