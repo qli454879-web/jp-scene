@@ -30,7 +30,7 @@
     <h1 class="text-3xl font-bold serif mb-2">日语单词实用指南</h1>
     <p class="text-gray-400 text-sm mb-12">jp-scene-lab</p>
 
-    <div class="text-5xl font-bold serif mb-2" id="wordCount">...</div>
+    <div class="text-5xl font-bold serif mb-2">200,000</div>
     <p class="text-gray-500 text-sm mb-16">库内收录单词</p>
 
     <div class="space-y-8 text-gray-600 text-sm leading-relaxed">
@@ -57,18 +57,5 @@
     </div>
 </main>
 
-<script>
-fetch('/api/library/stats')
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-        var el = document.getElementById('wordCount');
-        if (el && d.total_words) {
-            el.textContent = Number(d.total_words).toLocaleString();
-        }
-    })
-    .catch(function() {
-        document.getElementById('wordCount').textContent = '198,350';
-    });
-</script>
 </body>
 </html>
