@@ -727,19 +727,21 @@ bearer_scheme = HTTPBearer(auto_error=False)
 # --- Database Setup ---
 def init_db():
     conn = sqlite3.connect('cache.db')
-    c = conn.cursor()
-    # Cache for AI results
-    c.execute('''CREATE TABLE IF NOT EXISTS ai_cache 
-                 (word TEXT PRIMARY KEY, result TEXT, timestamp REAL)''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS vocab_meta_cache
-                 (word TEXT PRIMARY KEY,
-                  meaning_zh TEXT,
-                  origin TEXT,
-                  updated_at REAL)''')
+    try:
+        c = conn.cursor()
+        # Cache for AI results
+        c.execute('''CREATE TABLE IF NOT EXISTS ai_cache
+                     (word TEXT PRIMARY KEY, result TEXT, timestamp REAL)''')
 
-    conn.commit()
-    _return_db_conn(conn)
+        c.execute('''CREATE TABLE IF NOT EXISTS vocab_meta_cache
+                     (word TEXT PRIMARY KEY,
+                      meaning_zh TEXT,
+                      origin TEXT,
+                      updated_at REAL)''')
+
+        conn.commit()
+    finally:
+        conn.close()
 
 
 
