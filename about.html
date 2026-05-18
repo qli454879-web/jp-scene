@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@700&family=Noto+Sans+JP:wght@300;400;500;700&family=VT323&display=swap');
-        body { font-family: 'Noto Sans JP', sans-serif; background-color: #FBF6E9; color: #1A1A1A; }
+        body { font-family: 'Noto Sans JP', sans-serif; background-color: #FBF6E9; color: #1A1A1A; overflow-x: hidden; }
         .serif { font-family: 'Noto Serif JP', serif; }
         .nav-link { cursor: pointer; transition: color 0.2s; }
         .nav-link:hover { color: #16a34a; }
@@ -26,27 +26,41 @@
     </nav>
 </header>
 
-<main class="max-w-xl mx-auto pt-40 pb-24 px-4 text-center">
+<main class="max-w-xl mx-auto pt-40 pb-12 px-4 text-center">
+
     <h1 class="text-3xl font-bold serif mb-2">日语单词实用指南</h1>
     <p class="text-gray-400 text-sm mb-12">jp-scene-lab</p>
 
     <div class="text-5xl font-bold serif mb-2">200,000</div>
-    <p class="text-gray-500 text-sm mb-16">库内收录单词</p>
+    <p class="text-gray-400 text-sm mb-16">库内收录单词</p>
 
-    <div class="space-y-8 text-gray-600 text-sm leading-relaxed">
+    <div class="space-y-10 text-gray-600 text-sm leading-relaxed text-left max-w-md mx-auto">
+
         <div>
-            <p class="text-lg font-bold text-gray-800 mb-1">个人开发 · 为爱发电</p>
-            <p>服务器配置有限，如果使用过程中出现白屏或加载失败，</p>
-            <p>请稍等 1 分钟后再重试</p>
+            <p class="text-base font-bold text-gray-800 mb-2">搜索提示</p>
+            <p>搜索结果可能不全，如果没有找到想要的词，可以试试输入<span class="font-bold text-gray-800">完整的日语单词</span>或者<span class="font-bold text-gray-800">中文意思</span>进行精确搜索。</p>
         </div>
 
         <div>
-            <p class="text-lg font-bold text-gray-800 mb-1">免费分析单词</p>
-            <p>有任何想被深度分析的日语单词，</p>
-            <p>欢迎联系我</p>
+            <p class="text-base font-bold text-gray-800 mb-2">个人开发 · 为爱发电</p>
+            <p>服务器配置有限，如果使用过程中出现白屏或加载失败，请稍等 1 分钟后再重试。</p>
         </div>
+
+        <div>
+            <p class="text-base font-bold text-gray-800 mb-2">免费分析单词</p>
+            <p>有任何想被深度分析的日语单词，欢迎联系我。</p>
+        </div>
+
     </div>
+
 </main>
+
+<footer style="border-top:2px solid #333; background:white; padding:24px 16px; text-align:center; font-family:'Noto Sans JP',sans-serif;">
+    <p style="font-size:14px; font-weight:700; color:#333; margin-bottom:12px;">联系我</p>
+    <p style="font-size:16px; font-weight:700; color:#10B981; margin-bottom:12px;">微信：Scene_Lab_</p>
+    <img src="/xiaohongshu.jpg" alt="小红书" style="max-width:200px; margin:0 auto; border:2px solid #333;">
+    <p style="font-size:12px; color:#999; margin-top:12px;">有任何想被深度分析的日语单词，欢迎联系</p>
+</footer>
 
 </body>
 </html>
