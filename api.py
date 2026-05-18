@@ -77,7 +77,7 @@ _html_file_cache: Dict[str, str] = {}
 
 # ── 本地持久化缓存（SQLite），重启/关机后秒级恢复，不用重新从 Supabase 加载 20 万条 ──
 _VOCAB_SNAPSHOT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vocab_snapshot.db")
-_VOCAB_SNAPSHOT_VERSION = 8  # v8: JLPT N1-N5 严格对齐用户CSV单词表，去多余补缺失
+_VOCAB_SNAPSHOT_VERSION = 9  # v9: onomatopoeia 清理 + 线程本地连接复用
 
 # ── Supabase Storage 快照（Render 冷启动时本地文件丢失，从 Storage 下载恢复）──
 _VOCAB_SNAPSHOT_BUCKET = (os.getenv("VOCAB_SNAPSHOT_BUCKET") or "vocab-snapshots").strip()
@@ -774,6 +774,23 @@ def _preload_snapshot():
         def _delayed_init():
             time.sleep(5)
             _ensure_snapshot_available()
+            # 预热标签缓存，避免首个用户触发 198K 全表扫描
+            if _snapshot_ready and os.path.exists(_VOCAB_SNAPSHOT_DB):
+                try:
+                    db = _snapshot_conn()
+                    tag_counts: Dict[str, int] = {}
+                    for row in db.execute("SELECT tags FROM vocab_snapshot"):
+                        tags_raw = row["tags"] or ""
+                        for t in tags_raw.split(","):
+                            t = t.strip()
+                            if t:
+                                tag_counts[t] = tag_counts.get(t, 0) + 1
+                    tags = [{"name": tag, "count": cnt}
+                            for tag, cnt in sorted(tag_counts.items(), key=lambda x: -x[1])]
+                    if tags:
+                        _tags_cache = {"tags": tags, "expires_at": time.time() + _TAGS_CACHE_TTL}
+                except Exception:
+                    pass
             try:
                 conn = _pg_conn()
                 _pg_close(conn)
@@ -3451,11 +3468,10 @@ async def list_tags():
         return {"tags": _tags_cache["tags"]}
 
     _ensure_snapshot_available()
-    # 快照路径：只读 SQLite，全表扫描 198K 行约 100-300ms
+    # 快照路径：只读 SQLite，全表扫描 198K 行约 100-300ms（线程本地连接复用）
     if os.path.exists(_VOCAB_SNAPSHOT_DB):
-        db = None
         try:
-            db = _snapshot_open()
+            db = _snapshot_conn()
             tag_counts: Dict[str, int] = {}
             for row in db.execute("SELECT tags FROM vocab_snapshot"):
                 tags_raw = row["tags"] or ""
@@ -3470,12 +3486,6 @@ async def list_tags():
             return {"tags": tags}
         except Exception:
             pass
-        finally:
-            if db:
-                try:
-                    db.close()
-                except Exception:
-                    pass
     # DB fallback
     try:
         conn = _get_db_conn()
@@ -3505,11 +3515,10 @@ async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limi
         return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
 
     _ensure_snapshot_available()
-    # 路径 1: SQLite 只读快照（本地查询，~50-200ms，Render 环境也稳定）
+    # 路径 1: SQLite 只读快照（线程本地连接复用）
     if os.path.exists(_VOCAB_SNAPSHOT_DB):
-        db = None
         try:
-            db = _snapshot_open()
+            db = _snapshot_conn()
             pattern = f"%,{tag_clean},%"
             total_row = db.execute(
                 "SELECT COUNT(*) as cnt FROM vocab_snapshot WHERE ',' || tags || ',' LIKE ?",
@@ -3526,10 +3535,6 @@ async def words_by_tag(tag: str = Query(...), offset: int = Query(0, ge=0), limi
             return {"tag": tag_clean, "total": 0, "offset": offset, "words": []}
         except Exception:
             pass
-        finally:
-            if db:
-                try: db.close()
-                except Exception: pass
 
     # 路径 2: DB 连接池 fallback（快照不存在或异常时）
     try:
@@ -3940,22 +3945,17 @@ async def healthz():
 
 @app.get("/api/library/stats")
 async def library_stats():
-    """词库统计：总词数（快照读取，快速）"""
+    """词库统计：总词数（快照读取，线程本地连接复用）"""
     _ensure_snapshot_available()
     total = 0
     if os.path.exists(_VOCAB_SNAPSHOT_DB):
-        db = None
         try:
-            db = _snapshot_open()
+            db = _snapshot_conn()
             row = db.execute("SELECT value FROM snapshot_meta WHERE key='row_count'").fetchone()
             if row:
                 total = int(row[0])
         except Exception:
             pass
-        finally:
-            if db:
-                try: db.close()
-                except Exception: pass
     return {"total_words": total}
 
 
