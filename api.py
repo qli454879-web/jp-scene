@@ -310,7 +310,7 @@ def _ensure_snapshot_available():
             except Exception:
                 pass
 
-        # Tier 2: 快照不可用，启动后台重建（分批拉取，内存安全）
+        # Tier 2: 快照不可用，启动后台重建（启动已延迟 5s，健康检查已通过）
         _snapshot_ready = True
         if not os.path.exists(_VOCAB_SNAPSHOT_DB) and not _snapshot_rebuild_running:
             logging.warning("Snapshot unavailable, starting background rebuild")
@@ -771,15 +771,15 @@ app = FastAPI()
 def _preload_snapshot():
     init_db()
     if SUPABASE_DB_ENABLED:
-        threading.Thread(target=_ensure_snapshot_available, daemon=True).start()
-        # 预热连接池，避免第一个用户请求等待
-        def _warmup_pool():
+        def _delayed_init():
+            time.sleep(5)
+            _ensure_snapshot_available()
             try:
                 conn = _pg_conn()
                 _pg_close(conn)
             except Exception:
                 pass
-        threading.Thread(target=_warmup_pool, daemon=True).start()
+        threading.Thread(target=_delayed_init, daemon=True).start()
 
 # Enable CORS
 _cors_origins_raw = (os.getenv("CORS_ALLOW_ORIGINS") or "").strip()
