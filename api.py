@@ -4025,6 +4025,24 @@ async def study_prototype_v2_page():
 async def admin_page():
     return _read_local_file("admin.html")
 
+@app.post("/admin/rebuild-snapshot")
+async def admin_rebuild_snapshot(x_api_key: str = Header("", alias="X-API-Key")):
+    """手动触发快照重建（从 DB 拉取 → 本地 SQLite → 上传 Storage）。
+    仅在快照丢失时使用，避免 Render OOM 的自动重建。"""
+    admin_key = os.getenv("ADMIN_API_KEY", "").strip()
+    if admin_key and x_api_key != admin_key:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+    if not SUPABASE_DB_ENABLED:
+        raise HTTPException(status_code=503, detail="DB not configured")
+    # 在后台线程中执行，避免 HTTP 超时
+    started = False
+    def _rebuild():
+        nonlocal started
+        started = True
+        _rebuild_snapshot_from_db()
+    threading.Thread(target=_rebuild, daemon=True).start()
+    return {"ok": True, "message": "Snapshot rebuild started in background"}
+
 @app.get("/forum", response_class=HTMLResponse)
 async def forum_page():
     return _read_local_file("forum.html")
