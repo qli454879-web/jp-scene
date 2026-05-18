@@ -4056,10 +4056,6 @@ async def admin_rebuild_snapshot(x_admin_key: Optional[str] = Header(default=Non
 async def forum_page():
     return _read_local_file("forum.html")
 
-@app.get("/about", response_class=HTMLResponse)
-async def about_page():
-    return _read_local_file("about.html")
-
 # --- Safe static file serving (allowlist) ---
 # IMPORTANT: 不要在生产环境 mount StaticFiles(directory=".")，否则整个仓库文件都可被下载（包括脚本/CSV/密钥等）。
 _ALLOWED_STATIC = {
