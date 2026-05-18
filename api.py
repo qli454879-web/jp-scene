@@ -3938,6 +3938,27 @@ async def healthz():
     return {"ok": True}
 
 
+@app.get("/api/library/stats")
+async def library_stats():
+    """词库统计：总词数（快照读取，快速）"""
+    _ensure_snapshot_available()
+    total = 0
+    if os.path.exists(_VOCAB_SNAPSHOT_DB):
+        db = None
+        try:
+            db = _snapshot_open()
+            row = db.execute("SELECT value FROM snapshot_meta WHERE key='row_count'").fetchone()
+            if row:
+                total = int(row[0])
+        except Exception:
+            pass
+        finally:
+            if db:
+                try: db.close()
+                except Exception: pass
+    return {"total_words": total}
+
+
 @app.get("/api/debug/storage-bucket")
 async def debug_storage_bucket(x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key")):
     """调试端点：测试 Storage bucket 创建/上传状态。"""
@@ -4056,11 +4077,16 @@ async def admin_rebuild_snapshot(x_admin_key: Optional[str] = Header(default=Non
 async def forum_page():
     return _read_local_file("forum.html")
 
+@app.get("/about", response_class=HTMLResponse)
+async def about_page():
+    return _read_local_file("about.html")
+
 # --- Safe static file serving (allowlist) ---
 # IMPORTANT: 不要在生产环境 mount StaticFiles(directory=".")，否则整个仓库文件都可被下载（包括脚本/CSV/密钥等）。
 _ALLOWED_STATIC = {
     "styles.css",
     "arigatou_256.png",
+    "xiaohongshu.jpg",
     # 小雪梨头像资源
     "xuexueli_avatar_64.png",
     "xuexueli_idle_64.png",

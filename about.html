@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>关于 — jp-scene-lab</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@700&family=Noto+Sans+JP:wght@300;400;500;700&family=VT323&display=swap');
+        body { font-family: 'Noto Sans JP', sans-serif; background-color: #FBF6E9; color: #1A1A1A; }
+        .serif { font-family: 'Noto Serif JP', serif; }
+        .nav-link { cursor: pointer; transition: color 0.2s; }
+        .nav-link:hover { color: #16a34a; }
+    </style>
+</head>
+<body class="min-h-screen">
+
+<header class="fixed top-0 left-0 right-0 p-8 flex justify-between items-center z-[200]">
+    <a href="/" class="text-xl font-bold text-gray-900 no-underline serif">jp-scene-lab</a>
+    <nav class="flex gap-8 bg-white/80 backdrop-blur px-6 py-3 border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
+        <a href="/" class="nav-link text-gray-900 no-underline text-sm">搜索</a>
+        <a href="/web.html" class="nav-link text-gray-900 no-underline text-sm">自制单词表</a>
+        <span class="nav-link text-green-700 font-bold text-sm">关于</span>
+    </nav>
+</header>
+
+<main class="max-w-xl mx-auto pt-40 pb-24 px-4 text-center">
+    <h1 class="text-3xl font-bold serif mb-2">日语单词实用指南</h1>
+    <p class="text-gray-400 text-sm mb-12">jp-scene-lab</p>
+
+    <div class="text-5xl font-bold serif mb-2" id="wordCount">...</div>
+    <p class="text-gray-500 text-sm mb-16">库内收录单词</p>
+
+    <div class="space-y-8 text-gray-600 text-sm leading-relaxed">
+        <div>
+            <p class="text-lg font-bold text-gray-800 mb-1">个人开发 · 为爱发电</p>
+            <p>服务器配置有限，如果使用过程中出现白屏或加载失败，</p>
+            <p>请稍等 1 分钟后再重试</p>
+        </div>
+
+        <div>
+            <p class="text-lg font-bold text-gray-800 mb-3">联系我</p>
+            <p class="mb-1">微信：Scene_Lab_</p>
+            <div class="mt-4">
+                <p class="mb-2">小红书：</p>
+                <img src="/xiaohongshu.jpg" alt="小红书" class="mx-auto border-2 border-gray-300" style="max-width:280px">
+            </div>
+        </div>
+
+        <div>
+            <p class="text-lg font-bold text-gray-800 mb-1">免费分析单词</p>
+            <p>有任何想被深度分析的日语单词，</p>
+            <p>欢迎联系我</p>
+        </div>
+    </div>
+</main>
+
+<script>
+fetch('/api/library/stats')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        var el = document.getElementById('wordCount');
+        if (el && d.total_words) {
+            el.textContent = Number(d.total_words).toLocaleString();
+        }
+    })
+    .catch(function() {
+        document.getElementById('wordCount').textContent = '198,350';
+    });
+</script>
+</body>
+</html>
