@@ -2282,6 +2282,28 @@
         // 大分类定义
         var CATEGORY_GROUPS = [
             {
+                id:'jlpt', name:'JLPT 日语能力考',
+                subGroups: [
+                    { id:'jlpt_n1', name:'N1 高级', tags:['jlpt_n1'] },
+                    { id:'jlpt_n2', name:'N2 中高级', tags:['jlpt_n2'] },
+                    { id:'jlpt_n3', name:'N3 中级', tags:['jlpt_n3'] },
+                    { id:'jlpt_n4', name:'N4 初级', tags:['jlpt_n4'] },
+                    { id:'jlpt_n5', name:'N5 入门', tags:['jlpt_n5'] },
+                ]
+            },
+            {
+                id:'tem8', name:'专八日语',
+                subGroups: [
+                    { id:'tem8_vocab', name:'专八词汇', tags:['tem8_vocab'] },
+                    { id:'tem8_idiom', name:'惯用语·谚语', tags:['tem8_idiom'] },
+                ]
+            },
+            { id:'kaoyan', name:'考研词汇', tags:['kaoyan'] },
+            { id:'yoji_jukugo', name:'四字熟语', tags:['yoji_jukugo'] },
+            { id:'loanword', name:'外来语', tags:['loanword'] },
+            { id:'onomatopoeia', name:'拟声拟态语', tags:['onomatopoeia'] },
+            { id:'slang', name:'网络·若者言葉', tags:['slang'] },
+            {
                 id:'gaming', name:'游戏术语',
                 subGroups: [
                     { id:'gaming_val', name:'瓦罗兰特', tags:[
@@ -2294,31 +2316,39 @@
                     ]},
                 ]
             },
-            { id:'loanword', name:'外来语', tags:['loanword'] },
-            { id:'slang', name:'日语流行语', tags:['slang'] },
-            { id:'yoji_jukugo', name:'四字熟语', tags:['yoji_jukugo'] },
-            { id:'onomatopoeia', name:'拟声拟态语', tags:['onomatopoeia'] },
-            { id:'kaoyan', name:'考研词汇', tags:['kaoyan'] },
         ];
 
         // 子分类名映射
         var TAG_META = {
+            // JLPT
+            'jlpt_n1': {cn:'JLPT N1 高级词汇'},
+            'jlpt_n2': {cn:'JLPT N2 中高级词汇'},
+            'jlpt_n3': {cn:'JLPT N3 中级词汇'},
+            'jlpt_n4': {cn:'JLPT N4 初级词汇'},
+            'jlpt_n5': {cn:'JLPT N5 入门词汇'},
+            // 专八
+            'tem8_vocab': {cn:'专八核心词汇'},
+            'tem8_idiom': {cn:'惯用语·谚语'},
+            // 考研
+            'kaoyan': {cn:'中国考研日语高频词'},
+            // 通用
+            'loanword': {cn:'カタカナ外来语'},
+            'yoji_jukugo': {cn:'四字熟语'},
+            'onomatopoeia': {cn:'オノマトペ（拟声拟态语）'},
+            'slang': {cn:'网络·若者言葉'},
+            // 游戏 - 瓦罗兰特
             'gaming_val_agents': {cn:'特工名称与特工技能'},
             'gaming_val_weapons': {cn:'枪械'},
             'gaming_val_tactics': {cn:'战术术语与对局交流'},
             'gaming_val_settings': {cn:'游戏设置'},
             'gaming_val_ranks': {cn:'段位名称'},
             'gaming_val_maps': {cn:'地图与地图报点'},
+            // 游戏 - 英雄联盟
             'gaming_lol_champions': {cn:'英雄名称与技能'},
             'gaming_lol_items': {cn:'装备'},
             'gaming_lol_tactics': {cn:'战术与对局交流'},
             'gaming_lol_roles': {cn:'位置与职责'},
             'gaming_lol_objectives': {cn:'地图资源与目标'},
-            'slang': {cn:'网络·若者言葉'},
-            'loanword': {cn:'カタカナ外来语'},
-            'yoji_jukugo': {cn:'四字熟语'},
-            'onomatopoeia': {cn:'オノマトペ（拟声拟态语）'},
-            'kaoyan': {cn:'中国考研日语高频词'},
         };
 
         // ── Valorant 特工数据（中文名、日文名、定位、关联关键词）──
