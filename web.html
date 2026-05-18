@@ -48,6 +48,8 @@
             background: white;
         }
 
+        .search-hero.active .contact-strip { display: none; }
+
         .search-box-pixel {
             width: 100%;
             max-width: 600px;
@@ -330,20 +332,19 @@
     <div class="pixel-float text-4xl" style="bottom: 20%; right: 10%;"><i class="fa-solid fa-seedling text-green-200"></i></div>
 
     <!-- Navigation Header -->
-    <header class="fixed top-0 left-0 right-0 p-8 flex justify-between items-center z-[200]">
-        <div class="logo-btn flex items-center gap-3" onclick="resetToHome()">
+    <header class="fixed top-0 left-0 right-0 p-8 flex items-center z-[200]" style="justify-content:center;">
+        <div class="logo-btn flex items-center gap-3 absolute left-8" onclick="resetToHome()">
             <div class="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center text-white text-xl font-bold italic shadow-[3px_3px_0px_#333]">シ</div>
             <h2 class="text-sm font-bold tracking-widest pixel-font hidden sm:block">SCENE LAB</h2>
         </div>
         <nav class="flex gap-8 bg-white/80 backdrop-blur px-6 py-3 border-2 border-gray-800 shadow-[4px_4px_0px_#333]">
             <span class="nav-link" onclick="resetToHome()">搜索</span>
             <span class="nav-link" onclick="openListView()">自制单词表</span>
-            <a href="/about" class="nav-link text-gray-900 no-underline text-sm">关于网站</a>
+            <a href="/about" class="nav-link text-gray-900 no-underline">关于网站</a>
             <div id="userArea" class="flex gap-4">
                 <span class="nav-link" onclick="toggleAuthModal()">登录/注册</span>
             </div>
         </nav>
-        <div class="w-10"></div> <!-- Spacer for symmetry -->
     </header>
 
     <!-- Auth Modal -->
@@ -516,6 +517,20 @@
             </div>
             <div id="connectionNote" class="text-[9px] text-gray-400 mt-2 max-w-xs text-center leading-relaxed opacity-0 transition-opacity duration-1000">
                 <i class="fa-solid fa-info-circle mr-1"></i> 提示：由于使用免费托管，若长时间无人访问，系统会进入“休眠”状态。首次搜索可能需要 30 秒左右来“唤醒”服务器，请耐心等待。
+            </div>
+        </div>
+
+        <div class="contact-strip absolute bottom-6 left-0 right-0 flex items-center justify-center gap-12 px-4">
+            <div class="flex items-center gap-2" style="color:#333;">
+                <i class="fa-brands fa-weixin" style="color:#10B981; font-size:16px;"></i>
+                <span style="font-size:13px; font-weight:700; user-select:all; cursor:text;">Scene_Lab_</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <img src="/xiaohongshu.jpg" alt="小红书" style="height:44px; border-radius:4px; border:1px solid #d1d5db;">
+                <div class="flex flex-col gap-0.5">
+                    <span style="font-size:10px; font-weight:700; color:#999;">小红书</span>
+                    <span style="font-size:13px; font-weight:700; color:#333; user-select:all; cursor:text;">9772963342</span>
+                </div>
             </div>
         </div>
     </section>
@@ -3799,11 +3814,5 @@
             }
         }
     </script>
-    <footer style="border-top:2px solid #333; background:white; padding:24px 16px; margin-top:48px; text-align:center; font-family:'Noto Sans JP',sans-serif;">
-        <p style="font-size:14px; font-weight:700; color:#333; margin-bottom:12px;">联系我</p>
-        <p style="font-size:16px; font-weight:700; color:#10B981; margin-bottom:12px;">微信：Scene_Lab_</p>
-        <img src="/xiaohongshu.jpg" alt="小红书" style="max-width:200px; margin:0 auto; border:2px solid #333;">
-        <p style="font-size:12px; color:#999; margin-top:12px;">有任何想被深度分析的日语单词，欢迎联系</p>
-    </footer>
 </body>
 </html>
