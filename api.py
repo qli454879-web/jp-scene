@@ -4053,8 +4053,7 @@ async def study_prototype_v2_page():
         )
 
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_page(x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key")):
-    _require_admin_key(x_admin_key)
+async def admin_page():
     return _read_local_file("admin.html")
 
 @app.post("/admin/rebuild-snapshot")
